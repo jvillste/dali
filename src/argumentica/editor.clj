@@ -68,6 +68,15 @@
        db
        text))
 
+(defn value [db entity attribute]
+  (d/q '[:find ?value .
+         :in $ ?entity ?attribute
+         :where
+         [?entity ?attribute ?value]]
+       db
+       entity
+       attribute))
+
 (defn main-conclusions [db]
   (d/q '[:find [?main-conclusion ...]
          :in $
@@ -109,14 +118,17 @@
 (let [conn (create-database)]
   (d/transact conn
               (add-argument (d/db conn) "argument 1" "conclusion" "premise 1" "premise 2"))
-  (println "foo:" (main-conclusions (d/db conn))
-           #_(-> (d/entity (d/db conn)
-                           (sentence-by-text (d/db conn) "conclusion"))
-                 :argumentica.argument/_main-conclusion
-                 first
-                 :argumentica.argument/premises
-                 second
-                 :argumentica.sentence/text)))
+  (println "foo:" (let [db (d/db conn)
+                        entity-id (first (main-conclusions db))]
+                    (value db entity-id :argumentica.sentence/text)))
+  #_(println "foo:" (main-conclusions (d/db conn))
+             #_(-> (d/entity (d/db conn)
+                             (sentence-by-text (d/db conn) "conclusion"))
+                   :argumentica.argument/_main-conclusion
+                   first
+                   :argumentica.argument/premises
+                   second
+                   :argumentica.sentence/text)))
 
 
 
@@ -139,47 +151,53 @@
                           :argumentica.argument/main-conclusion
                           :argumentica.sentence/text))))
 
+(defn attribute-editor [view-context db state entity-id attribute]
+  (let [value (value db
+                     entity-id
+                     attribute)
+        changed-value-key [entity-id attribute]]
+    (-> (gui/call-view controls/text-editor [:editor changed-value-key])
+        (update-in [:state-overrides] assoc :text (or (get-in state [:changes changed-value-key])
+                                                      value))
+        (update-in [:constructor-overrides] assoc [:on-change :text] (fn [state new-value]
+                                                                       (gui/apply-to-local-state state
+                                                                                                 view-context
+                                                                                                 assoc-in [:changes changed-value-key] new-value))))))
 
 (defn argumentica-root-view [view-context state]
-  (l/horizontally (l/vertically (for [conclusion-id (main-conclusions (d/db (:conn state)))]
-                                  (let [conclusion (d/entity (d/db (:conn state))
-                                                             conclusion-id)]
-                                    (-> (text (:argumentica.sentence/text conclusion) (if (= (:selected-conclusion state)
-                                                                                             conclusion-id)
-                                                                                        [255 255 255 255]
-                                                                                        [100 100 100 255]))
-                                        (gui/on-mouse-clicked-with-view-context view-context
-                                                                                (fn [state event]
-                                                                                  (assoc state :selected-conclusion conclusion-id)))))))
-                  (when-let [selected-conclusion-id (:selected-conclusion state)]
-                    (l/vertically (for [argument (:argumentica.argument/_main-conclusion (d/entity (d/db (:conn state))
-                                                                                                   selected-conclusion-id))]
-                                    (text (:argumentica.argument/title argument)))))))
+  (l/vertically (l/preferred (attribute-editor view-context
+                                               (:db state)
+                                               state
+                                               (first (main-conclusions (:db state)))
+                                               :argumentica.sentence/text))
+                (text (:changes state))))
 
 (defn argumentica-root [conn]
   (fn [view-context]
     {:local-state {:conn conn
-                   :selected-conclusion nil}
+                   :changes {}
+                   :db (d/db conn)}
      :view #'argumentica-root-view}))
 
 
 
-(defn cards-view [view-context state]
+(defn property-view [view-context state]
   (l/vertically (for [i (range (:editor-count state))]
                   (gui/call-and-bind view-context state i :text controls/text-editor i))))
 
-(defn cards [view-context]
-  {:local-state {0 "foobar"
-                 :editor-count 5}
-   :handle-keyboard-event (fn [state event]
-                            (cond
-                              (events/key-pressed? event :enter)
-                              (do (println "dec")
-                                  (gui/apply-to-local-state state view-context update-in [:editor-count] dec))
+(defn property [db key]
+  (fn [view-context]
+    {:local-state {:entity nil
+                   :key key}
+     :handle-keyboard-event (fn [state event]
+                              (cond
+                                (events/key-pressed? event :enter)
+                                (do (println "dec")
+                                    (gui/apply-to-local-state state view-context update-in [:editor-count] dec))
 
-                              :default
-                              state))
-   :view #'cards-view})
+                                :default
+                                state))
+     :view #'cards-view}))
 
 
 (defn start []
