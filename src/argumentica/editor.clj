@@ -164,12 +164,33 @@
                                                                                                  view-context
                                                                                                  assoc-in [:changes changed-value-key] new-value))))))
 
+(defn button [text-value]
+  (layouts/->Box 10 [(drawable/->Rectangle 0
+                                           0
+                                           [0 0.8 0.8 1])
+                     (text text-value)]))
+
+
+(defn changes-to-transaction [changes]
+  (reduce (fn [transaction [[id attribute] value]]
+            (conj transaction {:db/id id
+                               attribute value}))
+          []
+          changes))
+
 (defn argumentica-root-view [view-context state]
   (l/vertically (l/preferred (attribute-editor view-context
                                                (:db state)
                                                state
                                                (first (main-conclusions (:db state)))
                                                :argumentica.sentence/text))
+                (-> (button "Save")
+                    (gui/on-mouse-clicked-with-view-context view-context
+                                                            (fn [state event]
+                                                              (d/transact (:conn state)
+                                                                          (changes-to-transaction (:changes state)))
+                                                              (assoc state :changes {}
+                                                                     :db (d/db (:conn state))))))
                 (text (:changes state))))
 
 (defn argumentica-root [conn]
@@ -179,25 +200,6 @@
                    :db (d/db conn)}
      :view #'argumentica-root-view}))
 
-
-
-(defn property-view [view-context state]
-  (l/vertically (for [i (range (:editor-count state))]
-                  (gui/call-and-bind view-context state i :text controls/text-editor i))))
-
-(defn property [db key]
-  (fn [view-context]
-    {:local-state {:entity nil
-                   :key key}
-     :handle-keyboard-event (fn [state event]
-                              (cond
-                                (events/key-pressed? event :enter)
-                                (do (println "dec")
-                                    (gui/apply-to-local-state state view-context update-in [:editor-count] dec))
-
-                                :default
-                                state))
-     :view #'cards-view}))
 
 
 (defn start []
