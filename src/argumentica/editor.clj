@@ -138,8 +138,11 @@
    (text value [255 255 255 255]))
 
   ([value color]
+   (text value color 15))
+  
+  ([value color size]
    (drawable/->Text (str value)
-                    (font/create "LiberationSans-Regular.ttf" 15)
+                    (font/create "LiberationSans-Regular.ttf" size)
                     color)))
 
 (defn argument-view [argument]
@@ -151,23 +154,27 @@
                           :argumentica.argument/main-conclusion
                           :argumentica.sentence/text))))
 
-(defn attribute-editor [view-context db state entity-id attribute]
-  (let [value (value db
-                     entity-id
-                     attribute)
+(defn attribute-editor [view-context db db-with-changes state entity-id attribute]
+  (let [old-value (value db
+                         entity-id
+                         attribute)
+        new-value (value db-with-changes
+                         entity-id
+                         attribute)
         changed-value-key [entity-id attribute]]
-    (-> (gui/call-view controls/text-editor [:editor changed-value-key])
-        (update-in [:state-overrides] assoc :text (or (get-in state [:changes changed-value-key])
-                                                      value))
-        (update-in [:constructor-overrides] assoc [:on-change :text] (fn [state new-value]
-                                                                       (gui/apply-to-local-state state
-                                                                                                 view-context
-                                                                                                 assoc-in [:changes changed-value-key] new-value))))))
+    (l/horizontally (-> (gui/call-view controls/text-editor [:editor changed-value-key])
+                        (update-in [:state-overrides] assoc :text new-value)
+                        (update-in [:constructor-overrides] assoc [:on-change :text] (fn [state new-value]
+                                                                                       (gui/apply-to-local-state state
+                                                                                                                 view-context
+                                                                                                                 assoc-in [:changes changed-value-key] new-value))))
+                    (when (not= old-value new-value)
+                      (text "*" [255 0 0 255] 30)))))
 
 (defn button [text-value]
   (layouts/->Box 10 [(drawable/->Rectangle 0
                                            0
-                                           [0 0.8 0.8 1])
+                                           [0 200 200 1])
                      (text text-value)]))
 
 
@@ -179,11 +186,22 @@
           changes))
 
 (defn argumentica-root-view [view-context state]
-  (l/vertically (l/preferred (attribute-editor view-context
-                                               (:db state)
-                                               state
-                                               (first (main-conclusions (:db state)))
-                                               :argumentica.sentence/text))
+  (l/vertically (let [db-with-changes (:db-after (d/with (:db state)
+                                                         (changes-to-transaction (:changes state))))]
+                  (for [conclusion (main-conclusions db-with-changes)]
+                    (attribute-editor view-context
+                                      (:db state)
+                                      db-with-changes
+                                      state
+                                      conclusion
+                                      :argumentica.sentence/text)))
+                #_(-> (button "New")
+                    (gui/on-mouse-clicked-with-view-context view-context
+                                                            (fn [state event]
+                                                              (d/transact (:conn state)
+                                                                          (add-argument db-with-changes "New argument" "conclusion"))
+                                                              (assoc state :changes {}
+                                                                     :db (d/db (:conn state))))))
                 (-> (button "Save")
                     (gui/on-mouse-clicked-with-view-context view-context
                                                             (fn [state event]
@@ -191,6 +209,14 @@
                                                                           (changes-to-transaction (:changes state)))
                                                               (assoc state :changes {}
                                                                      :db (d/db (:conn state))))))
+                (-> (button "Refresh")
+                    (gui/on-mouse-clicked-with-view-context view-context
+                                                            (fn [state event]
+                                                              (assoc state :db (d/db (:conn state))))))
+                (-> (button "Cancel")
+                    (gui/on-mouse-clicked-with-view-context view-context
+                                                            (fn [state event]
+                                                              (assoc state :changes {}))))
                 (text (:changes state))))
 
 (defn argumentica-root [conn]
@@ -200,7 +226,12 @@
                    :db (d/db conn)}
      :view #'argumentica-root-view}))
 
-
+(def connection (let [connection (create-database)]
+                  (d/transact connection
+                              (add-argument (d/db connection) "argument 1" "conclusion 1" "premise 1" "premise 2"))
+                  (d/transact connection
+                              (add-argument (d/db connection) "argument 2" "conclusion 2" "premise 1" "premise 3"))
+                  connection))
 
 (defn start []
   #_(.start (Thread. (fn []
@@ -210,18 +241,23 @@
                        #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
                        (trace/with-trace
                          (gui/start-control argumentica-root)))))
-  
-  (.start (Thread. (fn []
-                     (let [conn (create-database)]
-                       (d/transact conn
-                                   (add-argument (d/db conn) "argument 1" "conclusion 1" "premise 1" "premise 2"))
-                       
-                       (d/transact conn
-                                   (add-argument (d/db conn) "argument 2" "conclusion 1" "premise 1" "premise 3"))
 
-                       (d/transact conn
-                                   (add-argument (d/db conn) "argument 3" "conclusion 2" "premise 4" "premise 5"))
-                       (gui/start-control (argumentica-root conn))))))
+  #_(.start (Thread. (fn []
+                       (gui/start-control (argumentica-root connection)))))
+  (.start (Thread. (fn []
+                     (gui/start-control (argumentica-root connection)))))
+  
+  #_(.start (Thread. (fn []
+                       (let [conn (create-database)]
+                         (d/transact conn
+                                     (add-argument (d/db conn) "argument 1" "conclusion 1" "premise 1" "premise 2"))
+                         
+                         (d/transact conn
+                                     (add-argument (d/db conn) "argument 2" "conclusion 1" "premise 1" "premise 3"))
+
+                         (d/transact conn
+                                     (add-argument (d/db conn) "argument 3" "conclusion 2" "premise 4" "premise 5"))
+                         (gui/start-control (argumentica-root conn))))))
 
   #_(profiler/with-profiler (gui/start-control argumentica-root)))
 
