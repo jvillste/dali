@@ -1,4 +1,4 @@
-(ns argumentica.editor
+(ns argumentica.graphliner
   (:require (flow-gl.gui [drawable :as drawable]
                          [layout :as layout]
                          [layouts :as layouts]
@@ -22,60 +22,51 @@
 
 ;; datomic
 
-(defn attribute [ident value-type cardinality & {:keys [identity] :or {identity false}}]
+(defn attribute [ident value-type cardinality & {:keys [identity fulltext] :or {identity false fulltext false}}]
   (-> {:db/id (d/tempid :db.part/db)
        :db/ident ident
        :db/valueType value-type
        :db/cardinality cardinality
        :db.install/_attribute :db.part/db}
       (cond-> identity
-        (assoc :db/unique :db.unique/identity))))
-
-(def foo #db/fn {:lang "clojure"
-                 :params [db transaction]
-                 :requires [[argumentica.editor :as editor]]
-                 :code transaction})
+        (assoc :db/unique :db.unique/identity))
+      (cond-> fulltext
+        (assoc :db/fulltext true))))
 
 (defn create-database []
   (let [db-uri "datomic:mem://argumentica"]
     (d/delete-database db-uri)
     (d/create-database db-uri)
     (let [conn (d/connect db-uri)]
-      (d/transact conn
-                  [{:db/id (d/tempid :db.part/user)
-                    :db/ident :add-with-constraints
-                    :db/fn foo}])
       (d/transact
        conn
-       [(attribute :argumentica.sentence/text
+       [(attribute :argumentica/label
                    :db.type/string
                    :db.cardinality/one
-                   :identity true)
+                   :fulltext true)
         
-        (attribute :argumentica.argument/premises
+        (attribute :argumentica/child
                    :db.type/ref
-                   :db.cardinality/many)
-
-        (attribute :argumentica.argument/main-conclusion
-                   :db.type/ref
-                   :db.cardinality/one)
-
-        (attribute :argumentica.argument/title
-                   :db.type/string
-                   :db.cardinality/one)])
+                   :db.cardinality/many)])
       conn)))
 
 
 ;; queries
 
-
-(defn sentence-by-text [db text]
-  (d/q '[:find ?sentence .
-         :in $ ?text
+(defn entities-by-label [db search]
+  (d/q '[:find [?entity ...]
+         :in $ ?search
          :where
-         [?sentence :argumentica.sentence/text ?text]]
+         [(fulltext $ :argumentica/label ?search) [[?entity ?label]]]]
        db
-       text))
+       search))
+
+(defn entities [db]
+  (d/q '[:find [?entity ...] 
+         :in $
+         :where
+         [?entity :argumentica/label _]]
+       db))
 
 (defn value [db entity attribute]
   (d/q '[:find ?value .
@@ -86,42 +77,33 @@
        entity
        attribute))
 
-(defn main-conclusions [db]
-  (d/q '[:find [?main-conclusion ...]
-         :in $
+(defn values [db entity attribute]
+  (d/q '[:find [?value ...]
+         :in $ ?entity ?attribute
          :where
-         [_ :argumentica.argument/main-conclusion ?main-conclusion]]
-       db))
+         [?entity ?attribute ?value]]
+       db
+       entity
+       attribute))
+
+(defn attributes [db entity]
+  (d/q '[:find [?attribute ...]
+         :in $ ?entity
+         :where
+         [?entity ?attribute]]
+       db
+       entity))
 
 ;; adding
 
-(defn add-sentence
-  ([text]
+(defn set-label
+  ([label]
    {:db/id (d/tempid :db.part/user)
-    :argumentica.sentence/text text})
+    :argumentica/label label})
 
-  ([id text]
+  ([id label]
    {:db/id id
-    :argumentica.sentence/text text}))
-
-(defn ensure-sentence [db text]
-  (if-let [sentence (sentence-by-text db text)]
-    [sentence []]
-    (let [id (d/tempid :db.part/user)]
-      [id [(add-sentence id text)]])))
-
-(defn add-argument [db title main-conclusion & premises]
-  (let [[main-conclusion-id main-conclusion-transaction] (ensure-sentence db main-conclusion)
-        premise-data (map (fn [premise] (ensure-sentence db premise)) premises)
-        premise-ids (map first premise-data)
-        premise-transactions (mapcat second premise-data)]
-    
-    (concat main-conclusion-transaction
-            premise-transactions
-            [{:db/id (d/tempid :db.part/user)
-              :argumentica.argument/main-conclusion main-conclusion-id
-              :argumentica.argument/premises premise-ids
-              :argumentica.argument/title title} ])))
+    :argumentica/label label}))
 
 
 (defn set-attribute-value [transaction entity-id attribute value]
@@ -155,34 +137,6 @@
                    tempid))
           {}
           tempids))
-
-(let [conn (create-database)
-      tempid (d/tempid :db.part/user)
-      transaction [{:db/id tempid
-                    :argumentica.argument/title "Foo"}]
-      result @(d/transact conn
-                          transaction)]
-  (println (tempids transaction))
-  (println (instance? datomic.db.DbId tempid))
-  (println (type tempid)  tempid (:tempids result))
-  (println (d/resolve-tempid (:db-after result)
-                             (:tempids result) tempid))
-  (println (ids-to-tempids (:db-after result)
-                           (:tempids result)
-                           (tempids transaction)))
-  
-  #_(println "foo:" (let [db (d/db conn)
-                          entity-id (first (main-conclusions db))]
-                      (value db entity-id :argumentica.sentence/text)))
-  #_(println "foo:" (main-conclusions (d/db conn))
-             #_(-> (d/entity (d/db conn)
-                             (sentence-by-text (d/db conn) "conclusion"))
-                   :argumentica.argument/_main-conclusion
-                   first
-                   :argumentica.argument/premises
-                   second
-                   :argumentica.sentence/text)))
-
 
 
 
@@ -236,10 +190,26 @@
                                                                                                                                                      (or (get (:ids-to-tempids-map state)
                                                                                                                                                               entity-id)
                                                                                                                                                          entity-id)
-                                                                                                                                                     :argumentica.sentence/text
+                                                                                                                                                     :argumentica/label
                                                                                                                                                      new-value)))))))
                     (when (not= old-value new-value)
                       (text "*" [255 0 0 255] 30)))))
+
+
+(defn entity-view [view-context state entity]
+  (l/vertically (attribute-editor view-context
+                                  state
+                                  entity
+                                  :argumentica/label)
+                (l/margin 0 0 0 10
+                          (l/vertically (for [attribute (attributes (:db-with-changes state) entity)]
+                                          (let [ident (value (:db-with-changes state) attribute :db/ident)]
+                                            (when (not= ident :argumentica/label)
+                                              (l/horizontally (text ident)
+                                                              (l/vertically (for [entity (values (:db-with-changes state) entity attribute)]
+                                                                              (entity-view view-context state entity)))))
+                                            #_(text ident)))))))
+
 
 (defn button [text-value]
   (layouts/->Box 10 [(drawable/->Rectangle 0
@@ -252,16 +222,15 @@
 
 (defn argumentica-root-view [view-context state]
   (l/vertically
-   (for [conclusion (main-conclusions (:db-with-changes state))]
-     (attribute-editor view-context
-                       state
-                       conclusion
-                       :argumentica.sentence/text))
+   (for [entity (entities (:db-with-changes state))]
+     (entity-view view-context
+                  state
+                  entity))
    (-> (button "New")
        (gui/on-mouse-clicked-with-view-context view-context
                                                (fn [state event]
                                                  (set-changes state (concat (:changes state)
-                                                                            (add-argument (:db-with-changes state) "New argument" "conclusion"))))))
+                                                                            (set-label "New entity"))))))
    (-> (button "Save")
        (gui/on-mouse-clicked-with-view-context view-context
                                                (fn [state event]
@@ -292,10 +261,19 @@
 
 (def connection (let [connection (create-database)]
                   (d/transact connection
-                              (add-argument (d/db connection) "argument 1" "conclusion 1" "premise 1" "premise 2"))
-                  (d/transact connection
-                              (add-argument (d/db connection) "argument 2" "conclusion 2" "premise 1" "premise 3"))
+                              (let [child-id (d/tempid :db.part/user)]
+                                [{:db/id child-id
+                                  :argumentica/label "Child entity"}
+                                 {:db/id (d/tempid :db.part/user)
+                                  :argumentica/label "Parent"
+                                  :argumentica/child child-id}]))
                   connection))
+
+#_(d/transact connection
+              [{:db/id (d/tempid :db.part/user)
+                :argumentica/label "Child"}])
+
+#_(entities-by-label (d/db connection) "child")
 
 (defn start []
   #_(.start (Thread. (fn []
@@ -325,5 +303,6 @@
 
   #_(profiler/with-profiler (gui/start-control argumentica-root)))
 
+(gui/redraw-last-started-view)
 ;; TODO
 
