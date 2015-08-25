@@ -8,6 +8,7 @@
                          [events :as events]
                          [layoutable :as layoutable]
                          [transformer :as transformer])
+            [flow-gl.gui.components.autocompleter :as autocompleter]
             [datomic.api :as d]
             (flow-gl.opengl.jogl [quad :as quad]
                                  [render-target :as render-target]
@@ -107,7 +108,6 @@
 
 
 (defn set-attribute-value [transaction entity-id attribute value]
-  (println "setting" transaction entity-id attribute value)
   (let [updated-transaction (reduce (fn [updated-transaction statement-map]
                                       (if (= entity-id (:db/id statement-map))
                                         (conj updated-transaction
@@ -217,11 +217,17 @@
                                            [0 200 200 1])
                      (text text-value)]))
 
-
-
-
 (defn argumentica-root-view [view-context state]
   (l/vertically
+   (gui/call-and-bind view-context state :root-label :query
+                      autocompleter/autocompleter :completer-1
+                      {}
+                      [(fn [query]
+                         (map (fn [id]
+                                (let [label (-> (d/entity (:db-with-changes state) id)
+                                                :argumentica/label)]
+                                  label))
+                              (entities-by-label (:db-with-changes state) query)))])
    (for [entity (entities (:db-with-changes state))]
      (entity-view view-context
                   state
@@ -254,7 +260,8 @@
 (defn argumentica-root [conn]
   (fn [view-context]
     {:local-state (-> {:conn conn
-                       :db (d/db conn)}
+                       :db (d/db conn) 
+                       :root-label ""}
                       (set-changes []))
      
      :view #'argumentica-root-view}))
@@ -276,18 +283,21 @@
 #_(entities-by-label (d/db connection) "child")
 
 (defn start []
-  #_(.start (Thread. (fn []
-                       (trace/untrace-ns 'flow-gl.gui.gui)
-                       (trace/trace-var* 'flow-gl.gui.gui/set-focus-if-can-gain-focus)
-                       (trace/trace-var* 'flow-gl.gui.gui/set-focus)
+  (.start (Thread. (fn []
+                     (trace/with-trace
+                       #_(trace/untrace-ns 'flow-gl.gui.gui)
+                       #_(trace/trace-var* 'flow-gl.gui.gui/set-focus-if-can-gain-focus)
+                       #_(trace/trace-var* 'flow-gl.gui.gui/set-focus)
                        #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
-                       (trace/with-trace
-                         (gui/start-control argumentica-root)))))
+                       (trace/trace-var 'flow-gl.gui.gui/apply-to-state)
+                       (trace/trace-ns 'argumentica.graphliner)
+                       
+                       (gui/start-control (argumentica-root connection))))))
 
   #_(.start (Thread. (fn []
                        (gui/start-control (argumentica-root connection)))))
-  (.start (Thread. (fn []
-                     (gui/start-control (argumentica-root connection)))))
+  #_(.start (Thread. (fn []
+                       (gui/start-control (argumentica-root connection)))))
   
   #_(.start (Thread. (fn []
                        (let [conn (create-database)]

@@ -306,7 +306,7 @@
                        (trace/with-trace
                          (gui/start-control argumentica-root)))))
 
-  #_(.start (Thread. (fn []
+  (.start (Thread. (fn []
                        (gui/start-control (argumentica-root connection)))))
   (.start (Thread. (fn []
                      (gui/start-control (argumentica-root connection)))))
