@@ -219,7 +219,7 @@
 
 (defn argumentica-root-view [view-context state]
   (l/vertically
-   (gui/call-and-bind view-context state :root-label :query
+   (gui/call-and-bind view-context state :root-label :selected-value
                       autocompleter/autocompleter :completer-1
                       {}
                       [(fn [query]
@@ -285,11 +285,12 @@
 (defn start []
   (.start (Thread. (fn []
                      (trace/with-trace
-                       #_(trace/untrace-ns 'flow-gl.gui.gui)
+                       (trace/untrace-ns 'flow-gl.gui.gui)
                        #_(trace/trace-var* 'flow-gl.gui.gui/set-focus-if-can-gain-focus)
                        #_(trace/trace-var* 'flow-gl.gui.gui/set-focus)
                        #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
-                       (trace/trace-var 'flow-gl.gui.gui/apply-to-state)
+                       #_(trace/trace-var 'flow-gl.gui.gui/apply-to-state)
+                       #_(trace/trace-var 'flow-gl.gui.gui/add-layout-afterwards)
                        (trace/trace-ns 'argumentica.graphliner)
                        
                        (gui/start-control (argumentica-root connection))))))
@@ -313,6 +314,5 @@
 
   #_(profiler/with-profiler (gui/start-control argumentica-root)))
 
-(gui/redraw-last-started-view)
 ;; TODO
 
