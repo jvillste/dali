@@ -62,6 +62,14 @@
        db
        search))
 
+(defn entity-by-label [db search]
+  (d/q '[:find ?entity .
+         :in $ ?search
+         :where
+         [?entity :argumentica/label ?search]]
+       db
+       search))
+
 (defn entities [db]
   (d/q '[:find [?entity ...] 
          :in $
@@ -99,12 +107,11 @@
 
 (defn set-label
   ([label]
-   {:db/id (d/tempid :db.part/user)
-    :argumentica/label label})
+   (set-label (d/tempid :db.part/user) label))
 
   ([id label]
-   {:db/id id
-    :argumentica/label label}))
+   [{:db/id id
+    :argumentica/label label}]))
 
 
 (defn set-attribute-value [transaction entity-id attribute value]
@@ -180,18 +187,22 @@
                          attribute)
         changed-value-key [entity-id attribute]]
     (l/horizontally (-> (gui/call-view controls/text-editor [:editor changed-value-key])
-                        (update-in [:state-overrides] assoc :text new-value)
-                        (update-in [:constructor-overrides] assoc [:on-change :text] (fn [global-state new-value]
-                                                                                       (gui/apply-to-local-state global-state
-                                                                                                                 view-context
-                                                                                                                 (fn [state]
-                                                                                                                   (set-changes state
-                                                                                                                                (set-attribute-value (:changes state)
-                                                                                                                                                     (or (get (:ids-to-tempids-map state)
-                                                                                                                                                              entity-id)
-                                                                                                                                                         entity-id)
-                                                                                                                                                     :argumentica/label
-                                                                                                                                                     new-value)))))))
+                        (update-in [:state-overrides]
+                                   assoc
+                                   :text new-value)
+                        (update-in [:constructor-overrides]
+                                   assoc [:on-change :text]
+                                   (fn [global-state new-value]
+                                     (gui/apply-to-local-state global-state
+                                                               view-context
+                                                               (fn [state]
+                                                                 (set-changes state
+                                                                              (set-attribute-value (:changes state)
+                                                                                                   (or (get (:ids-to-tempids-map state)
+                                                                                                            entity-id)
+                                                                                                       entity-id)
+                                                                                                   :argumentica/label
+                                                                                                   new-value)))))))
                     (when (not= old-value new-value)
                       (text "*" [255 0 0 255] 30)))))
 
@@ -218,16 +229,34 @@
                      (text text-value)]))
 
 (defn argumentica-root-view [view-context state]
+  (trace/log "root-view")
   (l/vertically
-   (gui/call-and-bind view-context state :root-label :selected-value
-                      autocompleter/autocompleter :completer-1
-                      {}
-                      [(fn [query]
-                         (map (fn [id]
-                                (let [label (-> (d/entity (:db-with-changes state) id)
-                                                :argumentica/label)]
-                                  label))
-                              (entities-by-label (:db-with-changes state) query)))])
+   (gui/call-view autocompleter/autocompleter :completer-1
+                  {:query-function (fn [query]
+                                     (map (fn [id]
+                                            (d/entity (:db-with-changes state) id))
+                                          (entities-by-label (:db-with-changes state) query)))
+                   :selected-value (:root-entity state)
+                   :on-select (fn [selection]
+                                (if-let [old-entity (if (string? selection)
+                                                      (d/entity (:db-with-changes state)
+                                                                (entity-by-label (:db-with-changes state) selection))
+                                                      selection)]
+                                  (do (trace/log "old entity" old-entity)
+                                      (gui/send-local-state-transformation view-context
+                                                                           assoc :root-entity old-entity)) 
+                                  (gui/send-local-state-transformation view-context
+                                                                       (fn [state]
+                                                                         (let [id (d/tempid :db.part/user)
+                                                                               state-with-changes (set-changes state (concat (:changes state)
+                                                                                                                             (set-label id selection)))]
+                                                                           (trace/log "adding new" selection)
+                                                                           (assoc state-with-changes
+                                                                                  :root-entity (d/entity (:db-with-changes state-with-changes)
+                                                                                                         id)))))))}
+                  [:argumentica/label
+                   0])
+
    (for [entity (entities (:db-with-changes state))]
      (entity-view view-context
                   state
@@ -260,8 +289,7 @@
 (defn argumentica-root [conn]
   (fn [view-context]
     {:local-state (-> {:conn conn
-                       :db (d/db conn) 
-                       :root-label ""}
+                       :db (d/db conn)}
                       (set-changes []))
      
      :view #'argumentica-root-view}))
@@ -276,24 +304,29 @@
                                   :argumentica/child child-id}]))
                   connection))
 
-#_(d/transact connection
-              [{:db/id (d/tempid :db.part/user)
-                :argumentica/label "Child"}])
+(d/transact connection
+            [{:db/id (d/tempid :db.part/user)
+              :argumentica/label "Child"}])
 
 #_(entities-by-label (d/db connection) "child")
 
 (defn start []
-  (.start (Thread. (fn []
-                     (trace/with-trace
-                       (trace/untrace-ns 'flow-gl.gui.gui)
-                       #_(trace/trace-var* 'flow-gl.gui.gui/set-focus-if-can-gain-focus)
-                       #_(trace/trace-var* 'flow-gl.gui.gui/set-focus)
-                       #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
-                       #_(trace/trace-var 'flow-gl.gui.gui/apply-to-state)
-                       #_(trace/trace-var 'flow-gl.gui.gui/add-layout-afterwards)
-                       (trace/trace-ns 'argumentica.graphliner)
-                       
-                       (gui/start-control (argumentica-root connection))))))
+  (trace/with-trace
+    (trace/log "start")
+    (gui/start-control (argumentica-root connection)))
+  
+  
+  #_(.start (Thread. (fn []
+                       (trace/with-trace
+                         (trace/untrace-ns 'flow-gl.gui.gui)
+                         #_(trace/trace-var* 'flow-gl.gui.gui/set-focus-if-can-gain-focus)
+                         #_(trace/trace-var* 'flow-gl.gui.gui/set-focus)
+                         #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
+                         #_(trace/trace-var 'flow-gl.gui.gui/apply-to-state)
+                         #_(trace/trace-var 'flow-gl.gui.gui/add-layout-afterwards)
+                         (trace/trace-ns 'argumentica.graphliner)
+                         
+                         (gui/start-control (argumentica-root connection))))))
 
   #_(.start (Thread. (fn []
                        (gui/start-control (argumentica-root connection)))))

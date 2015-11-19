@@ -8,6 +8,7 @@
                          [events :as events]
                          [layoutable :as layoutable]
                          [transformer :as transformer])
+            [flow-gl.gui.components.autocompleter :as autocompleter]
             [datomic.api :as d]
             (flow-gl.opengl.jogl [quad :as quad]
                                  [render-target :as render-target]
@@ -77,6 +78,14 @@
        db
        text))
 
+(defn sentence-by-text-query [db search]
+  (d/q '[:find [?sentence ...]
+         :in $ ?search
+         :where
+         [(fulltext $ :argumentica.sentence/text ?search) [[?sentence ?text]]]]
+       db
+       search))
+
 (defn value [db entity attribute]
   (d/q '[:find ?value .
          :in $ ?entity ?attribute
@@ -112,9 +121,12 @@
 
 (defn add-argument [db title main-conclusion & premises]
   (let [[main-conclusion-id main-conclusion-transaction] (ensure-sentence db main-conclusion)
-        premise-data (map (fn [premise] (ensure-sentence db premise)) premises)
-        premise-ids (map first premise-data)
-        premise-transactions (mapcat second premise-data)]
+        premise-data (map (fn [premise] (ensure-sentence db premise))
+                          premises)
+        premise-ids (map first
+                         premise-data)
+        premise-transactions (mapcat second
+                                     premise-data)]
     
     (concat main-conclusion-transaction
             premise-transactions
@@ -156,32 +168,32 @@
           {}
           tempids))
 
-(let [conn (create-database)
-      tempid (d/tempid :db.part/user)
-      transaction [{:db/id tempid
-                    :argumentica.argument/title "Foo"}]
-      result @(d/transact conn
-                          transaction)]
-  (println (tempids transaction))
-  (println (instance? datomic.db.DbId tempid))
-  (println (type tempid)  tempid (:tempids result))
-  (println (d/resolve-tempid (:db-after result)
-                             (:tempids result) tempid))
-  (println (ids-to-tempids (:db-after result)
-                           (:tempids result)
-                           (tempids transaction)))
-  
-  #_(println "foo:" (let [db (d/db conn)
-                          entity-id (first (main-conclusions db))]
-                      (value db entity-id :argumentica.sentence/text)))
-  #_(println "foo:" (main-conclusions (d/db conn))
-             #_(-> (d/entity (d/db conn)
-                             (sentence-by-text (d/db conn) "conclusion"))
-                   :argumentica.argument/_main-conclusion
-                   first
-                   :argumentica.argument/premises
-                   second
-                   :argumentica.sentence/text)))
+#_(let [conn (create-database)
+        tempid (d/tempid :db.part/user)
+        transaction [{:db/id tempid
+                      :argumentica.argument/title "Foo"}]
+        result @(d/transact conn
+                            transaction)]
+    (println (tempids transaction))
+    (println (instance? datomic.db.DbId tempid))
+    (println (type tempid)  tempid (:tempids result))
+    (println (d/resolve-tempid (:db-after result)
+                               (:tempids result) tempid))
+    (println (ids-to-tempids (:db-after result)
+                             (:tempids result)
+                             (tempids transaction)))
+    
+    #_(println "foo:" (let [db (d/db conn)
+                            entity-id (first (main-conclusions db))]
+                        (value db entity-id :argumentica.sentence/text)))
+    #_(println "foo:" (main-conclusions (d/db conn))
+               #_(-> (d/entity (d/db conn)
+                               (sentence-by-text (d/db conn) "conclusion"))
+                     :argumentica.argument/_main-conclusion
+                     first
+                     :argumentica.argument/premises
+                     second
+                     :argumentica.sentence/text)))
 
 
 
@@ -252,11 +264,22 @@
 
 (defn argumentica-root-view [view-context state]
   (l/vertically
-   (for [conclusion (main-conclusions (:db-with-changes state))]
-     (attribute-editor view-context
-                       state
-                       conclusion
-                       :argumentica.sentence/text))
+   (gui/call-and-bind view-context state :root-sentence-text :selected-value
+                      autocompleter/autocompleter :completer-1
+                      {}
+                      [(fn [query]
+                         (map (fn [id]
+                                (let [text (-> (d/entity (:db-with-changes state) id)
+                                               :argumentica.sentence/text)]
+                                  text))
+                              (sentence-by-text-query (:db-with-changes state) query)))])
+   #_(controls/text (or  (:root-sentence-text state)
+                         ""))
+   #_(for [conclusion (main-conclusions (:db-with-changes state))]
+       (attribute-editor view-context
+                         state
+                         conclusion
+                         :argumentica.sentence/text))
    (-> (button "New")
        (gui/on-mouse-clicked-with-view-context view-context
                                                (fn [state event]
@@ -284,7 +307,8 @@
 
 (defn argumentica-root [conn]
   (fn [view-context]
-    {:local-state (-> {:conn conn
+    {:local-state (-> {:root-sentence-text ""
+                       :conn conn
                        :db (d/db conn)}
                       (set-changes []))
      
@@ -306,10 +330,9 @@
                        (trace/with-trace
                          (gui/start-control argumentica-root)))))
 
-  (.start (Thread. (fn []
-                       (gui/start-control (argumentica-root connection)))))
-  (.start (Thread. (fn []
-                     (gui/start-control (argumentica-root connection)))))
+  (gui/start-control (argumentica-root connection))
+  #_(gui/start-control (argumentica-root connection))
+
   
   #_(.start (Thread. (fn []
                        (let [conn (create-database)]
