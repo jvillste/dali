@@ -153,9 +153,6 @@
       (first)
       (first)))
 
-#_(doseq [foo {:a :b :c :d}]
-    (println foo))
-
 (defn text
   ([value]
    (text value [255 255 255 255]))
@@ -238,43 +235,31 @@
                      (text text-value)]))
 
 (defn argumentica-root-view [view-context state]
-  (trace/log "root-view")
   (l/vertically
    (gui/call-view autocompleter/autocompleter :completer-1
                   {:text-function (fn [id]
-                                    (trace/log "text for" id)
                                     (-> (d/entity (:db-with-changes state) id)
                                         (:argumentica/label)))
                    :query-function (fn [query]
-                                     (trace/log "results" (entities-by-label (:db-with-changes state) query))
-                                     (entities-by-label (:db-with-changes state) query)
-                                     #_(map (fn [id]
-                                              (d/entity (:db-with-changes state) id))
-                                            (entities-by-label (:db-with-changes state) query)))
+                                     (entities-by-label (:db-with-changes state) query))
                    :selected-value (:root-entity state)
                    :on-select (fn [selection]
-                                (trace/log "selection" selection)
                                 (if-let [old-entity (if (string? selection)
-                                                      (entity-by-label (:db-with-changes state) selection)
-                                                      #_(d/entity (:db-with-changes state)
-                                                                  (entity-by-label (:db-with-changes state) selection))
+                                                      (entity-by-label (:db-with-changes state)
+                                                                       selection)
                                                       selection)]
-                                  (do (trace/log "old entity" old-entity)
-                                      (gui/send-local-state-transformation view-context
-                                                                           assoc :root-entity old-entity)) 
+                                  (gui/send-local-state-transformation view-context
+                                                                       assoc :root-entity old-entity) 
                                   (gui/send-local-state-transformation view-context
                                                                        (fn [state]
                                                                          (let [id (d/tempid :db.part/user)
                                                                                state-with-changes (set-changes state (concat (:changes state)
                                                                                                                              (set-label id selection)))]
-                                                                           (trace/log "adding new" id selection (:ids-to-tempids-map state-with-changes)
-                                                                                      (tempid-to-id state-with-changes id))
                                                                            (assoc state-with-changes
                                                                                   :root-entity (tempid-to-id state-with-changes id)))))))}
                   [0])
 
    (when-let [root-entity (:root-entity state)]
-     (trace/log "root entity" root-entity)
      (entity-view view-context
                   state
                   root-entity))
