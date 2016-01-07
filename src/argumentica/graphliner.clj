@@ -45,10 +45,18 @@
                    :db.type/string
                    :db.cardinality/one
                    :fulltext true)
-        
-        (attribute :argumentica/child
+
+        (attribute :argumentica.argument/premises
                    :db.type/ref
-                   :db.cardinality/many)])
+                   :db.cardinality/many)
+
+        (attribute :argumentica.argument/conclusion
+                   :db.type/ref
+                   :db.cardinality/many)
+
+        (attribute :argumentica.argument/opposes
+                   :db.type/boolean
+                   :db.cardinality/one)])
       conn)))
 
 
@@ -113,6 +121,13 @@
    [{:db/id id
      :argumentica/label label}]))
 
+(defn new-id []
+  (d/tempid :db.part/user))
+
+(defn add-conclusion [argument-id statement-id]
+   [{:db/id argument-id
+     :argumentica.argument/conclusion statement-id}])
+
 
 (defn set-attribute-value [transaction entity-id attribute value]
   (let [updated-transaction (reduce (fn [updated-transaction statement-map]
@@ -165,14 +180,7 @@
                     (font/create "LiberationSans-Regular.ttf" size)
                     color)))
 
-(defn argument-view [argument]
-  (l/vertically (for [premise (:argumentica.argument/premises argument)]
-                  (text (str "text: "(:argumentica.sentence/text premise))))
-                (l/margin 10 0 10 0
-                          (drawable/->Rectangle 10 2 [255 255 255 255]))
-                (text (-> argument
-                          :argumentica.argument/main-conclusion
-                          :argumentica.sentence/text))))
+
 
 (defn set-changes [state changes]
   (let [result (d/with (:db state)
@@ -207,7 +215,7 @@
                                                                                                    (or (get (:ids-to-tempids-map state)
                                                                                                             entity-id)
                                                                                                        entity-id)
-                                                                                                   :argumentica/label
+                                                                                                   attribute
                                                                                                    new-value)))))))
                     (when (not= old-value new-value)
                       (text "*" [255 0 0 255] 30)))))
@@ -226,6 +234,26 @@
                                                               (l/vertically (for [entity (values (:db-with-changes state) entity attribute)]
                                                                               (entity-view view-context state entity)))))
                                             #_(text ident)))))))
+
+
+(defn statement-view [view-context state statement]
+  (l/vertically (attribute-editor view-context
+                                  state
+                                  statement
+                                  :argumentica/label)
+                (l/horizontally (l/vertically (text "+")
+                                              (-> (button "Add")
+                                                  (gui/on-mouse-clicked-with-view-context view-context
+                                                                                          (fn [state event]
+                                                                                            (set-changes state (concat (:changes state)
+                                                                                                                       (add-conclusion (new-id) (:db/id statement)))))))) 
+                                (l/vertically (for [supporting-argument (:_argumentica.argument/conclusion statement)]
+                                                (l/vertically (attribute-editor view-context
+                                                                                state
+                                                                                supporting-argument
+                                                                                :argumentica/label)
+                                                              (for [premise (:argumentica.argument/premises supporting-argument)]
+                                                                (statement-view state premise))))))))
 
 
 (defn button [text-value]
@@ -260,7 +288,7 @@
                   [0])
 
    (when-let [root-entity (:root-entity state)]
-     (entity-view view-context
+     (statement-view view-context
                   state
                   root-entity))
 
@@ -287,7 +315,7 @@
        (gui/on-mouse-clicked-with-view-context view-context
                                                (fn [state event]
                                                  (set-changes state []))))
-   (text (:changes state))))
+   (text (vec (:changes state)))))
 
 (defn argumentica-root [conn]
   (fn [view-context]
