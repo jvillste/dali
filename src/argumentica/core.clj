@@ -1,19 +1,36 @@
 (ns argumentica.core
-  (:require (flow-gl.gui [drawable :as drawable]
-                         [layout :as layout]
-                         [layouts :as layouts]
-                         [layout-dsl :as l]
-                         [controls :as controls]
-                         [gui :as gui]
-                         [events :as events]
-                         [layoutable :as layoutable]
-                         [transformer :as transformer])
+  (:require (fungl [application :as application]
+                   [handler :as handler]
+                   [cache :as cache]
+                   [atom-registry :as atom-registry]
+                   [value-registry :as value-registry]
+                   [callable :as callable]
+                   [layout :as layout]
+                   [layouts :as layouts])
+            (flow-gl.gui 
+             [visuals :as visuals]
+             [quad-renderer :as quad-renderer]
+             [tiled-renderer :as tiled-renderer]
+             [animation :as animation]
+             [scene-graph :as scene-graph]
+             [stateful :as stateful]
+             [keyboard :as keyboard]
+             [events :as events])
+            #_(flow-gl.gui [drawable :as drawable]
+                           [layout :as layout]
+                           [layouts :as layouts]
+                           [layout-dsl :as l]
+                           [controls :as controls]
+                           [gui :as gui]
+                           [events :as events]
+                           [layoutable :as layoutable]
+                           [transformer :as transformer])
             [datomic.api :as d]
-            (flow-gl.opengl.jogl [quad :as quad]
-                                 [render-target :as render-target]
-                                 [opengl :as opengl])
-            (flow-gl.tools [profiler :as profiler]
-                           [trace :as trace])
+            #_(flow-gl.opengl.jogl [quad :as quad]
+                                   [render-target :as render-target]
+                                   [opengl :as opengl])
+            #_(flow-gl.tools [profiler :as profiler]
+                             [trace :as trace])
             (flow-gl.graphics [font :as font]))
   (:import [javax.media.opengl GL2])
   (:use flow-gl.utils
@@ -126,49 +143,56 @@
    (text value [255 255 255 255]))
 
   ([value color]
-   (drawable/->Text (str value)
-                    (font/create "LiberationSans-Regular.ttf" 15)
-                    color)))
+   (visuals/text color
+                 (font/create "LiberationSans-Regular.ttf" 15)
+                 (str value))))
 
 (defn argument-view [argument]
-  (l/vertically (for [premise (:argumentica.argument/premises argument)]
-                  (text (str "text: "(:argumentica.sentence/text premise))))
-                (l/margin 10 0 10 0
-                          (drawable/->Rectangle 10 2 [255 255 255 255]))
-                (text (-> argument
-                          :argumentica.argument/main-conclusion
-                          :argumentica.sentence/text))))
+  (layouts/vertically (for [premise (:argumentica.argument/premises argument)]
+                        (text (str "text: "(:argumentica.sentence/text premise))))
+                      (layouts/with-margins 10 0 10 0
+                        (visuals/rectangle 10 2 [255 255 255 255]))
+                      (text (-> argument
+                                :argumentica.argument/main-conclusion
+                                :argumentica.sentence/text))))
 
 
-(defn argumentica-root-view [view-context state]
-  (l/horizontally (l/vertically (for [conclusion-id (main-conclusions (d/db (:conn state)))]
-                                  (let [conclusion (d/entity (d/db (:conn state))
-                                                             conclusion-id)]
-                                    (-> (text (:argumentica.sentence/text conclusion) (if (= (:selected-conclusion state)
-                                                                                             conclusion-id)
-                                                                                        [255 255 255 255]
-                                                                                        [100 100 100 255]))
-                                        (gui/on-mouse-clicked-with-view-context view-context
-                                                                                (fn [state event]
-                                                                                  (assoc state :selected-conclusion conclusion-id)))))))
-                  (when-let [selected-conclusion-id (:selected-conclusion state)]
-                    (l/vertically (for [argument (:argumentica.argument/_main-conclusion (d/entity (d/db (:conn state))
-                                                                                                   selected-conclusion-id))]
-                                    (text (:argumentica.argument/title argument)))))))
+(defn argumentica-root-view [state-atom]
+  (let [state (atom-registry/deref! state-atom)]
+    (layouts/horizontally (layouts/vertically (for [conclusion-id (main-conclusions (d/db (:conn state)))]
+                                                (let [conclusion (d/entity (d/db (:conn state))
+                                                                           conclusion-id)]
+                                                  (-> (text (:argumentica.sentence/text conclusion) (if (= (:selected-conclusion state)
+                                                                                                           conclusion-id)
+                                                                                                      [255 255 255 255]
+                                                                                                      [100 100 100 255]))
+                                                      (assoc :mouse-event-handler (fn [node event]
+                                                                                    (when (= (:type event)
+                                                                                             :mouse-clicked)
+                                                                                      (swap! state-atom assoc :selected-conclusion conclusion-id))
+                                                                                    event))))))
+                          (when-let [selected-conclusion-id (:selected-conclusion state)]
+                            (layouts/vertically (for [argument (:argumentica.argument/_main-conclusion (d/entity (d/db (:conn state))
+                                                                                                                 selected-conclusion-id))]
+                                                  (text (:argumentica.argument/title argument))))))))
 
 (defn argumentica-root [conn]
-  (fn [view-context]
-    {:local-state {:conn conn
-                   :selected-conclusion nil}
-     :handle-keyboard-event (fn [state event]
-                              (cond
-                                #_(events/key-pressed? event :enter)
-                                #_(do (println "dec")
-                                      (gui/apply-to-local-state state view-context update-in [:editor-count] dec))
+  (cache/call! argumentica-root-view
+               (atom-registry/get! :root {:create (fn [] {:conn conn
+                                                          :selected-conclusion nil})}))
+  
+  #_(fn [view-context]
+      {:local-state {:conn conn
+                     :selected-conclusion nil}
+       :handle-keyboard-event (fn [state event]
+                                (cond
+                                  #_(events/key-pressed? event :enter)
+                                  #_(do (println "dec")
+                                        (gui/apply-to-local-state state view-context update-in [:editor-count] dec))
 
-                                :default
-                                state))
-     :view #'argumentica-root-view}))
+                                  :default
+                                  state))
+       :view #'argumentica-root-view}))
 
 
 (defn start []
@@ -179,6 +203,8 @@
                        #_(trace/trace-var* 'flow-gl.gui.gui/resolve-size-dependent-view-calls)
                        (trace/with-trace
                          (gui/start-control argumentica-root)))))
+
+
   
   (.start (Thread. (fn []
                      (let [conn (create-database)]
@@ -190,7 +216,11 @@
 
                        (d/transact conn
                                    (add-argument (d/db conn) "argument 3" "conclusion 2" "premise 4" "premise 5"))
-                       (gui/start-control (argumentica-root conn))))))
+                       
+                       (application/start-window (fn [width height]
+                                                   (application/do-layout (#'argumentica-root conn)
+                                                                          width height)) 
+                                                 :target-frame-rate 30)))))
 
   #_(profiler/with-profiler (gui/start-control argumentica-root)))
 
