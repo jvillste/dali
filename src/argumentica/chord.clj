@@ -7,6 +7,7 @@
                    [callable :as callable]
                    [layout :as layout]
                    [layouts :as layouts])
+            [clojure.set :as set]
             (fungl.component [text-area :as text-area])
             (flow-gl.gui 
              [visuals :as visuals]
@@ -20,7 +21,7 @@
             (flow-gl.graphics [font :as font]))
   (:use clojure.test))
 
-(def finger-chord-to-command
+(def finger-chords-to-commands
   {
 
    #{:left-5}
@@ -46,6 +47,9 @@
 
    #{:right-5}
    [#'text-area/insert-string "p"]
+
+   #{:left-5 :left-4}
+   [#'text-area/insert-string "w"]
 
    
    #{:left-2 :left-3}
@@ -146,10 +150,14 @@
   (is (= {:left-1 0, :right-2 1}
          (finger-numbers [:left-1 :right-2]))))
 
+
+(def unpressed-finger-color [0 100 0 255])
+(def pressed-finger-color [0 255 0 255])
+
 (defn finger-color [pressed]
   (if pressed
-    [0 255 0 255]
-    [0 100 0 255]))
+    pressed-finger-color
+    unpressed-finger-color))
 
 (defn finger-button [number]
   (button (or number "")
@@ -162,28 +170,24 @@
          :height 10))
 
 (defn left-hand-buttons [finger-numbers button-view margin]
-  (layouts/horizontally (layouts/with-margins 0 margin 0 0
-                          (button-view (:left-5 finger-numbers)))
-                        (layouts/with-margins 0 margin 0 0
-                          (button-view (:left-4 finger-numbers)))
-                        (layouts/with-margins 0 margin 0 0
-                          (button-view (:left-3 finger-numbers)))
-                        (layouts/vertically (layouts/with-margins 0 margin margin 0
-                                              (button-view (:left-2 finger-numbers)))
-                                            (layouts/with-margins 0 margin 0 0
-                                              (button-view (:left-1 finger-numbers))))))
+  (layouts/horizontally-with-margin margin
+                                    (button-view (:left-5 finger-numbers))
+                                    (button-view (:left-4 finger-numbers))
+                                    (button-view (:left-3 finger-numbers))
+                                    (layouts/vertically (layouts/with-margins 0 margin margin 0
+                                                          (button-view (:left-2 finger-numbers)))
+                                                        (layouts/with-margins 0 margin 0 0
+                                                          (button-view (:left-1 finger-numbers))))))
 
 (defn right-hand-buttons [finger-numbers button-view margin]
-  (layouts/horizontally (layouts/vertically (layouts/with-margins 0 margin margin 0
-                                              (button-view (:right-2 finger-numbers)))
-                                            (layouts/with-margins 0 margin 0 0
-                                              (button-view (:right-1 finger-numbers))))
-                        (layouts/with-margins 0 margin 0 0
-                          (button-view (:right-3 finger-numbers)))
-                        (layouts/with-margins 0 margin 0 0
-                          (button-view (:right-4 finger-numbers)))
-                        (layouts/with-margins 0 margin 0 0
-                          (button-view (:right-5 finger-numbers)))))
+  (layouts/horizontally-with-margin margin
+                                    (layouts/vertically (layouts/with-margins 0 margin margin 0
+                                                          (button-view (:right-2 finger-numbers)))
+                                                        (layouts/with-margins 0 margin 0 0
+                                                          (button-view (:right-1 finger-numbers))))
+                                    (button-view (:right-3 finger-numbers))
+                                    (button-view (:right-4 finger-numbers))
+                                    (button-view (:right-5 finger-numbers))))
 
 (defn both-hand-buttons [finger-numbers]
   (layouts/horizontally (left-hand-buttons finger-numbers finger-button 10)
@@ -203,38 +207,108 @@
                         (for [line (:lines state)]
                           (text line))))
 
+(defn filter-chords-to-commands [predicate finger-chord-to-commands]
+  (select-keys finger-chord-to-commands
+               (->> (keys finger-chord-to-commands)
+                    (filter predicate))))
+
+(defn command-to-string [[command & arguments]]
+  (if (= command
+         #'text-area/insert-string)
+    (first arguments)
+    (str "(" (apply str
+                    (interpose " "
+                               (cons (:name (meta command))
+                                     (map pr-str (filter identity arguments)))))
+         
+         
+         ")")))
+
 (defn guide [chords-to-commands]
   (layouts/vertically
    (for [[chord command] chords-to-commands]
      (layouts/with-margins 15 0 0 0
        (layouts/horizontally (layouts/horizontally (left-hand-buttons chord guide-button 5)
                                                    (right-hand-buttons chord guide-button 5))
-                             (let [[command & arguments] command]
-                               (text (str "(" (apply str
-                                                     (interpose " "
-                                                                (cons (:name (meta command))
-                                                                      (map pr-str (filter identity arguments))))) 
-                                          
-                                          ")"))))))))
+                             (text (command-to-string command)))))))
+
+(defn guide-string-color [finger-count]
+  (let [value (max 50
+                   (- 255
+                      (* 255 (/ (dec finger-count)
+                                5))))]
+    [value value value 255]))
+
+(defn finger-guide
+  ([chords-to-commands finger background-color]
+   (layouts/box 5
+                (visuals/rectangle background-color 10 10)
+                (layouts/vertically
+                 (for [[chord command] (->> (filter-chords-to-commands (fn [command-chord]
+                                                                         (contains? command-chord
+                                                                                    finger))
+                                                                       chords-to-commands)
+                                            (sort-by (fn [[chord command]]
+                                                       (count chord))))]
+                   (layouts/with-margins 1 0 0 0
+                     (text (command-to-string command)
+                           (guide-string-color (count chord))))))))
+  
+  ([chords-to-commands finger]
+   (finger-guide chords-to-commands
+                 finger
+                 unpressed-finger-color)))
 
 (defn root-view [state-atom]
   (let [state @state-atom]
-    (layouts/vertically (layouts/box 10
-                                     (visuals/rectangle [255 255 255 255]
-                                                        10 10)
-                                     (text-area/create-scene-graph (:text state)
-                                                                   (:index state)
-                                                                   {:color [0 0 0 255]}
-                                                                   (fn [rows]
-                                                                     (swap! state-atom assoc :rows rows)) ))
-                        (for [chord (reverse (:chords state))]
-                          (layouts/with-margins 20 0 0 0
-                            (chord-view (map key-codes-to-fingers chord))))
-                        (layouts/with-margins 10 0 10 0
-                          (assoc (visuals/rectangle [100 100 100 255] 0 0)
-                                 :height 10))
-                        (chord-view (map key-codes-to-fingers (-> state :chord-state :keys-down)))
-                        (guide finger-chord-to-command))))
+    (layouts/with-margins 10 10 10 10
+      (layouts/vertically (layouts/box 10
+                                       (visuals/rectangle [255 255 255 255]
+                                                          10 10)
+                                       (text-area/create-scene-graph (:text state)
+                                                                     (:index state)
+                                                                     {:color [0 0 0 255]}
+                                                                     (fn [rows]
+                                                                       (swap! state-atom assoc :rows rows))))
+                          (for [chord (reverse (:chords state))]
+                            (layouts/with-margins 20 0 0 0
+                              (chord-view (map key-codes-to-fingers chord))))
+                          
+                          (layouts/with-margins 10 0 10 0
+                            (assoc (visuals/rectangle [100 100 100 255] 0 0)
+                                   :height 10))
+                          
+                          (let [chord (map key-codes-to-fingers (-> state :chord-state :keys-down))
+                                finger-chords-to-commands (filter-chords-to-commands (fn [command-chord]
+                                                                                       (set/subset? chord
+                                                                                                    command-chord))
+                                                                                     finger-chords-to-commands)]
+                            [(chord-view chord)
+                             (layouts/horizontally-with-margin 10
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :left-5)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :left-4)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :left-3)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :left-2)
+
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :left-1
+                                                                             [0 50 0 255])
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :right-1
+                                                                             [0 50 0 255])
+                                                               
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :right-2)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :right-3)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :right-4)
+                                                               (finger-guide finger-chords-to-commands
+                                                                             :right-5))])))))
 
 (defn enter-text [state text]
   (-> state
@@ -309,7 +383,7 @@
 (defn map-chord-to-command [chord]
   (let [fingers (apply hash-set (map key-codes-to-fingers
                                      chord))]
-    (finger-chord-to-command
+    (finger-chords-to-commands
      fingers)))
 
 
