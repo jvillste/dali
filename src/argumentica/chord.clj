@@ -21,44 +21,73 @@
             (flow-gl.graphics [font :as font]))
   (:use clojure.test))
 
+(for [[a b] (map vector
+                 [1 2 3]
+                 [4 5 6])]
+  [a b])
+
+(defn two-finger-chords [first-finger & commands]
+  (let [all-fingers [:left-5 :left-4 :left-3 :left-2 :left-1
+                     :right-1 :right-2 :right-3 :right-4 :right-5]]
+    (->> (for [[second-finger command] (map vector
+                                            (filter (fn [finger] (not= finger first-finger))
+                                                    all-fingers)
+                                            commands)]
+           (if command
+             [#{first-finger second-finger}
+              (if (string? command)
+                [#'text-area/insert-string command]
+                command)]
+             nil))
+         (filter identity)
+         (apply concat)
+         (apply hash-map))))
+
+
+
 (def finger-chords-to-commands
-  {
+  (-> {
 
-   #{:left-5}
-   [#'text-area/insert-string "a"]
+       #{:left-5}
+       [#'text-area/insert-string "a"]
 
-   #{:left-4}
-   [#'text-area/insert-string "s"]
+       #{:left-4}
+       [#'text-area/insert-string "s"]
 
-   #{:left-3}
-   [#'text-area/insert-string "e"]
+       #{:left-3}
+       [#'text-area/insert-string "e"]
 
-   #{:left-2}
-   [#'text-area/insert-string "t"]
+       #{:left-2}
+       [#'text-area/insert-string "t"]
 
-   #{:right-2}
-   [#'text-area/insert-string "n"]
+       #{:right-2}
+       [#'text-area/insert-string "n"]
 
-   #{:right-3}
-   [#'text-area/insert-string "i"]
+       #{:right-3}
+       [#'text-area/insert-string "i"]
 
-   #{:right-4}
-   [#'text-area/insert-string "o"]
+       #{:right-4}
+       [#'text-area/insert-string "o"]
 
-   #{:right-5}
-   [#'text-area/insert-string "p"]
-
-   #{:left-5 :left-4}
-   [#'text-area/insert-string "w"]
-
-   
-   #{:left-2 :left-3}
-   [#'text-area/backward]
-   
-   #{:right-2 :right-3}
-   [#'text-area/forward]
-   
-   })
+       #{:right-5}
+       [#'text-area/insert-string "p"]
+       
+       #{:left-2 :left-3}
+       [#'text-area/backward]
+       
+       #{:right-2 :right-3}
+       [#'text-area/forward]
+       
+       }
+      
+      (conj (two-finger-chords :left-5 "w" "x" "f" nil nil "q" "!" "(" "?")
+            (two-finger-chords :left-4 "w" "d" "c" nil nil "j" "z" "(" "?")
+            (two-finger-chords :left-3 "x" "d" "r" nil nil "y" "," "-" "'")
+            (two-finger-chords :left-2 "f" "c" "r" nil nil "b" "v" "g" [#'text-area/delete-backward])
+            (two-finger-chords :right-2 "q" "j" "y" "b" nil nil "h" "u" "m")
+            (two-finger-chords :right-3 "!" "z" "," "v" nil nil "h" "l" "k")
+            (two-finger-chords :right-4 "(" "." "-" "g" nil nil "u" "l" ";")
+            (two-finger-chords :right-5 "?" ")" "'" [#'text-area/delete-backward] nil nil "m" "k" ";"))))
 
 #_{:key-code 76, :shift false, :key :unknown, :alt false, :time 1485931426248, :type :key-released, :source :keyboard, :control false, :is-auto-repeat false, :character \l}
 
@@ -265,66 +294,53 @@
                               (guide-string-color (count chord)
                                                   pressed)))))))))
 
-(defn root-view [state-atom]
-  (let [state @state-atom]
-    (layouts/with-margins 10 10 10 10
-      (layouts/vertically-with-margin 10
-                                      (layouts/box 10
-                                                   (visuals/rectangle [255 255 255 255]
-                                                                      10 10)
-                                                   (text-area/create-scene-graph (:text state)
-                                                                                 (:index state)
-                                                                                 {:color [0 0 0 255]}
-                                                                                 (fn [rows]
-                                                                                   (swap! state-atom assoc :rows rows))))
-                                      (for [chord (reverse (:chords state))]
+
+
+(defn root-view [state-atom state]
+  (layouts/with-margins 10 10 10 10
+    (layouts/vertically-with-margin 10
+                                    (layouts/box 10
+                                                 (visuals/rectangle [255 255 255 255]
+                                                                    10 10)
+                                                 (text-area/create-scene-graph (:text state)
+                                                                               (:index state)
+                                                                               {:color [0 0 0 255]}
+                                                                               (fn [rows]
+                                                                                 (swap! state-atom assoc :rows rows))))
+                                    #_(for [chord (reverse (:chords state))]
                                         (layouts/with-margins 20 0 0 0
                                           (chord-view (map key-codes-to-fingers chord))))
-                                      
-                                      (layouts/with-margins 10 0 10 0
+                                    
+                                    #_(layouts/with-margins 10 0 10 0
                                         (assoc (visuals/rectangle [100 100 100 255] 0 0)
                                                :height 10))
-                                      
-                                      (let [chord (map key-codes-to-fingers (-> state :chord-state :keys-down))
-                                            finger-chords-to-commands (filter-chords-to-commands (fn [command-chord]
-                                                                                                   (set/subset? chord
-                                                                                                                command-chord))
-                                                                                                 finger-chords-to-commands)]
+                                    
+                                    (let [chord (map key-codes-to-fingers (-> state :chord-state :keys-down))
+                                          finger-chords-to-commands (filter-chords-to-commands (fn [command-chord]
+                                                                                                 (set/subset? chord
+                                                                                                              command-chord))
+                                                                                               finger-chords-to-commands)]
 
-                                        [(chord-view chord)
-                                         (layouts/horizontally-with-margin 10
+                                      [#_(chord-view chord)
+                                       (layouts/horizontally-with-margin 10
+                                                                         (for [finger [:left-5
+                                                                                       :left-4
+                                                                                       :left-3
+                                                                                       :left-2
+                                                                                       :left-1
+                                                                                       :right-1
+                                                                                       :right-2
+                                                                                       :right-3
+                                                                                       :right-4
+                                                                                       :right-5]]
                                                                            (finger-guide finger-chords-to-commands
-                                                                                         :left-5
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :left-4
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :left-3
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :left-2
-                                                                                         chord)
+                                                                                         finger
+                                                                                         chord)))]))))
 
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :left-1
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :right-1
-                                                                                         chord)
-                                                                           
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :right-2
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :right-3
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :right-4
-                                                                                         chord)
-                                                                           (finger-guide finger-chords-to-commands
-                                                                                         :right-5
-                                                                                         chord))])))))
+(defn cached-root-view [state-atom]
+  (cache/call! root-view
+               state-atom
+               @state-atom))
 
 (defn enter-text [state text]
   (-> state
@@ -403,6 +419,8 @@
      fingers)))
 
 
+
+
 (defn create-state-atom []
   (let [state-atom (atom {:chord-state (initialize)
                           :text "foo bar baz"
@@ -424,5 +442,5 @@
 
 (defn start []
   (application/start-window (fn [width height]
-                              (application/do-layout (#'root-view (cache/call! create-state-atom))
+                              (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
                                                      width height))))
