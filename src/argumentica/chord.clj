@@ -7,9 +7,11 @@
                    [callable :as callable]
                    [layout :as layout]
                    [layouts :as layouts])
+            [flow-gl.profiling :as profiling]
             [clojure.set :as set]
             (fungl.component [text-area :as text-area])
-            (flow-gl.gui 
+            (flow-gl.gui
+             [render-target-renderer :as render-target-renderer]
              [visuals :as visuals]
              [quad-renderer :as quad-renderer]
              [tiled-renderer :as tiled-renderer]
@@ -18,59 +20,33 @@
              [stateful :as stateful]
              [keyboard :as keyboard]
              [events :as events])
-            (flow-gl.graphics [font :as font]))
+            (flow-gl.graphics [font :as font])
+            (flow-gl.opengl.jogl [opengl :as opengl]))
   (:use clojure.test))
 
-(for [[a b] (map vector
-                 [1 2 3]
-                 [4 5 6])]
-  [a b])
 
-(defn two-finger-chords [first-finger & commands]
-  (let [all-fingers [:left-5 :left-4 :left-3 :left-2 :left-1
-                     :right-1 :right-2 :right-3 :right-4 :right-5]]
-    (->> (for [[second-finger command] (map vector
-                                            (filter (fn [finger] (not= finger first-finger))
-                                                    all-fingers)
-                                            commands)]
-           (if command
-             [#{first-finger second-finger}
-              (if (string? command)
-                [#'text-area/insert-string command]
-                command)]
-             nil))
-         (filter identity)
-         (apply concat)
-         (apply hash-map))))
+(def all-fingers [:left-5 :left-4 :left-3 :left-2 :left-1
+                  :right-1 :right-2 :right-3 :right-4 :right-5])
 
+(defn chord-commands [fixed-fingers-set & fingers-to-commands]
+  (->> (for [[finger command] (map vector
+                                   (filter (complement fixed-fingers-set)
+                                           [:left-5 :left-4 :left-3 :left-2 :left-1
+                                            :right-1 :right-2 :right-3 :right-4 :right-5])
+                                   fingers-to-commands)]
+         (if command
+           [(conj fixed-fingers-set finger)
+            (if (string? command)
+              [#'text-area/insert-string command]
+              command)]
+           nil))
+       (filter identity)
+       (apply concat)
+       (apply hash-map)))
 
 
 (def finger-chords-to-commands
   (-> {
-
-       #{:left-5}
-       [#'text-area/insert-string "a"]
-
-       #{:left-4}
-       [#'text-area/insert-string "s"]
-
-       #{:left-3}
-       [#'text-area/insert-string "e"]
-
-       #{:left-2}
-       [#'text-area/insert-string "t"]
-
-       #{:right-2}
-       [#'text-area/insert-string "n"]
-
-       #{:right-3}
-       [#'text-area/insert-string "i"]
-
-       #{:right-4}
-       [#'text-area/insert-string "o"]
-
-       #{:right-5}
-       [#'text-area/insert-string "p"]
        
        #{:left-2 :left-3}
        [#'text-area/backward]
@@ -80,14 +56,28 @@
        
        }
       
-      (conj (two-finger-chords :left-5 "w" "x" "f" nil nil "q" "!" "(" "?")
-            (two-finger-chords :left-4 "w" "d" "c" nil nil "j" "z" "(" "?")
-            (two-finger-chords :left-3 "x" "d" "r" nil nil "y" "," "-" "'")
-            (two-finger-chords :left-2 "f" "c" "r" nil nil "b" "v" "g" [#'text-area/delete-backward])
-            (two-finger-chords :right-2 "q" "j" "y" "b" nil nil "h" "u" "m")
-            (two-finger-chords :right-3 "!" "z" "," "v" nil nil "h" "l" "k")
-            (two-finger-chords :right-4 "(" "." "-" "g" nil nil "u" "l" ";")
-            (two-finger-chords :right-5 "?" ")" "'" [#'text-area/delete-backward] nil nil "m" "k" ";"))))
+      (conj (chord-commands #{} "a" "s" "e" "t" nil " " "n" "i" "o" "p")
+            (chord-commands #{:left-5} "w" "x" "f" nil nil "q" "!" "(" "?")
+            (chord-commands #{:left-4} "w" "d" "c" nil nil "j" "z" "(" "?")
+            (chord-commands #{:left-3} "x" "d" "r" nil nil "y" "," "-" "'")
+            (chord-commands #{:left-2} "f" "c" "r" nil nil "b" "v" "g" [#'text-area/delete-backward])
+            (chord-commands #{:right-2} "q" "j" "y" "b" nil nil "h" "u" "m")
+            (chord-commands #{:right-3} "!" "z" "," "v" nil nil "h" "l" "k")
+            (chord-commands #{:right-4} "(" "." "-" "g" nil nil "u" "l" ";")
+            (chord-commands #{:right-5} "?" ")" "'" [#'text-area/delete-backward] nil nil "m" "k" ";")
+            
+            (chord-commands #{:left-1} "A" "S" "E" "T"  nil "N" "I" "O" "P")
+            (chord-commands #{:left-1 :left-5} "W" "X" "F" nil  nil "Q" nil nil nil)
+            (chord-commands #{:left-1 :left-4} "W" "D" "C" nil nil "J" "Z" nil nil)
+            (chord-commands #{:left-1 :left-3} "X" "D" "R" nil nil "Y" nil nil nil)
+            (chord-commands #{:left-1 :left-2} "F" "C" "R" nil nil "B" "V" "G" nil)
+            (chord-commands #{:left-1 :right-2} "Q" "J" "Y" "B" nil, "H" "U" "M" nil)
+            (chord-commands #{:left-1 :right-3} nil "Z" nil "V" nil nil "H" "L" "K")
+            (chord-commands #{:left-1 :right-4} nil nil nil "G" nil nil "U" "L" nil)
+            (chord-commands #{:left-1 :right-5} nil nil nil nil nil nil "M" "K" nil)
+
+            )))
+
 
 #_{:key-code 76, :shift false, :key :unknown, :alt false, :time 1485931426248, :type :key-released, :source :keyboard, :control false, :is-auto-repeat false, :character \l}
 
@@ -161,6 +151,18 @@
                            75 :right-3
                            76 :right-4
                            59 :right-5})
+
+(def key-codes-to-fingers {32 :left-1
+                           70 :left-2
+                           68 :left-3
+                           83 :left-4
+                           65 :left-5
+
+                           154 :right-1
+                           75 :right-2
+                           76 :right-3
+                           59 :right-4
+                           39 :right-5})
 
 (defn button [number color]
   (layouts/with-minimum-size 30 0
@@ -288,13 +290,17 @@
                                                                                        finger))
                                                                           chords-to-commands)
                                                (sort-by (fn [[chord command]]
-                                                          (count chord))))]
+                                                          [(count chord)
+                                                           (command-to-string command)])))]
                       (layouts/with-margins 1 0 0 0
                         (text (command-to-string command)
                               (guide-string-color (count chord)
                                                   pressed)))))))))
 
 
+
+(handler/def-handler-creator create-handle-rows [state-atom] [rows]
+  (swap! state-atom assoc :rows rows))
 
 (defn root-view [state-atom state]
   (layouts/with-margins 10 10 10 10
@@ -305,8 +311,7 @@
                                                  (text-area/create-scene-graph (:text state)
                                                                                (:index state)
                                                                                {:color [0 0 0 255]}
-                                                                               (fn [rows]
-                                                                                 (swap! state-atom assoc :rows rows))))
+                                                                               (create-handle-rows state-atom)))
                                     #_(for [chord (reverse (:chords state))]
                                         (layouts/with-margins 20 0 0 0
                                           (chord-view (map key-codes-to-fingers chord))))
@@ -440,7 +445,42 @@
                                                                    state))))))
     state-atom))
 
+(comment
+  (with-bindings (application/create-event-handling-state)
+    (let [state-atom (cache/call! create-state-atom)]
+      (= (root-view state-atom @state-atom)
+         (root-view state-atom @state-atom))
+      #_(first (clojure.data/diff (root-view state-atom @state-atom)
+                                  (root-view state-atom @state-atom))))))
+
+
+(defn render [scene-graph gl]
+  (let [quad-renderer-atom-1 (atom-registry/get! :quad-renderer-1 (quad-renderer/atom-specification gl))
+        quad-renderer-atom-2 (atom-registry/get! :quad-renderer-2 (quad-renderer/atom-specification gl))
+        render-target-renderer-atom (atom-registry/get! :render-target-renderer-1 (render-target-renderer/atom-specification gl))]
+
+    (opengl/clear gl 0 0 0 1)
+    (quad-renderer/render quad-renderer-atom-1 gl
+                          (render-target-renderer/render render-target-renderer-atom gl scene-graph
+                                                         (fn []
+                                                           (println "render 2" (hash (assoc scene-graph
+                                                                                            :x 0 :y 0)))
+                                                           (opengl/clear gl 0 0 0 1)
+                                                           (quad-renderer/render quad-renderer-atom-2 gl (assoc scene-graph
+                                                                                                                :x 0 :y 0)))))))
+
+(defn render-target-root-view [width height]
+  (assoc (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
+                                width height)
+         :render render))
+
+(comment
+  (profiling/unprofile-ns 'fungl.application)
+  (profiling/unprofile-ns 'flow-gl.gui.quad-renderer)
+  (profiling/unprofile-ns 'flow-gl.gui.scene-graph)
+  (profiling/unprofile-ns 'flow-gl.gui.render-target-renderer)
+  )
+
+
 (defn start []
-  (application/start-window (fn [width height]
-                              (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
-                                                     width height))))
+  (application/start-window #'render-target-root-view))
