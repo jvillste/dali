@@ -438,9 +438,10 @@
                                                                    (let [state (update state :chords (fn [chords]
                                                                                                        (take 1 (conj chords chord))))]
                                                                      (if-let [[command & parameters] (map-chord-to-command chord)]
-                                                                       (apply command
+                                                                       (apply text-area/handle-command
                                                                               state
                                                                               (:rows state)
+                                                                              command
                                                                               parameters)
                                                                        state))                                                                   
                                                                    state))))))
