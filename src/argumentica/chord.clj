@@ -73,8 +73,10 @@
             (chord-commands #{:left-1 :left-2} "F" "C" "R" nil nil "B" "V" "G" nil)
             (chord-commands #{:left-1 :right-2} "Q" "J" "Y" "B" nil, "H" "U" "M" nil)
             (chord-commands #{:left-1 :right-3} nil "Z" nil "V" nil nil "H" "L" "K")
-            (chord-commands #{:left-1 :right-4} nil nil nil "G" nil nil "U" "L" nil)
-            (chord-commands #{:left-1 :right-5} nil nil nil nil nil nil "M" "K" nil)
+            (chord-commands #{:left-1 :right-4} nil nil nil "G" nil "U" "L" nil nil)
+            (chord-commands #{:left-1 :right-5} nil nil nil nil nil "M" "K" nil nil)
+
+            (chord-commands #{:left-2 :left-3} nil nil nil nil  [#'text-area/backward] [#'text-area/previous-row] [#'text-area/next-row] [#'text-area/forward])
 
             )))
 
@@ -305,13 +307,14 @@
 (defn root-view [state-atom state]
   (layouts/with-margins 10 10 10 10
     (layouts/vertically-with-margin 10
-                                    (layouts/box 10
-                                                 (visuals/rectangle [255 255 255 255]
-                                                                    10 10)
-                                                 (text-area/create-scene-graph (:text state)
-                                                                               (:index state)
-                                                                               {:color [0 0 0 255]}
-                                                                               (create-handle-rows state-atom)))
+                                    (layouts/with-maximum-size 200 nil
+                                      (layouts/box 10
+                                                   (visuals/rectangle [255 255 255 255]
+                                                                      10 10)
+                                                   (text-area/create-scene-graph (:text state)
+                                                                                 (:index state)
+                                                                                 {:color [0 0 0 255]}
+                                                                                 (create-handle-rows state-atom))))
                                     #_(for [chord (reverse (:chords state))]
                                         (layouts/with-margins 20 0 0 0
                                           (chord-view (map key-codes-to-fingers chord))))
@@ -426,7 +429,7 @@
 
 (defn create-state-atom []
   (let [state-atom (atom {:chord-state (initialize)
-                          :text "foo bar baz"
+                          :text (apply str (repeat 10 "foo bar baz "))
                           :index 0})]
     (keyboard/set-focused-event-handler! (fn [event]
                                            (swap! state-atom (fn [state]
