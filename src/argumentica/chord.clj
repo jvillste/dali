@@ -137,9 +137,9 @@
    (text value [255 255 255 255]))
 
   ([value color]
-   (visuals/text-area color
-                      (font/create "LiberationSans-Regular.ttf" 15)
-                      (str value))))
+   (visuals/text color
+                 (font/create "LiberationSans-Regular.ttf" 15)
+                 (str value))))
 
 (def key-codes-to-fingers {70 :left-2
                            68 :left-3
@@ -276,26 +276,26 @@
 
 (defn finger-guide [chords-to-commands finger current-chord]
   (let [pressed ((apply hash-set current-chord) finger)]
-    (layouts/with-minimum-size 100 100
-      (layouts/box 5
-                   (visuals/rectangle (if pressed
-                                        pressed-finger-color
-                                        (if (#{:left-1 :right-1} finger)
-                                          unpressed-thumb-color
-                                          unpressed-finger-color))
-                                      10 10)
-                   (layouts/vertically
-                    (for [[chord command] (->> (filter-chords-to-commands (fn [command-chord]
-                                                                            (contains? command-chord
-                                                                                       finger))
-                                                                          chords-to-commands)
-                                               (sort-by (fn [[chord command]]
-                                                          [(count chord)
-                                                           (command-to-string command)])))]
-                      (layouts/with-margins 1 0 0 0
-                        (text (command-to-string command)
-                              (guide-string-color (count chord)
-                                                  pressed)))))))))
+    (layouts/box 5
+                 (visuals/rectangle (if pressed
+                                      pressed-finger-color
+                                      (if (#{:left-1 :right-1} finger)
+                                        unpressed-thumb-color
+                                        unpressed-finger-color))
+                                    10 10)
+                 (layouts/with-maximum-size 150 nil
+                   (apply layouts/flow
+                          (for [[chord command] (->> (filter-chords-to-commands (fn [command-chord]
+                                                                                  (contains? command-chord
+                                                                                             finger))
+                                                                                chords-to-commands)
+                                                     (sort-by (fn [[chord command]]
+                                                                [(count chord)
+                                                                 (command-to-string command)])))]
+                            (layouts/with-margins 5 5 0 0
+                              (text (command-to-string command)
+                                    (guide-string-color (count chord)
+                                                        pressed)))))))))
 
 
 
@@ -424,8 +424,6 @@
      fingers)))
 
 
-
-
 (defn create-state-atom []
   (let [state-atom (atom {:chord-state (initialize)
                           :text "foo bar baz"
@@ -470,9 +468,12 @@
                                                                                                                 :x 0 :y 0)))))))
 
 (defn render-target-root-view [width height]
-  (assoc (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
-                                width height)
-         :render render))
+  (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
+                         width height)
+  #_(assoc (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
+                                  width height)
+           :render render
+           ))
 
 (comment
   (profiling/unprofile-ns 'fungl.application)
