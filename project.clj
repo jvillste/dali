@@ -5,5 +5,6 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
                  [com.datomic/datomic-free "0.9.5067"]
-                 [flow-gl/flow-gl "1.0.0-SNAPSHOT"]]
+                 [flow-gl/flow-gl "1.0.0-SNAPSHOT"]
+                 [org.clojure/math.combinatorics "0.1.4"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
