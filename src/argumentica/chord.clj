@@ -25,11 +25,31 @@
             (flow-gl.opengl.jogl [opengl :as opengl]))
   (:use clojure.test))
 
+(defn activate-mode [state mode]
+  (update state :modes conj mode))
 
-;; commands
+(defn inactivate-mode [state mode]
+  (update state :modes filter (fn [active-mode]
+                                (not (= (:id active-mode)
+                                        (:id mode))))))
+(defn toggle-mode [state mode]
+  (if (contains? (->> (:modes state)
+                      (map :id)
+                      (apply hash-set))
+                 (:id mode))
+    (activate-mode state mode)
+    (inactivate-mode state mode)))
 
-(defn show-free-chords [state rows]
-  (update state :show-free-chords not))
+
+;; show-free-chords-mode
+
+(def show-free-chords-mode-bindings
+  (chord-commands #{:left-2 :left-3} [#'show-free-chords]))
+
+(def show-free-chords-mode
+  {:id :show-free-chords
+   :bindings show-free-chords-mode-bindings
+   :commands #{#'show-free-chords}})
 
 ;; commands end
 
@@ -53,14 +73,20 @@
        (apply hash-map)))
 
 
-(def finger-chords-to-commands
+(def text-edit-mode-chord-bindings
   (-> {
        
-       #{:left-2 :left-3}
-       [#'text-area/backward]
+       #{:left-5 :left-4 :left-3}
+       [#'text-area/insert-string "ä"]
        
-       #{:right-2 :right-3}
-       [#'text-area/forward]
+       #{:left-5 :left-4 :left-3 :left-1}
+       [#'text-area/insert-string "Ä"]
+
+       #{:left-4 :left-3 :right-4}
+       [#'text-area/insert-string "ö"]
+       
+       #{:left-4 :left-3 :left-1 :right-4}
+       [#'text-area/insert-string "Ö"]
        
        }
       
@@ -84,9 +110,14 @@
             (chord-commands #{:left-1 :right-4} nil nil nil "G" nil "U" "L" nil nil)
             (chord-commands #{:left-1 :right-5} nil nil nil nil nil "M" "K" nil nil)
 
-            (chord-commands #{:left-2 :left-3} [#'show-free-chords] nil nil nil  [#'text-area/backward] [#'text-area/previous-row] [#'text-area/next-row] [#'text-area/forward])
+            (chord-commands #{:left-2 :left-3}
+                            nil nil nil nil
+                            [#'text-area/backward]
+                            [#'text-area/previous-row]
+                            [#'text-area/next-row]
+                            [#'text-area/forward]))))
 
-            )))
+
 
 
 #_{:key-code 76, :shift false, :key :unknown, :alt false, :time 1485931426248, :type :key-released, :source :keyboard, :control false, :is-auto-repeat false, :character \l}
@@ -151,16 +182,28 @@
                  (font/create "LiberationSans-Regular.ttf" 15)
                  (str value))))
 
-(def key-codes-to-fingers {70 :left-2
-                           68 :left-3
-                           83 :left-4
-                           65 :left-5
+#_(def key-codes-to-fingers {70 :left-2
+                             68 :left-3
+                             83 :left-4
+                             65 :left-5
 
-                           32 :right-1
-                           74 :right-2
-                           75 :right-3
-                           76 :right-4
-                           59 :right-5})
+                             32 :right-1
+                             74 :right-2
+                             75 :right-3
+                             76 :right-4
+                             59 :right-5})
+
+#_(def key-codes-to-fingers {32 :left-1
+                             70 :left-2
+                             68 :left-3
+                             83 :left-4
+                             65 :left-5
+
+                             154 :right-1
+                             75 :right-2
+                             76 :right-3
+                             59 :right-4
+                             39 :right-5})
 
 (def key-codes-to-fingers {32 :left-1
                            70 :left-2
@@ -169,10 +212,10 @@
                            65 :left-5
 
                            154 :right-1
-                           75 :right-2
-                           76 :right-3
-                           59 :right-4
-                           39 :right-5})
+                           76 :right-2
+                           59 :right-3
+                           39 :right-4
+                           92 :right-5})
 
 (defn button [number color]
   (layouts/with-minimum-size 30 0
@@ -309,98 +352,103 @@
 
 
 (defn free-chord-guide [chords-to-commands finger current-chord]
-  (layouts/box 5
-               (visuals/rectangle (if (#{:left-1 :right-1} finger)
-                                    [0 0 0 0 255]
-                                    unpressed-thumb-color)
-                                  10 10)
-               (layouts/with-minimum-size 50 nil
-                 (layouts/vertically-with-margin 5
-                                                 (let [used-chords-set (apply hash-set
-                                                                              (keys chords-to-commands))]
-                                                   (for [chord (->> (concat (combinatorics/combinations all-fingers 2)
-                                                                            (combinatorics/combinations all-fingers 3)
-                                                                            (combinatorics/combinations all-fingers 4)
-                                                                            (combinatorics/combinations all-fingers 5))
-                                                                    (map (fn [chord-seq]
-                                                                           (apply hash-set chord-seq)))
-                                                                    (filter (fn [chord]
-                                                                              (and (chord finger)
-                                                                                   (set/subset? current-chord chord)
-                                                                                   (not (used-chords-set chord)))))
-                                                                    (take 10)
-                                                                    
-                                                                    #_(sort-by (fn [[chord]]
-                                                                                 (count chord))))]
-                                                     #_(text (pr-str chord))
-                                                     (layouts/horizontally-with-margin 5
-                                                                                       (left-hand-buttons chord guide-button 5)
-                                                                                       (right-hand-buttons chord guide-button 5))))))))
+  (let [pressed ((apply hash-set current-chord) finger)]
+    (layouts/box 5
+                 (visuals/rectangle (if pressed
+                                      [0 155 0 255]
+                                      (if (#{:left-1 :right-1} finger)
+                                        [0 0 0 0 255]
+                                        unpressed-thumb-color))
+                                    10 10)
+                 (layouts/with-minimum-size 50 nil
+                   (layouts/vertically-with-margin 5
+                                                   (let [used-chords-set (apply hash-set
+                                                                                (keys chords-to-commands))]
+                                                     (for [chord (->> (concat (combinatorics/combinations all-fingers 2)
+                                                                              (combinatorics/combinations all-fingers 3)
+                                                                              (combinatorics/combinations all-fingers 4)
+                                                                              (combinatorics/combinations all-fingers 5))
+                                                                      (map (fn [chord-seq]
+                                                                             (apply hash-set chord-seq)))
+                                                                      (filter (fn [chord]
+                                                                                (and (chord finger)
+                                                                                     (set/subset? current-chord chord)
+                                                                                     (not (used-chords-set chord)))))
+                                                                      (take 10)
+                                                                      
+                                                                      #_(sort-by (fn [[chord]]
+                                                                                   (count chord))))]
+                                                       #_(text (pr-str chord))
+                                                       (layouts/horizontally-with-margin 5
+                                                                                         (left-hand-buttons chord guide-button 5)
+                                                                                         (right-hand-buttons chord guide-button 5)))))))))
 
 
 
 (handler/def-handler-creator create-handle-rows [state-atom] [rows]
   (swap! state-atom assoc :rows rows))
 
-(defn root-view [state-atom state]
-  (layouts/with-margins 10 10 10 10
-    (layouts/vertically-with-margin 10
-                                    (layouts/with-maximum-size 200 nil
-                                      (layouts/box 10
-                                                   (visuals/rectangle [255 255 255 255]
-                                                                      10 10)
-                                                   (text-area/create-scene-graph (:text state)
-                                                                                 (:index state)
-                                                                                 {:color [0 0 0 255]}
-                                                                                 (create-handle-rows state-atom))))
-                                    #_(for [chord (reverse (:chords state))]
-                                        (layouts/with-margins 20 0 0 0
-                                          (chord-view (map key-codes-to-fingers chord))))
-                                    
-                                    #_(layouts/with-margins 10 0 10 0
-                                        (assoc (visuals/rectangle [100 100 100 255] 0 0)
-                                               :height 10))
+(defn text-editor-view [state-atom])
 
-                                    
-                                    
-                                    (let [chord (apply hash-set (map key-codes-to-fingers (-> state :chord-state :keys-down)))
-                                          filtered-finger-chords-to-commands (filter-chords-to-commands (fn [command-chord]
-                                                                                                          (set/subset? chord
-                                                                                                                       command-chord))
-                                                                                                        finger-chords-to-commands)]
+(defn root-view [state-atom]
+  (let [state (atom-registry/deref! state-atom)]
+    (layouts/with-margins 10 10 10 10
+      (layouts/vertically-with-margin 10
+                                      (layouts/with-maximum-size 200 nil
+                                        (layouts/box 10
+                                                     (visuals/rectangle [255 255 255 255]
+                                                                        10 10)
+                                                     (text-area/create-scene-graph (:text state)
+                                                                                   (:index state)
+                                                                                   {:color [0 0 0 255]}
+                                                                                   (create-handle-rows state-atom))))
+                                      #_(for [chord (reverse (:chords state))]
+                                          (layouts/with-margins 20 0 0 0
+                                            (chord-view (map key-codes-to-fingers chord))))
+                                      
+                                      #_(layouts/with-margins 10 0 10 0
+                                          (assoc (visuals/rectangle [100 100 100 255] 0 0)
+                                                 :height 10))
 
-                                      [#_(chord-view chord)
-                                       
-                                       (layouts/horizontally-with-margin 5
-                                                                         (left-hand-buttons chord guide-button 5)
-                                                                         (right-hand-buttons chord guide-button 5))
-                                       (when-let [command (finger-chords-to-commands chord)]
-                                         (text (command-to-string command)
-                                               [255 255 255 255]))
-                                       (layouts/horizontally-with-margin 10
-                                                                         
-                                                                         (for [finger [:left-5
-                                                                                       :left-4
-                                                                                       :left-3
-                                                                                       :left-2
-                                                                                       :left-1
-                                                                                       :right-1
-                                                                                       :right-2
-                                                                                       :right-3
-                                                                                       :right-4
-                                                                                       :right-5]]
-                                                                           (if (:show-free-chords state)
-                                                                             (free-chord-guide finger-chords-to-commands
-                                                                                               finger
-                                                                                               chord)
-                                                                             (finger-guide filtered-finger-chords-to-commands
-                                                                                           finger
-                                                                                           chord))))]))))
+                                      
+                                      
+                                      (let [chord (apply hash-set (map key-codes-to-fingers (-> state :chord-state :keys-down)))
+                                            filtered-finger-chords-to-commands (filter-chords-to-commands (fn [command-chord]
+                                                                                                            (set/subset? chord
+                                                                                                                         command-chord))
+                                                                                                          finger-chords-to-commands)]
+
+                                        [#_(chord-view chord)
+                                         
+                                         #_(layouts/horizontally-with-margin 5
+                                                                             (left-hand-buttons chord guide-button 5)
+                                                                             (right-hand-buttons chord guide-button 5))
+                                         (when-let [command (finger-chords-to-commands chord)]
+                                           (text (command-to-string command)
+                                                 [255 255 255 255]))
+                                         (layouts/horizontally-with-margin 10
+                                                                           
+                                                                           (for [finger [:left-5
+                                                                                         :left-4
+                                                                                         :left-3
+                                                                                         :left-2
+                                                                                         :left-1
+                                                                                         :right-1
+                                                                                         :right-2
+                                                                                         :right-3
+                                                                                         :right-4
+                                                                                         :right-5]]
+                                                                             (if (:show-free-chords state)
+                                                                               (free-chord-guide finger-chords-to-commands
+                                                                                                 finger
+                                                                                                 chord)
+                                                                               (finger-guide filtered-finger-chords-to-commands
+                                                                                             finger
+                                                                                             chord))))])))))
 
 (defn cached-root-view [state-atom]
   (cache/call! root-view
-               state-atom
-               @state-atom))
+               state-atom))
 
 (defn enter-text [state text]
   (-> state
@@ -469,13 +517,13 @@
                #{:right-2} backspace})
 
 
-
-
-(defn map-chord-to-command [chord]
+(defn map-chord-to-command [state chord]
   (let [fingers (apply hash-set (map key-codes-to-fingers
                                      chord))]
     (finger-chords-to-commands
      fingers)))
+
+
 
 
 (defn create-state-atom []
@@ -488,16 +536,46 @@
                                                                  (if-let [chord (-> state :chord-state :chord)]
                                                                    (let [state (update state :chords (fn [chords]
                                                                                                        (take 1 (conj chords chord))))]
-                                                                     (if-let [[command & parameters] (when (not (:show-free-chords state))
-                                                                                                       (map-chord-to-command chord))]
-                                                                       (apply text-area/handle-command
-                                                                              state
-                                                                              (:rows state)
-                                                                              command
-                                                                              parameters)
+                                                                     (if-let [[command & parameters] (map-chord-to-command state chord)]
+                                                                       (if (or (not (:show-free-chords state))
+                                                                               (= command #'show-free-chords))
+                                                                         (apply text-area/handle-command
+                                                                                state
+                                                                                (:rows state)
+                                                                                command
+                                                                                parameters)
+                                                                         state)
                                                                        state))                                                                   
                                                                    state))))))
     state-atom))
+
+(defn create-state [atom-id]
+  (keyboard/set-focused-event-handler! (fn [event]
+                                         (when (not= :focus-gained
+                                                     (:type event))
+                                           (let [state-atom (atom-registry/get! atom-id)]
+                                             (swap! state-atom (fn [state]
+                                                                 (let [state (update state :chord-state handle-event event)]
+                                                                   (if-let [chord (-> state :chord-state :chord)]
+                                                                     (let [state (update state :chords (fn [chords]
+                                                                                                         (take 1 (conj chords chord))))]
+                                                                       (if-let [[command & parameters] (map-chord-to-command state chord)]
+                                                                         (if (or (not (:show-free-chords state))
+                                                                                 (= command #'show-free-chords))
+                                                                           (apply text-area/handle-command
+                                                                                  state
+                                                                                  (:rows state)
+                                                                                  command
+                                                                                  parameters)
+                                                                           state)
+                                                                         state))                                                                   
+                                                                     state))))))))
+  {:chord-state (initialize)
+   :text (apply str (repeat 10 "foo bar baz "))
+   :index 0})
+
+(defn state-atom-specification [id]
+  {:create (partial create-state id)})
 
 (comment
   (with-bindings (application/create-event-handling-state)
@@ -524,7 +602,7 @@
                                                                                                                 :x 0 :y 0)))))))
 
 (defn render-target-root-view [width height]
-  (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
+  (application/do-layout (#'cached-root-view (atom-registry/get! :root (state-atom-specification :root)))
                          width height)
   #_(assoc (application/do-layout (#'cached-root-view (cache/call! create-state-atom))
                                   width height)
