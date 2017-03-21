@@ -385,7 +385,7 @@
 
 
 
-(handler/def-handler-creator create-handle-rows [state-atom] [rows]
+(handler/def-handler-creator create-rows-handler [state-atom] [rows]
   (swap! state-atom assoc :rows rows))
 
 (defn text-editor-view [state-atom])
@@ -401,7 +401,7 @@
                                                      (text-area/create-scene-graph (:text state)
                                                                                    (:index state)
                                                                                    {:color [0 0 0 255]}
-                                                                                   (create-handle-rows state-atom))))
+                                                                                   (create-rows-handler state-atom))))
                                       #_(for [chord (reverse (:chords state))]
                                           (layouts/with-margins 20 0 0 0
                                             (chord-view (map key-codes-to-fingers chord))))
@@ -523,9 +523,6 @@
     (finger-chords-to-commands
      fingers)))
 
-
-
-
 (defn create-state-atom []
   (let [state-atom (atom {:chord-state (initialize)
                           :text (apply str (repeat 10 "foo bar baz "))
@@ -571,7 +568,7 @@
                                                                          state))                                                                   
                                                                      state))))))))
   {:chord-state (initialize)
-   :text (apply str (repeat 10 "foo bar baz "))
+   :text " " #_(apply str (repeat 10 "foo bar baz "))
    :index 0})
 
 (defn state-atom-specification [id]
@@ -595,8 +592,6 @@
     (quad-renderer/render quad-renderer-atom-1 gl
                           (render-target-renderer/render render-target-renderer-atom gl scene-graph
                                                          (fn []
-                                                           (println "render 2" (hash (assoc scene-graph
-                                                                                            :x 0 :y 0)))
                                                            (opengl/clear gl 0 0 0 1)
                                                            (quad-renderer/render quad-renderer-atom-2 gl (assoc scene-graph
                                                                                                                 :x 0 :y 0)))))))
