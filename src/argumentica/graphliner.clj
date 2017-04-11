@@ -1,24 +1,7 @@
 (ns argumentica.graphliner
-  (:require (flow-gl.gui [drawable :as drawable]
-                         [layout :as layout]
-                         [layouts :as layouts]
-                         [layout-dsl :as l]
-                         [controls :as controls]
-                         [gui :as gui]
-                         [events :as events]
-                         [layoutable :as layoutable]
-                         [transformer :as transformer])
-            [flow-gl.gui.components.autocompleter :as autocompleter]
-            [datomic.api :as d]
-            (flow-gl.opengl.jogl [quad :as quad]
-                                 [render-target :as render-target]
-                                 [opengl :as opengl])
-            (flow-gl.tools [profiler :as profiler]
-                           [trace :as trace])
-            (flow-gl.graphics [font :as font]))
-  (:import [javax.media.opengl GL2])
-  (:use flow-gl.utils
-        clojure.test))
+  (:require [datomic.api :as d]
+            [datascript.core :as ds])
+  (:use clojure.test))
 
 
 ;; datomic
@@ -125,8 +108,8 @@
   (d/tempid :db.part/user))
 
 (defn add-conclusion [argument-id statement-id]
-   [{:db/id argument-id
-     :argumentica.argument/conclusion statement-id}])
+  [{:db/id argument-id
+    :argumentica.argument/conclusion statement-id}])
 
 
 (defn set-attribute-value [transaction entity-id attribute value]
@@ -168,19 +151,6 @@
       (first)
       (first)))
 
-(defn text
-  ([value]
-   (text value [255 255 255 255]))
-
-  ([value color]
-   (text value color 12))
-  
-  ([value color size]
-   (drawable/->Text (str value)
-                    (font/create "LiberationSans-Regular.ttf" size)
-                    color)))
-
-
 
 (defn set-changes [state changes]
   (let [result (d/with (:db state)
@@ -192,130 +162,130 @@
                                                (:tempids result)
                                                (tempids changes)))))
 
-(defn attribute-editor [view-context state entity-id attribute]
-  (let [old-value (value (:db state)
-                         entity-id
-                         attribute)
-        new-value (value (:db-with-changes state)
-                         entity-id
-                         attribute)
-        changed-value-key [entity-id attribute]]
-    (l/horizontally (-> (gui/call-view controls/text-editor [:editor changed-value-key])
-                        (update-in [:state-overrides]
-                                   assoc
-                                   :text new-value)
-                        (update-in [:constructor-overrides]
-                                   assoc [:on-change :text]
-                                   (fn [global-state new-value]
-                                     (gui/apply-to-local-state global-state
-                                                               view-context
-                                                               (fn [state]
-                                                                 (set-changes state
-                                                                              (set-attribute-value (:changes state)
-                                                                                                   (or (get (:ids-to-tempids-map state)
-                                                                                                            entity-id)
-                                                                                                       entity-id)
-                                                                                                   attribute
-                                                                                                   new-value)))))))
-                    (when (not= old-value new-value)
-                      (text "*" [255 0 0 255] 30)))))
+#_(defn attribute-editor [view-context state entity-id attribute]
+    (let [old-value (value (:db state)
+                           entity-id
+                           attribute)
+          new-value (value (:db-with-changes state)
+                           entity-id
+                           attribute)
+          changed-value-key [entity-id attribute]]
+      (l/horizontally (-> (gui/call-view controls/text-editor [:editor changed-value-key])
+                          (update-in [:state-overrides]
+                                     assoc
+                                     :text new-value)
+                          (update-in [:constructor-overrides]
+                                     assoc [:on-change :text]
+                                     (fn [global-state new-value]
+                                       (gui/apply-to-local-state global-state
+                                                                 view-context
+                                                                 (fn [state]
+                                                                   (set-changes state
+                                                                                (set-attribute-value (:changes state)
+                                                                                                     (or (get (:ids-to-tempids-map state)
+                                                                                                              entity-id)
+                                                                                                         entity-id)
+                                                                                                     attribute
+                                                                                                     new-value)))))))
+                      (when (not= old-value new-value)
+                        (text "*" [255 0 0 255] 30)))))
 
 
-(defn entity-view [view-context state entity]
-  (l/vertically (attribute-editor view-context
-                                  state
-                                  entity
-                                  :argumentica/label)
-                (l/margin 0 0 0 10
-                          (l/vertically (for [attribute (attributes (:db-with-changes state) entity)]
-                                          (let [ident (value (:db-with-changes state) attribute :db/ident)]
-                                            (when (not= ident :argumentica/label)
-                                              (l/horizontally (text ident)
-                                                              (l/vertically (for [entity (values (:db-with-changes state) entity attribute)]
-                                                                              (entity-view view-context state entity)))))
-                                            #_(text ident)))))))
+#_(defn entity-view [view-context state entity]
+    (l/vertically (attribute-editor view-context
+                                    state
+                                    entity
+                                    :argumentica/label)
+                  (l/margin 0 0 0 10
+                            (l/vertically (for [attribute (attributes (:db-with-changes state) entity)]
+                                            (let [ident (value (:db-with-changes state) attribute :db/ident)]
+                                              (when (not= ident :argumentica/label)
+                                                (l/horizontally (text ident)
+                                                                (l/vertically (for [entity (values (:db-with-changes state) entity attribute)]
+                                                                                (entity-view view-context state entity)))))
+                                              #_(text ident)))))))
 
 
-(defn statement-view [view-context state statement]
-  (l/vertically (attribute-editor view-context
-                                  state
-                                  statement
-                                  :argumentica/label)
-                (l/horizontally (l/vertically (text "+")
-                                              (-> (button "Add")
-                                                  (gui/on-mouse-clicked-with-view-context view-context
-                                                                                          (fn [state event]
-                                                                                            (set-changes state (concat (:changes state)
-                                                                                                                       (add-conclusion (new-id) (:db/id statement)))))))) 
-                                (l/vertically (for [supporting-argument (:_argumentica.argument/conclusion statement)]
-                                                (l/vertically (attribute-editor view-context
-                                                                                state
-                                                                                supporting-argument
-                                                                                :argumentica/label)
-                                                              (for [premise (:argumentica.argument/premises supporting-argument)]
-                                                                (statement-view state premise))))))))
+#_(defn statement-view [view-context state statement]
+    (l/vertically (attribute-editor view-context
+                                    state
+                                    statement
+                                    :argumentica/label)
+                  (l/horizontally (l/vertically (text "+")
+                                                (-> (button "Add")
+                                                    (gui/on-mouse-clicked-with-view-context view-context
+                                                                                            (fn [state event]
+                                                                                              (set-changes state (concat (:changes state)
+                                                                                                                         (add-conclusion (new-id) (:db/id statement)))))))) 
+                                  (l/vertically (for [supporting-argument (:_argumentica.argument/conclusion statement)]
+                                                  (l/vertically (attribute-editor view-context
+                                                                                  state
+                                                                                  supporting-argument
+                                                                                  :argumentica/label)
+                                                                (for [premise (:argumentica.argument/premises supporting-argument)]
+                                                                  (statement-view state premise))))))))
 
 
-(defn button [text-value]
-  (layouts/->Box 10 [(drawable/->Rectangle 0
-                                           0
-                                           [0 200 200 1])
-                     (text text-value)]))
+#_(defn button [text-value]
+    (layouts/->Box 10 [(drawable/->Rectangle 0
+                                             0
+                                             [0 200 200 1])
+                       (text text-value)]))
 
-(defn argumentica-root-view [view-context state]
-  (l/vertically
-   (gui/call-view autocompleter/autocompleter :completer-1
-                  {:text-function (fn [id]
-                                    (-> (d/entity (:db-with-changes state) id)
-                                        (:argumentica/label)))
-                   :query-function (fn [query]
-                                     (entities-by-label (:db-with-changes state) query))
-                   :selected-value (:root-entity state)
-                   :on-select (fn [selection]
-                                (if-let [old-entity (if (string? selection)
-                                                      (entity-by-label (:db-with-changes state)
-                                                                       selection)
-                                                      selection)]
-                                  (gui/send-local-state-transformation view-context
-                                                                       assoc :root-entity old-entity) 
-                                  (gui/send-local-state-transformation view-context
-                                                                       (fn [state]
-                                                                         (let [id (d/tempid :db.part/user)
-                                                                               state-with-changes (set-changes state (concat (:changes state)
-                                                                                                                             (set-label id selection)))]
-                                                                           (assoc state-with-changes
-                                                                                  :root-entity (tempid-to-id state-with-changes id)))))))}
-                  [0])
+#_(defn argumentica-root-view [view-context state]
+    (l/vertically
+     (gui/call-view autocompleter/autocompleter :completer-1
+                    {:text-function (fn [id]
+                                      (-> (d/entity (:db-with-changes state) id)
+                                          (:argumentica/label)))
+                     :query-function (fn [query]
+                                       (entities-by-label (:db-with-changes state) query))
+                     :selected-value (:root-entity state)
+                     :on-select (fn [selection]
+                                  (if-let [old-entity (if (string? selection)
+                                                        (entity-by-label (:db-with-changes state)
+                                                                         selection)
+                                                        selection)]
+                                    (gui/send-local-state-transformation view-context
+                                                                         assoc :root-entity old-entity) 
+                                    (gui/send-local-state-transformation view-context
+                                                                         (fn [state]
+                                                                           (let [id (d/tempid :db.part/user)
+                                                                                 state-with-changes (set-changes state (concat (:changes state)
+                                                                                                                               (set-label id selection)))]
+                                                                             (assoc state-with-changes
+                                                                                    :root-entity (tempid-to-id state-with-changes id)))))))}
+                    [0])
 
-   (when-let [root-entity (:root-entity state)]
-     (statement-view view-context
-                  state
-                  root-entity))
+     (when-let [root-entity (:root-entity state)]
+       (statement-view view-context
+                       state
+                       root-entity))
 
-   (-> (button "New")
-       (gui/on-mouse-clicked-with-view-context view-context
-                                               (fn [state event]
-                                                 (set-changes state (concat (:changes state)
-                                                                            (set-label "New entity"))))))
-   (-> (button "Save")
-       (gui/on-mouse-clicked-with-view-context view-context
-                                               (fn [state event]
-                                                 (d/transact (:conn state)
-                                                             (:changes state))
-                                                 (-> state
-                                                     (assoc :db (d/db (:conn state)))
-                                                     (set-changes [])))))
-   (-> (button "Refresh")
-       (gui/on-mouse-clicked-with-view-context view-context
-                                               (fn [state event]
-                                                 (-> state
-                                                     (assoc :db (d/db (:conn state)))
-                                                     (set-changes (:changes state))))))
-   (-> (button "Cancel")
-       (gui/on-mouse-clicked-with-view-context view-context
-                                               (fn [state event]
-                                                 (set-changes state []))))
-   (text (vec (:changes state)))))
+     (-> (button "New")
+         (gui/on-mouse-clicked-with-view-context view-context
+                                                 (fn [state event]
+                                                   (set-changes state (concat (:changes state)
+                                                                              (set-label "New entity"))))))
+     (-> (button "Save")
+         (gui/on-mouse-clicked-with-view-context view-context
+                                                 (fn [state event]
+                                                   (d/transact (:conn state)
+                                                               (:changes state))
+                                                   (-> state
+                                                       (assoc :db (d/db (:conn state)))
+                                                       (set-changes [])))))
+     (-> (button "Refresh")
+         (gui/on-mouse-clicked-with-view-context view-context
+                                                 (fn [state event]
+                                                   (-> state
+                                                       (assoc :db (d/db (:conn state)))
+                                                       (set-changes (:changes state))))))
+     (-> (button "Cancel")
+         (gui/on-mouse-clicked-with-view-context view-context
+                                                 (fn [state event]
+                                                   (set-changes state []))))
+     (text (vec (:changes state)))))
 
 (defn argumentica-root [conn]
   (fn [view-context]
@@ -323,7 +293,8 @@
                        :db (d/db conn)}
                       (set-changes []))
      
-     :view #'argumentica-root-view}))
+     ;; :view #'argumentica-root-view
+     }))
 
 (def connection (let [connection (create-database)]
                   (d/transact connection
@@ -342,9 +313,9 @@
 #_(entities-by-label (d/db connection) "child")
 
 (defn start []
-  (trace/with-trace
-    (trace/log "start")
-    (gui/start-control (argumentica-root connection)))
+  #_(trace/with-trace
+      (trace/log "start")
+      (gui/start-control (argumentica-root connection)))
   
   
   #_(.start (Thread. (fn []

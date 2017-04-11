@@ -367,14 +367,16 @@
                                                      (for [chord (->> (concat (combinatorics/combinations all-fingers 2)
                                                                               (combinatorics/combinations all-fingers 3)
                                                                               (combinatorics/combinations all-fingers 4)
-                                                                              (combinatorics/combinations all-fingers 5))
+                                                                              (combinatorics/combinations all-fingers 5)
+                                                                              (combinatorics/combinations all-fingers 6)
+                                                                              )
                                                                       (map (fn [chord-seq]
                                                                              (apply hash-set chord-seq)))
                                                                       (filter (fn [chord]
                                                                                 (and (chord finger)
                                                                                      (set/subset? current-chord chord)
                                                                                      (not (used-chords-set chord)))))
-                                                                      (take 10)
+                                                                      (take 20)
                                                                       
                                                                       #_(sort-by (fn [[chord]]
                                                                                    (count chord))))]
@@ -526,7 +528,8 @@
 (defn create-state-atom []
   (let [state-atom (atom {:chord-state (initialize)
                           :text (apply str (repeat 10 "foo bar baz "))
-                          :index 0})]
+                          :index 0
+                          })]
     (keyboard/set-focused-event-handler! (fn [event]
                                            (swap! state-atom (fn [state]
                                                                (let [state (update state :chord-state handle-event event)]
@@ -569,7 +572,8 @@
                                                                      state))))))))
   {:chord-state (initialize)
    :text " " #_(apply str (repeat 10 "foo bar baz "))
-   :index 0})
+   :index 0
+   :show-free-chords true})
 
 (defn state-atom-specification [id]
   {:create (partial create-state id)})
