@@ -7,5 +7,6 @@
                  [com.datomic/datomic-free "0.9.5067"]
                  [flow-gl/flow-gl "1.0.0-SNAPSHOT"]
                  [org.clojure/math.combinatorics "0.1.4"]
-                 [datascript "0.15.5"]]
+                 [datascript "0.15.5"]
+                 [com.google.guava/guava "21.0"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
