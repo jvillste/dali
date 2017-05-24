@@ -8,6 +8,10 @@
 * Read scalability
 * ACID transactions
 
+# Solution
+
+Datomic that can be branced and merged like git repositories.
+
 # Transaction
 
 * consists of:
@@ -60,19 +64,28 @@ Values can be one of:
   [1 name 2 Foo-1.2]
   [1 name 1 Foo]
   
+  and
+  
   [1 name 2 Foo-2.2]
   [1 name 1 Foo]
+  
+  merges to
   
   [1 name 3 Foo-1.2]
   [1 name 2 Foo-2.2]
   [1 name 1 Foo]
   
+  --------------------
   
   [3 name 2 Baz]
   [1 name 1 Foo]
   
+  and
+  
   [2 name 2 Bar]
   [1 name 1 Foo]
+  
+  merges to
   
   [3 name 3 Baz]
   [2 name 2 Bar]
