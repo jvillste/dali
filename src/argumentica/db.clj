@@ -167,12 +167,6 @@
                 [2 :friend :add "2 frend 1"])
       (transact [1 :friend :set "1 frend 2"])
       (get 1 :friend))
-  
-  (let [eatv (sorted-set [1 :name 1 "11"]
-                         [1 :name 2 "12"]
-                         [2 :name 2 "21"]
-                         [2 :name 3 "22"])]
-    (rsubseq eatv <= [2 :name Long/MAX_VALUE nil]))
   )
 
 

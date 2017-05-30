@@ -10,18 +10,28 @@
 
 # Solution
 
-Datomic that can be branced and merged like git repositories.
+Datomic like databse that can be branced and merged like git repositories.
 
-# Transaction
+The database is an asyclic graph of transactions. Each transaction points to one or more parent transactions. One transaction is the root transaction that has no parents.
 
-* consists of:
-  * parent transaction hashes
-  * hash
-  * A set of [command entity attribute value] -tuples
+Transactions specify statements that specify changes to the edges of a graph.
+
+# Statement
+
+* a statement is [command entity attribute value] -tuple
 * a command is one of
   * add
   * retract
   * set ( sets the new value as the only value of the attribute
+
+# Transaction
+
+* consists of:
+  * ordered list of parent transaction hashes
+	  * Parent branches are applied in the specified order when the transactions are threated as description of a graph.
+  * A set of statements
+  * Depth: the distance to the root transaction when all of the parent transactions are listed in the specified order. Used in the indexes to order statements.
+  * hash of all other fields
 * Transaction can be refered to by it's hash to add metadata in another transaction
 * A special entity id "transaction" can be used to add metadata about the transaction in the same transaction
 
@@ -30,16 +40,35 @@ Example:
   [[set 1 name foo]
    [add transaction transact-time 12345]]
 
-# Branch
+# Root transaction
 
-* a set of transactions
+* A transaction with no parent transactions.
 
-## EATV index
+# Edge
 
-* consists of:
-  * A sorted set of [command entity attribute transaction-number value]
-  * A sorted set of [transaction-number transaction-hash]
-* can share structure with other indexes sharing the same transaction history
+* [entity attribute value] -tuple
+
+# Path
+
+* An ordered list of transactions starting from one "head transaction" to the root transaction.
+
+# Graph
+
+* a set of edges that are specified by applying all of the statements in all of the transactions of a path.
+
+# Fork
+
+* A transaction that has more than one children.
+
+# Merge
+
+* a transaction that has multiple parents.
+
+## EATVC index
+
+* A sorted set of [entity attribute transaction-depth value command] -tuples corresponding to a path.
+* Is it possible to share the index between multiple graphs?
+  * The same index can be used to query the graph corresponding each transaction from a head transaction to the first fork.
 
 # Types
 
@@ -51,9 +80,16 @@ Values can be one of:
 * String
 * Binary
 
+* What if the only data type is binary?
+
+# Value size
+
+* Each value has a maximum size
+* A stream of data must be represented with a linked list of values.
+
 # Sort order
 
-* 
+* If there are multiple data types they must have a sort order in the index.
 
 # Schema
 
