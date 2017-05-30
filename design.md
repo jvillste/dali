@@ -59,6 +59,10 @@ Values can be one of:
 
 * No schema on the database level. Schema can be enforced by the applications.
 
+# Branches in the same index
+
+* How share physical index structure between branhces?
+
 # Merge
 
   [1 name 2 Foo-1.2]
