@@ -14,7 +14,7 @@ Datomic like databse that can be branced and merged like git repositories.
 
 The database is an asyclic graph of transactions. Each transaction points to one or more parent transactions. One transaction is the root transaction that has no parents.
 
-Transactions specify statements that specify changes to the edges of a graph.
+Transactions specify statements that specify changes to the edges of a graph of [entity attribute value] -tuples.
 
 # Statement
 
@@ -40,9 +40,14 @@ Example:
   [[set 1 name foo]
    [add transaction transact-time 12345]]
 
-# Root transaction
 
-* A transaction with no parent transactions.
+# Root
+
+* A transaction with no parents.
+
+# Leaf
+
+* A transaction with no children.
 
 # Edge
 
@@ -50,11 +55,7 @@ Example:
 
 # Path
 
-* An ordered list of transactions starting from one "head transaction" to the root transaction.
-
-# Graph
-
-* a set of edges that are specified by applying all of the statements in all of the transactions of a path.
+* An ordered list of transactions between two transactions.
 
 # Fork
 
@@ -62,13 +63,42 @@ Example:
 
 # Merge
 
-* a transaction that has multiple parents.
+* a transaction that has more than one parent.
+
+# Parent ordering
+
+* The order of parents of a merge.
+
+# Trunk
+
+* The transactions on a path where only the first parent are traversed for each merge.
+
+# Branch
+
+* A path from a non first parent of a merge to the first fork.
+
+# Full path
+
+* A path that spans all of the parent transactions from a transaction to the root transaction. The parents of a merge are traversed in reversed parent ordering.
+
+# Depth
+
+* The length of a full path of a transaction.
+
+# Full path depth
+
+* The distance to the root from a transaction on some full path.
+
+# Graph
+
+* a set of edges that are specified by applying all of the statements in all of the transactions of a full path.
+
 
 ## EATVC index
 
-* A sorted set of [entity attribute transaction-depth value command] -tuples corresponding to a path.
+* A sorted set of [entity attribute transaction-full-path-depth value command] -tuples corresponding to a full path.
 * Is it possible to share the index between multiple graphs?
-  * The same index can be used to query the graph corresponding each transaction from a head transaction to the first fork.
+  * The same index can be used to query the graph corresponding each transaction in the trunk of one leaf.
 
 # Types
 
