@@ -4,7 +4,8 @@
             [clojure.uuid :as uuid]
             [loom.alg :as alg]
             [loom.graph :as graph]
-            [loom.io :as loom-io])
+            [loom.io :as loom-io]
+            [clojure.set :as set])
   (:import [java.security MessageDigest]
            [java.util Base64]
            [com.google.common.io BaseEncoding]
@@ -215,6 +216,11 @@
             (assoc r k (apply f v args)))
           {}
           m))
+
+(defn update-keys [m f & args]
+  (into {} 
+        (for [[k v] m] 
+          [(apply f k args) v])))
 
 (defn transaction-map-to-graph [transaction-map]
   (update-values transaction-map
@@ -450,8 +456,7 @@
            {:trunk-number 3, :transaction-number 0})
          (trunk-nodes 3 5))))
 
-(defn trunk-node-label [{:keys [trunk-number transaction-number ]}]
-  (str  trunk-number ":" transaction-number))
+
 
 (defn trunks-to-graph [trunks]
   (loop [trunk-numbers (keys trunks)
@@ -460,36 +465,78 @@
       (let [trunk (trunks trunk-number)]
         (recur (rest trunk-numbers)
                (reduce (fn [graph trunk-node]
-                         (prn trunk trunk-node)
-                         (assoc graph (trunk-node-label trunk-node)
+                         (assoc graph trunk-node
                                 (if (and (= 0 (:transaction-number trunk-node))
                                          (:parent-trunk-number trunk))
-                                  [(trunk-node-label {:trunk-number (:parent-trunk-number trunk)
-                                                      :transaction-number (:parent-transaction-number trunk)})]
+                                  [{:trunk-number (:parent-trunk-number trunk)
+                                    :transaction-number (:parent-transaction-number trunk)}]
                                   (if (< 0 (:transaction-number trunk-node))
-                                    [(trunk-node-label {:trunk-number trunk-number
-                                                        :transaction-number (dec (:transaction-number trunk-node))})]
+                                    [{:trunk-number trunk-number
+                                      :transaction-number (dec (:transaction-number trunk-node))}]
                                     []))))
                        graph
                        (trunk-nodes trunk-number
                                     (get-in trunks [trunk-number :next-transaction-number])))))
       graph)))
 
-(defn view-trunks [trunks]
-  (loom-io/view (graph/digraph (trunks-to-graph trunks))))
+(defn add-transaction-hash [db trunk-node]
+  (assoc trunk-node
+         :transaction-hash ((set/map-invert (get-in db [:trunks (:trunk-number trunk-node) :transaction-numbers]))
+                            (:transaction-number trunk-node))))
+
+(defn add-temporal-id [temporal-ids trunk-node]
+  (assoc trunk-node
+         :transaction-temporal-id (temporal-ids (:transaction-hash trunk-node))))
+
+(defn trunk-node-label [{:keys [trunk-number transaction-number transaction-temporal-id]}]
+  (str  trunk-number ":" transaction-number ":" transaction-temporal-id))
+
+(defn trunk-node-to-label [db temporal-ids trunk-node]
+  (->> trunk-node
+       (add-transaction-hash db)
+       (add-temporal-id temporal-ids)
+       (trunk-node-label)))
+
+(defn view-trunks [transactions]
+  (let [{:keys [hashes]} (transactions-to-graph-and-hashes transactions)
+        temporal-ids (set/map-invert hashes)
+        db (reduce transact
+                   (create)
+                   (temporal-ids-to-hashes transactions))
+        trunk-node-to-label (partial trunk-node-to-label db temporal-ids)]
+    (loom-io/view (graph/digraph (-> (trunks-to-graph (:trunks db))
+                                     (update-values (partial map trunk-node-to-label))
+                                     (update-keys trunk-node-to-label))))))
 
 (comment
-  (view-trunks (:trunks (reduce transact
-                                (create)
-                                (temporal-ids-to-hashes [{:id 1}
-                                                         {:id 2
-                                                          :parents [1]}
-                                                         {:id 3
-                                                          :parents [1]}
-                                                         {:id 4
-                                                          :parents [3]}
-                                                         {:id 5
-                                                          :parents [3]}]))))
+  (view-trunks [{:id 1
+                 :statements [[1 :friend :add 1]]}
+                {:id 2
+                 :parents [1]
+                 :statements [[1 :friend :add 2]]}
+                {:id 3
+                 :parents [1]
+                 :statements [[1 :friend :add 3]]}
+                {:id 4
+                 :parents [3]
+                 :statements [[1 :friend :add 4]]}
+                {:id 5
+                 :parents [3]
+                 :statements [[1 :friend :add 5]]}])  
+
+
+  
+  #_(view-trunks (:trunks (reduce transact
+                                  (create)
+                                  (temporal-ids-to-hashes [{:id 1}
+                                                           {:id 2
+                                                            :parents [1]}
+                                                           {:id 3
+                                                            :parents [1]}
+                                                           {:id 4
+                                                            :parents [3]}
+                                                           {:id 5
+                                                            :parents [3]}]))))
   )
 
 (deftest test-trunks-to-graph
