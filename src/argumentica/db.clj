@@ -67,7 +67,7 @@
 
 
 (defn transaction-hash [transaction]
-  (base-16-encode (sha-256 (pr-str transaction))))
+  (base-16-encode (sha-256 (pr-str (select-keys transaction [:statements :parents])))))
 
 (defn eatvc-statement-value [statement]
   (nth statement 4))
@@ -290,11 +290,11 @@
             ("46964D358C3EA11FAF5E3CB8FBBBABBEF86ADBFCB01103FBF7DAAE40C542E1D0"),
             :statements [[1 :friend :add "1 frend 3"]]}
            {:parents
-            ("DA954F2FF5E79F674DBC08FD5F1A103E8B86E6F6B2C9F3D3CE9CA3E186735200"),
+            ("3265B41A369902AD6FB1E0861AE026F0370EB52D354753944A4942FEAA8BF3E9"),
             :statements [[1 :friend :add "1 frend 4"]]}
            {:parents
             ("46964D358C3EA11FAF5E3CB8FBBBABBEF86ADBFCB01103FBF7DAAE40C542E1D0"
-             "DA954F2FF5E79F674DBC08FD5F1A103E8B86E6F6B2C9F3D3CE9CA3E186735200")})
+             "3265B41A369902AD6FB1E0861AE026F0370EB52D354753944A4942FEAA8BF3E9")})
          (temporal-ids-to-hashes [{:statements [[1 :friend :add "1 frend 1"]]
                                    :id 1}
                                   {:parents [1]
@@ -492,6 +492,46 @@
                                     (get-in trunks [trunk-number :next-transaction-number])))))
       graph)))
 
+(deftest test-trunks-to-graph
+  (is (= {{:trunk-number 2, :transaction-number 0}
+          [{:trunk-number 1, :transaction-number 1}],
+          {:trunk-number 2, :transaction-number 3}
+          [{:trunk-number 2, :transaction-number 2}],
+          {:trunk-number 2, :transaction-number 2}
+          [{:trunk-number 2, :transaction-number 1}],
+          {:trunk-number 0, :transaction-number 0} [],
+          {:trunk-number 1, :transaction-number 4}
+          [{:trunk-number 1, :transaction-number 3}],
+          {:trunk-number 0, :transaction-number 2}
+          [{:trunk-number 0, :transaction-number 1}],
+          {:trunk-number 1, :transaction-number 2}
+          [{:trunk-number 1, :transaction-number 1}],
+          {:trunk-number 2, :transaction-number 1}
+          [{:trunk-number 2, :transaction-number 0}],
+          {:trunk-number 1, :transaction-number 3}
+          [{:trunk-number 1, :transaction-number 2}],
+          {:trunk-number 1, :transaction-number 0}
+          [{:trunk-number 0, :transaction-number 2}],
+          {:trunk-number 1, :transaction-number 1}
+          [{:trunk-number 1, :transaction-number 0}],
+          {:trunk-number 0, :transaction-number 4}
+          [{:trunk-number 0, :transaction-number 3}],
+          {:trunk-number 0, :transaction-number 3}
+          [{:trunk-number 0, :transaction-number 2}],
+          {:trunk-number 2, :transaction-number 4}
+          [{:trunk-number 2, :transaction-number 3}],
+          {:trunk-number 0, :transaction-number 1}
+          [{:trunk-number 0, :transaction-number 0}]}
+         (trunks-to-graph {0 {:next-transaction-number 5},
+
+                           1 {:next-transaction-number 5
+                              :parent-transaction-number 2
+                              :parent-trunk-number 0}
+                           
+                           2 {:next-transaction-number 5
+                              :parent-transaction-number 1
+                              :parent-trunk-number 1}}))))
+
 (defn add-transaction-hash [db trunk-node]
   (assoc trunk-node
          :transaction-hash ((set/map-invert (get-in db [:trunks (:trunk-number trunk-node) :transaction-numbers]))
@@ -528,7 +568,7 @@
                                 :trunk-number (get-in db [:transactions transaction-hash :trunk-number])}
                                conj
                                {:transaction-number (transaction-number parent-transaction-hash db)
-                                     :trunk-number (get-in db [:transactions parent-transaction-hash :trunk-number])}))
+                                :trunk-number (get-in db [:transactions parent-transaction-hash :trunk-number])}))
                      trunk-graph
                      (rest (get-in db [:transactions transaction-hash :parents])))
              (rest transaction-hashes))
@@ -546,65 +586,20 @@
                                      (update-values (partial map trunk-node-to-label))
                                      (update-keys trunk-node-to-label))))))
 
+(defn create-test-transactions [& graph]
+  (map (fn [[id parents]]
+         {:id id
+          :statements [[1 :friend :add id]]
+          :parents parents})
+       (partition 2 graph)))
+
 (comment
-  (view-trunks [{:id 1
-                 :statements [[1 :friend :add 1]]}
-                {:id 2
-                 :parents [1]
-                 :statements [[1 :friend :add 2]]}
-                {:id 3
-                 :parents [1]
-                 :statements [[1 :friend :add 3]]}
-                {:id 4
-                 :parents [3]
-                 :statements [[1 :friend :add 4]]}
-                {:id 5
-                 :parents [3]
-                 :statements [[1 :friend :add 5]]}
-                {:id 6
-                 :parents [2 5]
-                 :statements [[1 :friend :add 6]]}])  
-
-
-  
-  #_(view-trunks (:trunks (reduce transact
-                                  (create)
-                                  (temporal-ids-to-hashes [{:id 1}
-                                                           {:id 2
-                                                            :parents [1]}
-                                                           {:id 3
-                                                            :parents [1]}
-                                                           {:id 4
-                                                            :parents [3]}
-                                                           {:id 5
-                                                            :parents [3]}]))))
-  )
-
-(deftest test-trunks-to-graph
-  (is (= {"1:4" ["1:3"],
-          "0:3" ["0:2"],
-          "2:3" ["2:2"],
-          "0:2" ["0:1"],
-          "2:1" ["2:0"],
-          "1:3" ["1:2"],
-          "2:0" ["1:1"],
-          "0:1" ["0:0"],
-          "0:0" [],
-          "2:4" ["2:3"],
-          "2:2" ["2:1"],
-          "1:2" ["1:1"],
-          "1:1" ["1:0"],
-          "1:0" ["0:2"],
-          "0:4" ["0:3"]}
-         (trunks-to-graph {0 {:next-transaction-number 5},
-
-                           1 {:next-transaction-number 5
-                              :parent-transaction-number 2
-                              :parent-trunk-number 0}
-                           
-                           2 {:next-transaction-number 5
-                              :parent-transaction-number 1
-                              :parent-trunk-number 1}}))))
+  (view-trunks (create-test-transactions 1 []
+                                         2 [1]
+                                         3 [1]
+                                         4 [3]
+                                         5 [3]
+                                         6 [2 5])))
 
 
 
@@ -628,40 +623,37 @@
 
 
 (deftest test-get-statements
-  (let [transaction-1 (transaction []
-                                   [1 :friend :add "1 frend 1"]
-                                   [2 :friend :add "2 frend 1"])
-        transaction-2 (transaction [(transaction-hash transaction-1)]
-                                   [1 :friend :set "1 frend 2"])
-        transaction-3 (transaction [(transaction-hash transaction-1)]
-                                   [1 :friend :set "1 frend 3"])
-        transaction-4 (transaction [(transaction-hash transaction-2)
-                                    (transaction-hash transaction-3)])
-        db (-> (create)
-               (transact transaction-1)
-               (transact transaction-2)
-               (transact transaction-3)
-               (transact transaction-4))]
+  (let [transactions (create-test-transactions 1 []
+                                               2 [1]
+                                               3 [1]
+                                               4 [2 3])
+        {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
+        
+        db (reduce transact (create)
+                   (temporal-ids-to-hashes transactions))]
+
+    #_(view-trunks transactions)
     
-    (is (= '([1 :friend 0 :add "1 frend 1"]
-             [1 :friend 1 :set "1 frend 2"])
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 1 :add 2])
            (get-statements db
-                           (transaction-hash transaction-2)
+                           (hashes 2)
                            1 :friend)))
 
-    (is (= '([1 :friend 0 :add "1 frend 1"]
-             [1 :friend 0 :set "1 frend 3"])
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 0 :add 3])
            (get-statements db
-                           (transaction-hash transaction-3)
+                           (hashes 3)
                            1
                            :friend)))
 
-    #_(is (= '([1 :friend 0 :add "1 frend 1"]
-               [1 :friend 0 :set "1 frend 3"])
-             (get-statements db
-                             (transaction-hash transaction-4)
-                             1
-                             :friend)))))
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 1 :add 2]
+             [1 :friend 2 :add 4])
+           (get-statements db
+                           (hashes 4)
+                           1
+                           :friend)))))
 
 (defn get-value [db leaf-transaction e a]
   (reduce reduce-values #{}
