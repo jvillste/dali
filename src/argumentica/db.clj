@@ -403,59 +403,18 @@
         (cond-> (first (:parents transaction))
           (update-in [:transaction-children (first (:parents transaction))] (fnil conj #{}) hash)))))
 
-(defn trunk-parents [db trunk-number]
-  (loop [trunk-number trunk-number
-         parent-trunk-numbers []]
-    (if-let [parent-trunk-number (get-in db [:trunks trunk-number :parent-trunk-number])]
-      (recur parent-trunk-number
-             (conj parent-trunk-numbers {:trunk-number parent-trunk-number
-                                         :transaction-number (get-in db [:trunks trunk-number :parent-transaction-number])}))
-      parent-trunk-numbers)))
+
+(defn create-test-transactions [& graph]
+  (map (fn [[id parents]]
+         {:id id
+          :statements [[1 :friend :add id]]
+          :parents parents})
+       (partition 2 graph)))
 
 (defn view-transaction-graph [transactions]
   (loom-io/view (graph/digraph (transaction-map-to-graph (transactions-to-transaction-map transactions)))))
 
-(deftest test-trunk-parents
-  (is (= [{:trunk-number 1, :transaction-number 0}
-          {:trunk-number 0, :transaction-number 0}]
-         (trunk-parents (reduce transact
-                                (create)
-                                (temporal-ids-to-hashes [{:id 1}
-                                                         {:id 2
-                                                          :parents [1]}
-                                                         {:id 3
-                                                          :parents [1]}
-                                                         {:id 4
-                                                          :parents [3]}
-                                                         {:id 5
-                                                          :parents [3]}]))
-                        2))))
 
-(defn first-common-anchestor [db hash-1 hash-2]
-  (let [transaction-1 (get-in db [:transactions hash-1])
-        transaction-2 (get-in db [:transactions hash-1])]
-    #_(:trunk-number transaction-1)
-    [(trunk-parents db (:trunk-number transaction-1))
-     (trunk-parents db (:trunk-number transaction-2))] ))
-
-(deftest test-first-common-anchestor
-  (let [transactions [{:id 1}
-                      {:id 2
-                       :parents [1]}
-                      {:id 3
-                       :parents [1]}
-                      {:id 4
-                       :parents [3]}
-                      {:id 5
-                       :parents [3]}]
-        {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
-        db (reduce transact
-                   (create)
-                   (temporal-ids-to-hashes transactions))]
-    #_(view-transaction-graph transactions)
-
-    #_(is (= nil
-             (first-common-anchestor db (hashes 5) (hashes 2))))))
 
 (defn trunk-nodes [trunk-number next-transaction-number]
   (map (partial assoc {:trunk-number trunk-number} :transaction-number)
@@ -468,6 +427,118 @@
            {:trunk-number 3, :transaction-number 1}
            {:trunk-number 3, :transaction-number 0})
          (trunk-nodes 3 5))))
+
+(defn parent-nodes [db trunk-number transaction-number]
+  (loop [trunk-number trunk-number
+         parent-nodes (trunk-nodes trunk-number (inc transaction-number))]
+    (if-let [parent-trunk-number (get-in db [:trunks trunk-number :parent-trunk-number])]
+      (recur parent-trunk-number
+             (concat parent-nodes (trunk-nodes parent-trunk-number
+                                               (inc (get-in db [:trunks trunk-number :parent-transaction-number])))))
+      parent-nodes)))
+
+(deftest test-parent-nodes
+  (let [transactions (create-test-transactions 1 []
+                                               2 [1]
+                                               3 [1]
+                                               4 [3]
+                                               5 [3]
+                                               6 [2 5]
+                                               7 [5])]
+    #_(view-trunks transactions)
+    (is (= '({:trunk-number 2, :transaction-number 1}
+             {:trunk-number 2, :transaction-number 0}
+             {:trunk-number 1, :transaction-number 0}
+             {:trunk-number 0, :transaction-number 0})
+           (parent-nodes (reduce transact
+                                 (create)
+                                 (temporal-ids-to-hashes transactions))
+                         2
+                         1)))))
+
+
+(defn first-common [xs ys]
+  (loop [seen-xs (hash-set)
+         seen-ys (hash-set)
+         xs xs
+         ys ys]
+    (if-let [x (first xs)]
+      (let [seen-xs (conj seen-xs x)]
+        (if-let [y (first ys)]
+          (let [seen-ys (conj seen-ys y)]
+            (if (or (contains? seen-xs y) 
+                    (contains? seen-ys x))
+              x
+              (recur seen-xs
+                     seen-ys
+                     (rest xs)
+                     (rest ys))))
+          (if (contains? seen-ys x)
+            x
+            (recur seen-xs
+                   seen-ys
+                   (rest xs)
+                   []))))
+      (if-let [y (first ys)]
+        (if (contains? seen-xs y) 
+          y
+          (recur seen-xs
+                 seen-ys
+                 []
+                 (rest ys)))
+        nil))))
+
+(deftest test-first-common
+  (is (= 1
+         (first-common [0 1] [3 1])))
+
+  (is (= 1
+         (first-common [0 2 4 5 1] [3 1])))
+
+  (is (= 1
+         (first-common [3 1] [0 2 4 5 1]))))
+
+
+(defn first-common-anchestor [db hash-1 hash-2]
+  (let [transaction-1 (get-in db [:transactions hash-1])
+        transaction-2 (get-in db [:transactions hash-2])]
+    #_(:trunk-number transaction-1)
+    (first-common (parent-nodes db
+                                (:trunk-number transaction-1)
+                                (:transaction-number transaction-1))
+                  (parent-nodes db
+                                (:trunk-number transaction-2)
+                                (:transaction-number transaction-2)))))
+
+(deftest test-first-common-anchestor
+  (let [transactions (create-test-transactions 1 []
+                                               2 [1]
+                                               3 [1]
+                                               4 [3]
+                                               5 [3]
+                                               6 [2 5])
+        {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
+        db (reduce transact
+                   (create)
+                   (temporal-ids-to-hashes transactions))]
+    #_(view-trunks transactions)
+
+    (is (= {:trunk-number 0, :transaction-number 0}
+           (first-common-anchestor db
+                                   (hashes 2)
+                                   (hashes 3))))
+
+    (is (= {:trunk-number 0, :transaction-number 0}
+           (first-common-anchestor db
+                                   (hashes 2)
+                                   (hashes 5))))
+
+    (is (= {:trunk-number 0, :transaction-number 0}
+           (first-common-anchestor db
+                                   (hashes 4)
+                                   (hashes 6))))))
+
+
 
 
 
@@ -586,12 +657,7 @@
                                      (update-values (partial map trunk-node-to-label))
                                      (update-keys trunk-node-to-label))))))
 
-(defn create-test-transactions [& graph]
-  (map (fn [[id parents]]
-         {:id id
-          :statements [[1 :friend :add id]]
-          :parents parents})
-       (partition 2 graph)))
+
 
 (comment
   (view-trunks (create-test-transactions 1 []
