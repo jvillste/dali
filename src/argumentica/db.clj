@@ -499,7 +499,7 @@
          (first-common [3 1] [0 2 4 5 1]))))
 
 
-(defn first-common-anchestor [db hash-1 hash-2]
+(defn first-common-parent [db hash-1 hash-2]
   (let [transaction-1 (get-in db [:transactions hash-1])
         transaction-2 (get-in db [:transactions hash-2])]
     #_(:trunk-number transaction-1)
@@ -510,7 +510,7 @@
                                 (:trunk-number transaction-2)
                                 (:transaction-number transaction-2)))))
 
-(deftest test-first-common-anchestor
+(deftest test-first-common-parent
   (let [transactions (create-test-transactions 1 []
                                                2 [1]
                                                3 [1]
@@ -524,21 +524,19 @@
     #_(view-trunks transactions)
 
     (is (= {:trunk-number 0, :transaction-number 0}
-           (first-common-anchestor db
+           (first-common-parent db
                                    (hashes 2)
                                    (hashes 3))))
 
     (is (= {:trunk-number 0, :transaction-number 0}
-           (first-common-anchestor db
+           (first-common-parent db
                                    (hashes 2)
                                    (hashes 5))))
 
     (is (= {:trunk-number 0, :transaction-number 0}
-           (first-common-anchestor db
+           (first-common-parent db
                                    (hashes 4)
                                    (hashes 6))))))
-
-
 
 
 
@@ -698,7 +696,7 @@
         db (reduce transact (create)
                    (temporal-ids-to-hashes transactions))]
 
-    #_(view-trunks transactions)
+    (view-trunks transactions)
     
     (is (= '([1 :friend 0 :add 1]
              [1 :friend 1 :add 2])
