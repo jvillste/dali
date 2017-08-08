@@ -1,9 +1,12 @@
 (ns argumentica.ibis
   (:require (flow-gl.gui [visuals :as visuals]
-                         [animation :as animation])
+                         [animation :as animation]
+                         [quad-renderer :as quad-renderer])
+            (flow-gl.opengl.jogl [opengl :as opengl])
             (fungl [application :as application]
                    [layout :as layout]
-                   [layouts :as layouts])))
+                   [layouts :as layouts]
+                   [atom-registry :as atom-registry])))
 
 (defn node [text children type]
   {:text text
@@ -25,8 +28,8 @@
 
 (defn node-color [node-type]
   (case node-type
-    :question [255 255 255 255]
-    :idea [255 255 0 255]
+    :question [200 200 200 255]
+    :idea [200 200 0 255]
     :pro [0 255 0 255]
     :con [255 100 100 255]
     [0 255 255 255]))
@@ -42,16 +45,17 @@
              (not (empty? (:children ibis-node))))
     (swap! state-atom update :closed-nodes
            (fn [closed-nodes]
-             (prn closed-nodes)
              (if (contains? closed-nodes ibis-node)
                (disj closed-nodes ibis-node)
                (conj closed-nodes ibis-node)))))
   event)
 
+(def text-color [0 0 0 255])
+
 (defn node-view [state-atom node]
   (let [child-layout (-> (apply layouts/vertically (for [[index child] (map-indexed vector (:children node))]
                                                      (layouts/horizontally (layouts/with-margins 12 0 0 0
-                                                                             (assoc (visuals/rectangle [255 255 255 255]
+                                                                             (assoc (visuals/rectangle text-color
                                                                                                        0 0)
                                                                                     :width 7
                                                                                     :height 1))
@@ -60,7 +64,7 @@
                          (application/do-layout java.lang.Integer/MAX_VALUE
                                                 java.lang.Integer/MAX_VALUE))
         text-layout (-> (layouts/with-margins 3 0 5 0
-                          (layouts/with-maximum-size 500 nil (visuals/text-area (:text node) [255 255 255 255])))
+                          (layouts/with-maximum-size 500 nil (visuals/text-area (:text node) text-color)))
                         (application/do-layout java.lang.Integer/MAX_VALUE
                                                java.lang.Integer/MAX_VALUE))
         show-children (and (:children node)
@@ -70,15 +74,14 @@
       (layouts/vertically (assoc (if (contains? (:closed-nodes @state-atom) node)
                                    (layouts/with-margins 1 1 0 0
                                      (layouts/box 4
-                                                  (visuals/rectangle [100 100 255 255] 10 10)
+                                                  (visuals/rectangle [150 150 150 255] 10 10)
                                                   (node-icon (:type node))))
                                    (layouts/with-margins 5 5 0 0
                                      (node-icon (:type node))))
-                                 
                                  :mouse-event-handler [node-icon-mouse-event-handler state-atom node])
                           (when show-children
                             (layouts/with-margins 0 0 0 7
-                              (assoc (visuals/rectangle [255 255 255 255]
+                              (assoc (visuals/rectangle text-color
                                                         0 0)
                                      :width 1
                                      :height (- (:height text-layout)
@@ -87,7 +90,7 @@
      (when show-children
        (layouts/horizontally
         (layouts/with-margins -1 0 0 7
-          (assoc (visuals/rectangle [255 255 255 255]
+          (assoc (visuals/rectangle text-color
                                     0 0)
                  :width 1
                  :height (+ 14
@@ -96,11 +99,17 @@
         child-layout)))))
 
 
+(defn render [scene-graph gl]
+  (opengl/clear gl 1 1 1 1)
+  (let [quad-renderer-atom (atom-registry/get! ::root-renderer (quad-renderer/atom-specification gl))]
+    (quad-renderer/render quad-renderer-atom gl scene-graph)))
+
 (defn create-scene-graph [state-atom width height]
-  (animation/swap-state! animation/set-wake-up 1000)
+  (animation/swap-state! animation/set-wake-up 10000)
   (-> (layouts/with-margins 10 10 10 10
         (node-view state-atom @(:node-atom @state-atom)))
-      (application/do-layout width height)))
+      (application/do-layout width height)
+      (assoc :render render)))
 
 (defn create-state [node-atom]
   {:node-atom node-atom
