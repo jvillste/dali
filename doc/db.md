@@ -1,6 +1,6 @@
 ## Data tree
 
-Datomic like database that can be branched and merged like git repositories.
+Datomic like database that can be branched and merged like a git repository.
 
 # Datom
 
