@@ -368,6 +368,16 @@
                                 parent-2)) 
          (partition 2 1 parents)))
 
+(defn new-forks [db transaction]
+  (loop [parents (:parents transaction)
+         forks []]
+    (if-let [parent (first parents)]
+      (recur (rest parents)
+             (if (= 1 (count (get-in db [:transaction-children parent])))
+               (conj forks parent)
+               forks))
+      forks)))
+
 (defn transact [db transaction]
   (doseq [parent-hash (:parents transaction)]
     (assert (get-in db [:transactions parent-hash])
@@ -421,7 +431,7 @@
 
         (cond-> (< 1 (count (:parents transaction)))
           (-> (update-in [:branches branch-number :merges] conj transaction-number)))
-        
+
         (update :transactions assoc hash transaction-metadata)
         
         (cond-> (first (:parents transaction))
@@ -464,9 +474,9 @@
        (branch-node-label)))
 
 
-(defn branch-nodes [branch-number next-transaction-number]
+(defn branch-nodes [branch-number last-transaction-number]
   (map (partial assoc {:branch-number branch-number} :transaction-number)
-       (reverse (range next-transaction-number))))
+       (reverse (range (inc last-transaction-number)))))
 
 (deftest test-branch-nodes
   (is (= '({:branch-number 3, :transaction-number 4}
@@ -474,7 +484,7 @@
            {:branch-number 3, :transaction-number 2}
            {:branch-number 3, :transaction-number 1}
            {:branch-number 3, :transaction-number 0})
-         (branch-nodes 3 5))))
+         (branch-nodes 3 4))))
 
 (defn branches-to-graph [branches]
   (loop [branch-numbers (keys branches)
@@ -494,7 +504,7 @@
                                     []))))
                        graph
                        (branch-nodes branch-number
-                                     (get-in branches [branch-number :next-transaction-number])))))
+                                     (dec (get-in branches [branch-number :next-transaction-number]))))))
       graph)))
 
 (defn view-branches [transactions]
@@ -524,20 +534,11 @@
 
 (defn parent-nodes [db branch-number transaction-number]
   (loop [branch-number branch-number
-         parent-nodes (branch-nodes branch-number (inc transaction-number))]
+         parent-nodes (branch-nodes branch-number transaction-number)]
     (if-let [parent-branch-number (get-in db [:branches branch-number :parent-branch-number])]
       (recur parent-branch-number
              (concat parent-nodes (branch-nodes parent-branch-number
-                                                (inc (get-in db [:branches branch-number :parent-transaction-number])))))
-      parent-nodes)))
-
-(defn parent-nodes2 [db branch-number transaction-number visited-nodes]
-  (loop [branch-number branch-number
-         parent-nodes (branch-nodes branch-number (inc transaction-number))]
-    (if-let [parent-branch-number (get-in db [:branches branch-number :parent-branch-number])]
-      (recur parent-branch-number
-             (concat parent-nodes (branch-nodes parent-branch-number
-                                                (inc (get-in db [:branches branch-number :parent-transaction-number])))))
+                                                (get-in db [:branches branch-number :parent-transaction-number]))))
       parent-nodes)))
 
 (deftest test-parent-nodes
@@ -558,11 +559,70 @@
              {:branch-number 0, :transaction-number 0})
            (parent-nodes db 2 1)))
 
-    (is (= '({:branch-number 2, :transaction-number 1}
-             {:branch-number 2, :transaction-number 0}
-             {:branch-number 1, :transaction-number 0}
+    (is (= '({:branch-number 0, :transaction-number 2}
+             {:branch-number 0, :transaction-number 1}
              {:branch-number 0, :transaction-number 0})
            (parent-nodes db 0 2)))))
+
+(defn parts-first-transaction-number [merges last-transaction-number]
+  (or (first (drop-while (fn [merge-transaction-number]
+                           (> merge-transaction-number
+                              last-transaction-number))
+                         merges))
+      0))
+
+(defn part-contains? [part branch-number transaction-number]
+  (and (= branch-number
+          (:branch-number part))
+       (<= (:first-transaction-number part)
+           transaction-number)
+       (>= (:last-transaction-number part)
+           transaction-number)))
+
+(deftest test-part-contains?
+  (let [part {:branch-number 1
+              :first-transaction-number 0
+              :last-transaction-number 2}]
+    (is (= true (part-contains? part 1 1)))
+    (is (= false (part-contains? part 0 1)))
+    (is (= false (part-contains? part 1 3)))
+    (is (= true (part-contains? part 1 2)))))
+
+
+(defn parent-parts [db transaction-hash parts]
+  (let [transaction (get-in db [:transactions transaction-hash])
+        first-parent-parts-first-transaction-number (parts-first-transaction-number (get-in db [:branches
+                                                                                                (:branch-number transaction)
+                                                                                                :merges])
+                                                                                    (:transaction-number transaction))]
+    (loop [parts (concat parts
+                         [{:last-transaction-number (:transaction-number transaction)
+                           :first-transaction-number first-parent-parts-first-transaction-number
+                           :branch-number (:branch-number transaction)}]
+                         (parent-parts db)
+                         )
+           parents (:parents transaction)]
+      (if-let [parent (first parents)]
+        (let [parent-transaction (get-in db [:transactions parent])
+              first-transaction-number ]
+          (recur ))
+        
+        
+        (recur (concat parts
+                       (parent-parts db
+                                     parent
+                                     )))
+        ))
+    )
+  
+  
+  (loop [branch-number branch-number
+         parent-nodes (branch-nodes branch-number transaction-number)]
+    (if-let [parent-branch-number (get-in db [:branches branch-number :parent-branch-number])]
+      (recur parent-branch-number
+             (concat parent-nodes (branch-nodes parent-branch-number
+                                                (get-in db [:branches branch-number :parent-transaction-number]))))
+      parent-nodes)))
 
 
 #_(defn first-common [xs ys]
