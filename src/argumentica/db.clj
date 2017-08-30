@@ -392,7 +392,7 @@
                      (let [new-branch {:number (:next-branch-number db)
                                        :next-transaction-number 1
                                        :transaction-numbers {hash 0}
-                                       :merges []}]
+                                       :merges #{}}]
                        (if-let [first-parent-transaction-hash  (first (:parents transaction))]
                          (assoc new-branch
                                 :parent-transaction-number (get-in db [:branches (:branch-number ((:transactions db) first-parent-transaction-hash)) :transaction-numbers first-parent-transaction-hash])
@@ -552,7 +552,7 @@
         db (reduce transact
                    (create)
                    (temporal-ids-to-hashes transactions))]
-    (view-branches transactions)
+    #_(view-branches transactions)
     (is (= '({:branch-number 2, :transaction-number 1}
              {:branch-number 2, :transaction-number 0}
              {:branch-number 1, :transaction-number 0}
@@ -570,6 +570,49 @@
                               last-transaction-number))
                          merges))
       0))
+
+(defn parts-first-transaction-hash [db last-transaction-hash]
+  (loop [transaction-hash last-transaction-hash]
+    (let [parents (get-in db [:transactions transaction-hash :parents])]
+      (if (not (= 1 (count parents)))
+        transaction-hash
+        (recur (first parents))))))
+
+(defn create-test-db [visualize & transaction-graph-edges]
+  (let [transactions (apply create-test-transactions
+                            transaction-graph-edges)
+        {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
+        
+        db (reduce transact (create)
+                   (temporal-ids-to-hashes transactions))]
+
+    (if visualize
+      (view-branches transactions))
+
+    {:db db
+     :hashes hashes}))
+
+(deftest test-parts-first-transaction-hash
+  (let [{:keys [db hashes]} (create-test-db false
+                                            1 []
+                                            2 [1]
+                                            3 [1]
+                                            4 [2 3]
+                                            5 []
+                                            6 [4 5]
+                                            7 [4])]
+    
+    (is (= (hashes 4)
+           (parts-first-transaction-hash db
+                                         (hashes 7))))
+
+    (is (= (hashes 4)
+           (parts-first-transaction-hash db
+                                         (hashes 4))))
+
+    (is (= (hashes 6)
+           (parts-first-transaction-hash db
+                                         (hashes 6))))))
 
 (defn part-contains? [part branch-number transaction-number]
   (and (= branch-number
@@ -589,40 +632,51 @@
     (is (= true (part-contains? part 1 2)))))
 
 
-(defn parent-parts [db transaction-hash parts]
-  (let [transaction (get-in db [:transactions transaction-hash])
-        first-parent-parts-first-transaction-number (parts-first-transaction-number (get-in db [:branches
-                                                                                                (:branch-number transaction)
-                                                                                                :merges])
-                                                                                    (:transaction-number transaction))]
-    (loop [parts (concat parts
-                         [{:last-transaction-number (:transaction-number transaction)
-                           :first-transaction-number first-parent-parts-first-transaction-number
-                           :branch-number (:branch-number transaction)}]
-                         (parent-parts db)
-                         )
-           parents (:parents transaction)]
-      (if-let [parent (first parents)]
-        (let [parent-transaction (get-in db [:transactions parent])
-              first-transaction-number ]
-          (recur ))
-        
-        
-        (recur (concat parts
-                       (parent-parts db
-                                     parent
-                                     )))
-        ))
-    )
-  
-  
-  (loop [branch-number branch-number
-         parent-nodes (branch-nodes branch-number transaction-number)]
-    (if-let [parent-branch-number (get-in db [:branches branch-number :parent-branch-number])]
-      (recur parent-branch-number
-             (concat parent-nodes (branch-nodes parent-branch-number
-                                                (get-in db [:branches branch-number :parent-transaction-number]))))
-      parent-nodes)))
+(defn parent-parts
+  ([db transaction-hash]
+   (parent-parts db
+                 transaction-hash
+                 []))
+  ([db transaction-hash parts]
+   (let [last-transaction (get-in db [:transactions transaction-hash])]
+     (if (some (fn [part]
+                 (part-contains? part
+                                 (:branch-number last-transaction)
+                                 (:transaction-number last-transaction)))
+               parts)
+       parts
+       (let [first-transaction (get-in db [:transactions (parts-first-transaction-hash db transaction-hash)])]
+         (loop [parts (conj parts
+                            {:last-transaction-number (:transaction-number last-transaction)
+                             :first-transaction-number (:transaction-number first-transaction)
+                             :branch-number (:branch-number last-transaction)})
+                parents (:parents first-transaction)]
+           (if-let [parent (first parents)]
+             (recur (parent-parts db
+                                  parent
+                                  parts)
+                    (rest parents))
+             parts)))))))
+
+(defn part-label [{:keys [first-transaction-number last-transaction-number branch-number]}]
+  (str branch-number
+       ":"
+       first-transaction-number
+       "-"
+       last-transaction-number))
+
+(deftest test-parent-parts
+  (let [{:keys [db hashes]} (create-test-db false
+                                            1 []
+                                            2 [1]
+                                            3 [1]
+                                            4 [2 3]
+                                            5 []
+                                            6 [4 5])]
+    (is (= nil
+           (map part-label
+                (parent-parts db
+                              (hashes 6)))))))
 
 
 #_(defn first-common [xs ys]
@@ -886,4 +940,4 @@
                                 (transaction-hash transaction-3)]))
         #_(get-value 1 :friend))))
 
-(start)
+#_(start)
