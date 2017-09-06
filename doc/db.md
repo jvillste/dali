@@ -31,3 +31,15 @@ Each branch is indexed as a sorted set of datoms. To query the database state as
 
 
 <img src="https://raw.github.com/jvillste/argumentica/master/doc/querying.png" />
+
+## TODO
+
+* All transactions can be saved in to the same index
+  * the transaction ids should be sorted in topological order
+  * links between branches must be stored separately
+  * merging two graphs would invalidate the old indexes. If the old indexes are kept separate, they can be kept i caches
+  * 
+  
+  
+  
+  

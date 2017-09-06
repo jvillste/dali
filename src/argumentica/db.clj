@@ -104,7 +104,6 @@
                (subseq eatvc >= [e a t nil nil])))
 
   ([eatvc e a t-from t-to]
-   (prn "eatvc" eatvc e a t-from t-to)
    (take-while (fn [statement]
                  (<= (nth statement 2)
                      t-to))
@@ -633,34 +632,232 @@
     (is (= false (part-contains? part 1 3)))
     (is (= true (part-contains? part 1 2)))))
 
+(defn sort-topologically [root get-children get-value]
+  (loop [sorted-nodes []
+         to-be-added [root]]
+    (if (empty? to-be-added)
+      sorted-nodes
+      (let [children (->> (get-children (peek to-be-added))
+                          (reverse)
+                          (drop-while (fn [child]
+                                        (some #{(get-value child)}
+                                              sorted-nodes))))]
+        (if (empty? children)
 
-(defn parent-parts
-  ([db transaction-hash]
-   (parent-parts db
-                 transaction-hash
-                 []))
-  
-  ([db transaction-hash parts]
-   (let [last-transaction (get-in db [:transactions transaction-hash])]
-     (if (some (fn [part]
-                 (part-contains? part
-                                 (:branch-number last-transaction)
-                                 (:transaction-number last-transaction)))
-               parts)
-       parts
-       (let [first-transaction (get-in db [:transactions (parts-first-transaction-hash db transaction-hash)])]
-         (prn "first is" first-transaction)
-         (loop [parts (conj parts
-                            {:last-transaction-number (:transaction-number last-transaction)
-                             :first-transaction-number (:transaction-number first-transaction)
-                             :branch-number (:branch-number last-transaction)})
-                parents (:parents first-transaction)]
-           (if-let [parent (first parents)]
-             (recur (parent-parts db
-                                  parent
-                                  parts)
-                    (rest parents))
-             parts)))))))
+          (recur (conj sorted-nodes
+                       (get-value (peek to-be-added)))
+                 (pop to-be-added))
+          
+          (recur sorted-nodes
+                 (vec (concat to-be-added
+                              children))))))))
+
+(deftest test-sort-topologically
+  (is (= [2 3 1]
+         (sort-topologically {:value 1
+                              :children [{:value 2}
+                                         {:value 3}]}
+                             :children
+                             :value))))
+
+(defn sort-topologically-with-cache [cache root]
+  (loop [cache cache
+         sorted-nodes []
+         to-be-added [root]]
+    (if-let [index (get-in cache [:indexes (:value (peek to-be-added))])]
+      (get-in cache [:sort index])
+      
+      (if (empty? to-be-added)
+        sorted-nodes
+        (let [children (->> (:children (peek to-be-added))
+                            (reverse)
+                            (drop-while (fn [child]
+                                          (some #{(:value child)}
+                                                sorted-nodes))))]
+          (if (empty? children)
+
+            (recur (assoc-in cache
+                             [:indexes (:value (peek to-be-added))]
+                             (count sorted-nodes))
+                   (conj sorted-nodes
+                         (:value (peek to-be-added)))
+                   (pop to-be-added))
+            
+            (recur cache
+                   sorted-nodes
+                   (vec (concat to-be-added
+                                children)))))))))
+
+
+#_(deftest test-sort-topologically-with-cache
+    (is (= {:values [2 3 1]} 
+           (sort-topologically-with-cache {}
+                                          {:value 1
+                                           :children [{:value 2}
+                                                      {:value 3}]}))))
+
+(defn sort-topologically [root get-children get-value]
+  (loop [sorted-nodes []
+         to-be-added [root]]
+    (if (empty? to-be-added)
+      sorted-nodes
+      (let [children (->> (get-children (peek to-be-added))
+                          (reverse)
+                          (drop-while (fn [child]
+                                        (some #{(get-value child)}
+                                              sorted-nodes))))]
+        (if (empty? children)
+
+          (recur (conj sorted-nodes
+                       (get-value (peek to-be-added)))
+                 (pop to-be-added))
+          
+          (recur sorted-nodes
+                 (vec (concat to-be-added
+                              children))))))))
+
+(defn parent-transactions [db last-transaction-hash]
+  (sort-topologically last-transaction-hash
+                      (fn [transaction-hash]
+                        (get-in db [:transactions transaction-hash :parents]))
+                      identity))
+
+(deftest test-parent-transactions
+  (let [{:keys [db hashes temporal-ids]} (create-test-db #_true false
+                                                         1 []
+                                                         2 [1]
+                                                         3 [1]
+                                                         4 [2 3]
+                                                         5 []
+                                                         6 [4 5])]
+
+    (is (= '(1 2 3 4)
+           (map temporal-ids (parent-transactions db
+                                                  (hashes 4)))))
+
+    (is (= '(1 2 3 4 5 6)
+           (map temporal-ids (parent-transactions db
+                                                  (hashes 6)))))))
+
+(defn partition-transaction-hashes-in-to-parts [db transaction-hashes-in-topological-order]
+  (->> (partition-by (fn [transaction-hash]
+                       (get-in db [:transactions transaction-hash :branch-number]))
+                     transaction-hashes-in-topological-order)
+       (map (fn [transaction-hashes]
+              {:branch-number (get-in db [:transactions (first transaction-hashes) :branch-number])
+               :first-transaction-number (get-in db [:transactions (first transaction-hashes) :transaction-number])
+               :last-transaction-number (get-in db [:transactions (last transaction-hashes) :transaction-number])}))))
+
+(deftest test-partition-transaction-hashes-in-to-parts
+  (let [{:keys [db hashes]} (create-test-db #_true false
+                                            1 []
+                                            2 [1]
+                                            3 [1]
+                                            4 [2 3]
+                                            5 []
+                                            6 [4 5])]
+
+    (is (= '("0:0-1" "1:0-0" "0:2-2")
+           (map part-label
+                (partition-transaction-hashes-to-parts db
+                                                       (parent-transactions db (hashes 4))))))
+    
+    (is (= '("0:0-1" "1:0-0" "0:2-2" "2:0-0" "0:3-3")
+           (map part-label
+                (partition-transaction-hashes-to-parts db
+                                                       (parent-transactions db (hashes 6)))))))
+
+  (let [{:keys [db hashes]} (create-test-db  #_true false
+                                             1 []
+                                             2 [1]
+                                             3 [1]
+                                             4 [3 2])]
+
+    (is (= '("0:0-0" "1:0-0" "0:1-1" "1:1-1")
+           (map part-label
+                (partition-transaction-hashes-to-parts db
+                                                       (parent-transactions db (hashes 4))))))))
+
+(defn part [db last-transaction-hash]
+  (let [last-transaction (get-in db [:transactions last-transaction-hash])
+        first-transaction-hash (parts-first-transaction-hash db
+                                                             last-transaction-hash)]
+    {:last-transaction-number (:transaction-number last-transaction)
+     :last-transaction-hash last-transaction-hash
+     :first-transaction-number (get-in db [:transactions
+                                           first-transaction-hash
+                                           :transaction-number])
+     :first-transaction-hash first-transaction-hash
+     :branch-number (:branch-number last-transaction)}))
+
+(defn parent-parts [db child-part]
+  (map (partial part db)
+       (get-in db [:transactions (:first-transaction-hash child-part) :parents])))
+
+
+(deftest test-parent-parts
+  (let [{:keys [db hashes]} (create-test-db #_true false
+                                            1 []
+                                            2 [1]
+                                            3 [1]
+                                            4 [2 3]
+                                            5 []
+                                            6 [4 5])]
+
+    (is (= '("0:0-1" "1:0-0")
+           (map part-label (parent-parts db
+                                         {:first-transaction-hash (hashes 4)} ))))))
+
+(defn anchestor-parts [db last-transaction-hash]
+  (let [last-part (part db last-transaction-hash)]
+    (loop [parts []
+           to-be-added [last-part]]
+      (if (empty? to-be-added)
+        parts
+        (let [parents (->> (parent-parts db (peek to-be-added))
+                           (reverse)
+                           (drop-while (fn [parent]
+                                         (some #{parent}
+                                               parts))))]
+          (if (empty? parents)
+
+            (recur (conj parts
+                         (peek to-be-added))
+                   (pop to-be-added))
+            
+            (recur parts
+                   (vec (concat to-be-added
+                                parents)))))))))
+
+#_(defn parent-parts
+    ([db transaction-hash]
+     (parent-parts db
+                   transaction-hash
+                   []))
+    
+    ([db transaction-hash parts]
+     (let [last-transaction (get-in db [:transactions transaction-hash])]
+       (if (some (fn [part]
+                   (part-contains? part
+                                   (:branch-number last-transaction)
+                                   (:transaction-number last-transaction)))
+                 parts)
+         parts
+         (let [first-transaction (get-in db [:transactions (parts-first-transaction-hash db transaction-hash)])]
+           (loop [parts parts
+                  parents (:parents first-transaction)]
+             (if-let [parent (first parents)]
+               (recur (parent-parts db
+                                    parent
+                                    parts)
+                      (rest parents))
+               (conj parts
+                     {:last-transaction-number (:transaction-number last-transaction)
+                      :first-transaction-number (:transaction-number first-transaction)
+                      :branch-number (:branch-number last-transaction)}))))))))
+
+
+
 
 (defn part-label [{:keys [first-transaction-number last-transaction-number branch-number]}]
   (str branch-number
@@ -669,8 +866,8 @@
        "-"
        last-transaction-number))
 
-(deftest test-parent-parts
-  (let [{:keys [db hashes]} (create-test-db false
+(deftest test-anchestor-parts
+  (let [{:keys [db hashes]} (create-test-db #_true false
                                             1 []
                                             2 [1]
                                             3 [1]
@@ -678,114 +875,44 @@
                                             5 []
                                             6 [4 5])]
 
-    (is (= '("1:0-0" "0:0-0")
+    (is (= '("0:0-0" "1:0-0")
            (map part-label
-                (parent-parts db
-                              (hashes 3)))))
+                (anchestor-parts db
+                                 (hashes 3)))))
+
+    (is (= '("0:0-1" "1:0-0" "0:2-2")
+           (map part-label
+                (anchestor-parts db
+                                 (hashes 4)))))
     
-    #_(is (= '("0:3-3" "0:2-2" "0:0-1" "1:0-0" "2:0-0")
+    (is (= '("0:0-1" "1:0-0" "0:2-2" "2:0-0" "0:3-3")
+           (map part-label
+                (anchestor-parts db
+                                 (hashes 6)))))))
+
+#_(deftest test-parent-parts
+    (let [{:keys [db hashes]} (create-test-db #_true false
+                                              1 []
+                                              2 [1]
+                                              3 [1]
+                                              4 [2 3]
+                                              5 []
+                                              6 [4 5])]
+
+      (is (= '("0:0-0" "1:0-0")
+             (map part-label
+                  (parent-parts db
+                                (hashes 3)))))
+
+      (is (= '("0:0-1" "1:0-0" "0:2-2")
+             (map part-label
+                  (parent-parts db
+                                (hashes 4)))))
+      
+      (is (= '("0:0-1" "1:0-0" "0:2-2" "2:0-0" "0:3-3")
              (map part-label
                   (parent-parts db
                                 (hashes 6)))))))
-
-
-#_(defn first-common [xs ys]
-    (loop [seen-xs (hash-set)
-           seen-ys (hash-set)
-           xs xs
-           ys ys]
-      (if-let [x (first xs)]
-        (let [seen-xs (conj seen-xs x)]
-          (if-let [y (first ys)]
-            (let [seen-ys (conj seen-ys y)]
-              (if (or (contains? seen-xs y) 
-                      (contains? seen-ys x))
-                x
-                (recur seen-xs
-                       seen-ys
-                       (rest xs)
-                       (rest ys))))
-            (if (contains? seen-ys x)
-              x
-              (recur seen-xs
-                     seen-ys
-                     (rest xs)
-                     []))))
-        (if-let [y (first ys)]
-          (if (contains? seen-xs y) 
-            y
-            (recur seen-xs
-                   seen-ys
-                   []
-                   (rest ys)))
-          nil))))
-
-#_(deftest test-first-common
-    (is (= 1
-           (first-common [0 1] [3 1])))
-
-    (is (= 1
-           (first-common [0 2 4 5 1] [3 1])))
-
-    (is (= 1
-           (first-common [3 1] [0 2 4 5 1]))))
-
-
-
-#_(defn first-common-parent [db hash-1 hash-2]
-    (let [transaction-1 (get-in db [:transactions hash-1])
-          transaction-2 (get-in db [:transactions hash-2])]
-      #_(:branch-number transaction-1)
-
-      #_(prn (parent-nodes db
-                           (:branch-number transaction-1)
-                           (:transaction-number transaction-1)))
-
-
-      #_(prn (parent-nodes db
-                           (:branch-number transaction-2)
-                           (:transaction-number transaction-2)))
-      
-      (first-common (parent-nodes db
-                                  (:branch-number transaction-1)
-                                  (:transaction-number transaction-1))
-                    (parent-nodes db
-                                  (:branch-number transaction-2)
-                                  (:transaction-number transaction-2)))))
-
-
-
-
-#_(deftest test-first-common-parent
-    (let [transactions (create-test-transactions 1 []
-                                                 2 [1]
-                                                 3 [1]
-                                                 4 [3]
-                                                 5 [3]
-                                                 6 [2 5])
-          {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
-          db (reduce transact
-                     (create)
-                     (temporal-ids-to-hashes transactions))]
-      #_(view-branches transactions)
-
-      #_(is (= {:branch-number 0, :transaction-number 0}
-               (first-common-parent db
-                                    (hashes 2)
-                                    (hashes 3))))
-
-      #_(is (= {:branch-number 0, :transaction-number 0}
-               (first-common-parent db
-                                    (hashes 2)
-                                    (hashes 5))))
-
-      (is (= {:branch-number 1, :transaction-number 0}
-             (first-common-parent db
-                                  (hashes 4)
-                                  (hashes 6))))))
-
-
-
 
 
 (deftest test-branches-to-graph
@@ -872,18 +999,18 @@
   (loop [statements []
          parts (parent-parts db last-transaction)]
     (if-let [part (first parts)]
-      (recur (concat (eatvc-statements (get-in db [:eatvcs (:branch-number part)])
+      (recur (concat statements
+                     (eatvc-statements (get-in db [:eatvcs (:branch-number part)])
                                        e
                                        a
                                        (:first-transaction-number part)
-                                       (:last-transaction-number part))
-                     statements)
+                                       (:last-transaction-number part)))
              (rest parts))
       statements)))
 
 
 (deftest test-get-statements
-  (let [{:keys [db hashes]} (create-test-db false
+  (let [{:keys [db hashes]} (create-test-db false #_true
                                             1 []
                                             2 [1]
                                             3 [1]
@@ -891,31 +1018,32 @@
                                             5 []
                                             6 [4 5]
                                             7 [4])]
-    #_(is (= '([1 :friend 0 :add 1]
-               [1 :friend 1 :add 2])
-             (get-statements db
-                             (hashes 2)
-                             1 :friend)))
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 1 :add 2])
+           (get-statements db
+                           (hashes 2)
+                           1 :friend)))
 
-    #_(is (= '([1 :friend 0 :add 1]
-               [1 :friend 0 :add 3])
-             (get-statements db
-                             (hashes 3)
-                             1
-                             :friend)))
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 0 :add 3])
+           (get-statements db
+                           (hashes 3)
+                           1
+                           :friend)))
 
-    #_(is (= '([1 :friend 0 :add 1]
-               [1 :friend 1 :add 2]
-               [1 :friend 2 :add 4])
-             (get-statements db
-                             (hashes 4)
-                             1
-                             :friend)))))
+    (is (= '([1 :friend 0 :add 1]
+             [1 :friend 1 :add 2]
+             [1 :friend 0 :add 3]
+             [1 :friend 2 :add 4])
+           (get-statements db
+                           (hashes 4)
+                           1
+                           :friend)))))
 
-(defn get-value [db leaf-transaction e a]
+(defn get-value [db t e a]
   (reduce reduce-values #{}
           (map eatvc-statement-vector-to-map
-               (get-statements db leaf-transaction e a))))
+               (get-statements db t e a))))
 
 (deftest test-get-value
   (let [transaction-1 (transaction []
@@ -945,19 +1073,15 @@
                       :friend)))))
 
 (defn start []
-  (let  [transaction-1 (transaction []
-                                    [1 :friend :add "1 frend 1"]
-                                    [2 :friend :add "2 frend 1"])
-         transaction-2 (transaction [(transaction-hash transaction-1)]
-                                    [1 :friend :set "1 frend 2"])
-         transaction-3 (transaction [(transaction-hash transaction-1)]
-                                    [1 :friend :set "1 frend 3"])]
-    (-> (create)
-        (transact transaction-1)
-        (transact transaction-2)
-        (transact transaction-3)
-        (transact (transaction [(transaction-hash transaction-2)
-                                (transaction-hash transaction-3)]))
-        #_(get-value 1 :friend))))
+
+  (:db (create-test-db false #_true
+                       1 []
+                       2 [1]
+                       3 [1]
+                       ;; 4 [2 3]
+                       ;; 5 []
+                       ;; 6 [4 5]
+                       ;; 7 [4]
+                       )))
 
 #_(start)
