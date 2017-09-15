@@ -108,6 +108,7 @@ Values can be one of:
 
 * Number (Arbitrary precision decimal number)
 * String
+* Entity id
 * Binary
 
 * What if the only data type is binary?
@@ -162,4 +163,9 @@ Values can be one of:
   [1 name 1 Foo]
 
 
+# How to invalidate entities efficiently?
 
+* Entity registers itself to an atom when it's created
+* Entity keeps track of the last transaction that changed one of entitys properties
+* 
+* Affected entity id's are 

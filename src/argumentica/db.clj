@@ -87,27 +87,27 @@
     values))
 
 (defn eatvc-statements
-  ([eatvc e]
-   (eatvc-statements eatvc e nil 0))
+  ([eatvc entity-id]
+   (eatvc-statements eatvc entity-id nil 0))
   
-  ([eatvc e a]
-   (eatvc-statements eatvc e a 0))
+  ([eatvc entity-id a]
+   (eatvc-statements eatvc entity-id a 0))
 
-  ([eatvc e a t]
+  ([eatvc entity-id a transaction-hash]
    (take-while (fn [statement]
                  (and (= (first statement)
-                         e)
+                         entity-id)
                       (if a
                         (= (second statement)
                            a)
                         true)))
-               (subseq eatvc >= [e a t nil nil])))
+               (subseq eatvc >= [entity-id a transaction-hash nil nil])))
 
-  ([eatvc e a t-from t-to]
+  ([eatvc entity-id a t-from t-to]
    (take-while (fn [statement]
                  (<= (nth statement 2)
                      t-to))
-               (eatvc-statements eatvc e a t-from))))
+               (eatvc-statements eatvc entity-id a t-from))))
 
 (deftest eatvc-statements-test
   (is (= '([2 :friend 1 :add "2 frend 1"] [2 :friend 2 :add "2 frend 2"])
@@ -150,10 +150,10 @@
                            2
                            3))))
 
-(defn get-eatvc-values [eatvc e a]
+(defn get-eatvc-values [eatvc entity-id a]
   (reduce accumulate-values #{}
           (map eatvc-statement-vector-to-map
-               (eatvc-statements eatvc e a))))
+               (eatvc-statements eatvc entity-id a))))
 
 (deftest get-eatvc-values-test
   (is (= #{"2 frend 2"
@@ -191,8 +191,8 @@
    :branches {}})
 
 
-(defn add-transaction-number-to-eavc [transaction-number [e a v c]]
-  [e
+(defn add-transaction-number-to-eavc [transaction-number [entity-id a v c]]
+  [entity-id
    a
    transaction-number
    v
@@ -749,13 +749,13 @@
                                             (parent-transactions db
                                                                  last-transaction-hash)))
 
-(defn get-statements [db last-transaction e a]
+(defn get-statements [db last-transaction entity-id a]
   (loop [statements []
          parts (parent-parts db last-transaction)]
     (if-let [part (first parts)]
       (recur (concat statements
                      (eatvc-statements (get-in db [:eatvcs (:branch-number part)])
-                                       e
+                                       entity-id
                                        a
                                        (:first-transaction-number part)
                                        (:last-transaction-number part)))
@@ -805,10 +805,10 @@
                            1
                            :friend)))))
 
-(defn get-value [db t e a]
+(defn get-value [db transaction-hash entity-id a]
   (reduce accumulate-values #{}
           (map eatvc-statement-vector-to-map
-               (get-statements db t e a))))
+               (get-statements db transaction-hash entity-id a))))
 
 (deftest test-get-value
   (let [transaction-1 (transaction []
@@ -857,33 +857,98 @@
                       1
                       :friend)))))
 
+(defn get-reference [db reference]
+  (get-in db [:references reference]))
+
+(defn transact-over [db reference & statements]
+  (let [parents (if-let [parent (get-reference db
+                                               reference)]
+                  [parent]
+                  [])
+        transaction (apply transaction
+                           parents
+                           statements)
+        db (transact db
+                     transaction)]
+    (assoc-in db [:references reference] (transaction-hash transaction))))
 
 
-#_(deftype Entity [db e t]
-    Object
-    (toString [e]      (pr-str e))
-    (hashCode [e]      (hash e)) ; db?
 
-    clojure.lang.Seqable
-    (seq [e]           (seq []))
+(deftest test-transact-over
+  (let [db (-> (create)
+               (transact-over :master [[1] :friend :add "friend 1"])
+               (transact-over :master [[1] :friend :add "friend 2"]))]
+    
+    (is (= #{"friend 2" "friend 1"}
+           (get-value db
+                      (get-reference db
+                                     :master)
+                      [1]
+                      :friend)))
+    (let [db (-> db
+                 (transact-over :master [[1] :friend :retract "friend 1"]))]
+      
+      (is (= #{"friend 2"}
+             (get-value db
+                        (get-reference db
+                                       :master)
+                        [1]
+                        :friend)))
+      (let [db (-> db
+                   (transact-over :master [[1] :friend :set "only friend"]))]
+        
+        (is (= #{"only friend"}
+               (get-value db
+                          (get-reference db
+                                         :master)
+                          [1]
+                          :friend)))))))
 
-    clojure.lang.Associative
-    (equiv [e o]       (equiv-entity e o))
-    (containsKey [e a] (get-value db t e a))
-    (entryAt [e a]     (some->> (get-value db t e a) (clojure.lang.MapEntry. a)))
+(defn get-entity-attribute [entity attribute]
+  )
 
-    (empty [e]         (throw (UnsupportedOperationException.)))
-    (assoc [e k v]     (throw (UnsupportedOperationException.)))
-    (cons  [e [k v]]   (throw (UnsupportedOperationException.)))
-    (count [e]         (touch e) (count @(.-cache e)))
+(deftype Entity [db entity-id transaction-hash]
+  Object
+  (toString [this]   (pr-str entity-id))
+  (hashCode [this]   (hash this)) ; db?
 
-    clojure.lang.ILookup
-    (valAt [e k]       (lookup-entity e k))
-    (valAt [e k not-found] (lookup-entity e k not-found))
+  clojure.lang.Seqable
+  (seq [this]           (seq []))
 
-    clojure.lang.IFn
-    (invoke [e k]      (lookup-entity e k))
-    (invoke [e k not-found] (lookup-entity e k not-found)))
+  clojure.lang.Associative
+  (equiv [this other-object] (= this other-object))
+  (containsKey [this attribute] (get-value db transaction-hash entity-id attribute))
+  (entryAt [this a]     (some->> (get-value db transaction-hash entity-id a) (clojure.lang.MapEntry. a)))
+
+  (empty [this]         (throw (UnsupportedOperationException.)))
+  (assoc [this k v]     (throw (UnsupportedOperationException.)))
+  (cons  [this [k v]]   (throw (UnsupportedOperationException.)))
+  (count [this]         (throw (UnsupportedOperationException.)))
+
+  clojure.lang.ILookup
+  (valAt [this attribute] (get-value db
+                                     transaction-hash
+                                     entity-id
+                                     attribute))
+  (valAt [this attribute not-found] (or (get-value db
+                                                   transaction-hash
+                                                   entity-id
+                                                   attribute)
+                                        not-found))
+
+  clojure.lang.IFn
+  (invoke [this attribute] (get-value db
+                                      transaction-hash
+                                      entity-id
+                                      attribute))
+  (invoke [this attribute not-found] (or (get-value db
+                                                    transaction-hash
+                                                    entity-id
+                                                    attribute)
+                                         not-found)))
+
+(deftest test-entity
+  )
 
 (defn start []
 
