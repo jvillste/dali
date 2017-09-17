@@ -407,6 +407,8 @@
           (-> (update-in [:branches branch-number :merges] conj transaction-number)))
 
         (update :transactions assoc hash transaction-metadata)
+
+        (update :transaction-log (fnil conj []) transaction)
         
         (cond-> (first (:parents transaction))
           (update-in [:transaction-children (first (:parents transaction))] (fnil conj #{}) hash)))))
@@ -860,24 +862,36 @@
 (defn get-reference [db reference]
   (get-in db [:references reference]))
 
-(defn transact-over [db reference & statements]
-  (let [parents (if-let [parent (get-reference db
-                                               reference)]
-                  [parent]
-                  [])
-        transaction (apply transaction
-                           parents
-                           statements)
-        db (transact db
-                     transaction)]
-    (assoc-in db [:references reference] (transaction-hash transaction))))
+(defn transaction-over [db parent-references statements]
+  (doseq [reference-to-be-merged (rest parent-references)]
+    (assert (not= nil
+                  (get-reference db
+                                 reference-to-be-merged))
+            (str "unknown reference to be merged:" reference-to-be-merged)))
+  
+  (apply transaction
+         (->> (map (partial get-reference db)
+                   parent-references)
+              (filter (complement nil?)))
+         statements))
 
+(defn transact-over [db first-parent-reference transaction]
+  (-> db
+      (transact transaction)
+      (assoc-in [:references first-parent-reference]
+                (transaction-hash transaction))))
 
+(defn transact-statements-over [db parent-references & statements]
+  (transact-over db
+                 (first parent-references)
+                 (transaction-over db
+                                   parent-references
+                                   statements)))
 
-(deftest test-transact-over
+(deftest test-transact-statements-over
   (let [db (-> (create)
-               (transact-over :master [[1] :friend :add "friend 1"])
-               (transact-over :master [[1] :friend :add "friend 2"]))]
+               (transact-statements-over [:master]  [[1] :friend :add "friend 1"])
+               (transact-statements-over [:master] [[1] :friend :add "friend 2"]))]
     
     (is (= #{"friend 2" "friend 1"}
            (get-value db
@@ -886,7 +900,7 @@
                       [1]
                       :friend)))
     (let [db (-> db
-                 (transact-over :master [[1] :friend :retract "friend 1"]))]
+                 (transact-statements-over [:master] [[1] :friend :retract "friend 1"]))]
       
       (is (= #{"friend 2"}
              (get-value db
@@ -895,7 +909,7 @@
                         [1]
                         :friend)))
       (let [db (-> db
-                   (transact-over :master [[1] :friend :set "only friend"]))]
+                   (transact-statements-over [:master] [[1] :friend :set "only friend"]))]
         
         (is (= #{"only friend"}
                (get-value db

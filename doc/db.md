@@ -40,6 +40,6 @@ Each branch is indexed as a sorted set of datoms. To query the database state as
   * merging two graphs would invalidate the old indexes. If the old indexes are kept separate, they can be kept i caches
   * 
   
-  
+* transactions should have running numbering so that clients can tell if they have got all transactions and in the right order.  
   
   

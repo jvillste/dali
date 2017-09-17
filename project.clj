@@ -11,5 +11,6 @@
                  [com.google.guava/guava "21.0"]
                  [aysylu/loom "1.0.0"]
                  [spootnik/net "0.3.3-beta9"]
-                 [org.clojure/core.async "0.3.443"]]
+                 [org.clojure/core.async "0.3.443"]
+                 [org.clojure/algo.monads "0.1.6"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
