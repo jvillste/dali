@@ -628,6 +628,33 @@
                              :value))))
 
 
+#_(defn breath-first-search [root get-children get-value]
+    (loop [sorted-nodes []
+           to-be-added [root]]
+      (let [children (->> (get-children (peek to-be-added))
+                          (reverse)
+                          (drop-while (fn [child]
+                                        (some #{(get-value child)}
+                                              sorted-nodes))))]
+        (if (empty? children)
+
+          (recur (conj sorted-nodes
+                       (get-value (peek to-be-added)))
+                 (pop to-be-added))
+          
+          (recur sorted-nodes
+                 (vec (concat to-be-added
+                              children)))))))
+
+
+#_(deftest test-breath-first-search
+    #_(is (= [2 3 1]
+             (sort-topologically {:value 1
+                                  :children [{:value 2}
+                                             {:value 3}]}
+                                 :children
+                                 :value))))
+
 (defn parent-transactions [db last-transaction-hash]
   (sort-topologically last-transaction-hash
                       (fn [transaction-hash]
@@ -890,7 +917,7 @@
 
 (deftest test-transact-statements-over
   (let [db (-> (create)
-               (transact-statements-over [:master]  [[1] :friend :add "friend 1"])
+               (transact-statements-over [:master] [[1] :friend :add "friend 1"])
                (transact-statements-over [:master] [[1] :friend :add "friend 2"]))]
     
     (is (= #{"friend 2" "friend 1"}
@@ -918,7 +945,44 @@
                           [1]
                           :friend)))))))
 
-(defn get-entity-attribute [entity attribute]
+(defn add-reference [db reference reference-or-transaction-hash]
+  (if-let [old-reference (get-reference db
+                                        reference-or-transaction-hash)]
+    (assoc-in db
+              [:references reference]
+              old-reference)
+    (if (get-in db [:transactions reference-or-transaction-hash])
+      (assoc-in db
+                [:references reference]
+                reference-or-transaction-hash)
+      (throw (Exception. (str "unknown reference or transaction " reference-or-transaction-hash))))))
+
+
+(defn squash-statements [statements]
+  )
+
+(deftest test-squash-statements
+  (is (= [[1 :friend :add 1]]
+         (squash-statements [[1 :friend :add 1]]))))
+
+
+(defn rebase [db from-transaction-hash to-transaction-hash new-base-transaction-hash]
+  (let [common-transactions-set (into #{}
+                                      (sort-topologically from-transaction-hash
+                                                          (fn [transaction-hash]
+                                                            (get-in db [:transactions transaction-hash :parents]))
+                                                          identity))
+        non-common-parent-hashes (fn [transaction-hash]
+                                   (filter (complement common-transactions-set)
+                                           (get-in db [:transactions transaction-hash :parents])))
+        
+        their-new-transaction-hashes (sort-topologically new-base-transaction-hash
+                                                         non-common-parent-hashes
+                                                         identity)
+        our-new-transaction-hashes (sort-topologically to-transaction-hash
+                                                       non-common-parent-hashes
+                                                       identity)])
+  
   )
 
 (deftype Entity [db entity-id transaction-hash]
@@ -960,9 +1024,6 @@
                                                     entity-id
                                                     attribute)
                                          not-found)))
-
-(deftest test-entity
-  )
 
 (defn start []
 

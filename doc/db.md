@@ -34,6 +34,8 @@ Each branch is indexed as a sorted set of datoms. To query the database state as
 
 ## TODO
 
+* Client applications need an in memory database that refers to a server database as a basis on which local branch is developed. Eventually the local transactions are squashed and sent to the server as a single transaction. The local branch is rebased periodically to take in to account the server changes between the branching and the transacting of the server.
+
 * All transactions can be saved in to the same index
   * the transaction ids should be sorted in topological order
   * links between branches must be stored separately
