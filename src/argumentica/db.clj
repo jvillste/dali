@@ -69,10 +69,10 @@
 (defn transaction-hash [transaction]
   (base-16-encode (sha-256 (pr-str (select-keys transaction [:statements :parents])))))
 
-(defn eatvc-statement-value [statement]
+(defn eatcv-statement-value [statement]
   (nth statement 4))
 
-(defn eatvc-statement-vector-to-map [statement]
+(defn eatcv-statement-vector-to-map [statement]
   {:entity (nth statement 0)
    :attribute (nth statement 1)
    :transaction (nth statement 2)
@@ -86,14 +86,14 @@
     :set  #{(:value statement-map)}
     values))
 
-(defn eatvc-statements
-  ([eatvc entity-id]
-   (eatvc-statements eatvc entity-id nil 0))
+(defn eatcv-statements
+  ([eatcv entity-id]
+   (eatcv-statements eatcv entity-id nil 0))
   
-  ([eatvc entity-id a]
-   (eatvc-statements eatvc entity-id a 0))
+  ([eatcv entity-id a]
+   (eatcv-statements eatcv entity-id a 0))
 
-  ([eatvc entity-id a transaction-hash]
+  ([eatcv entity-id a transaction-hash]
    (take-while (fn [statement]
                  (and (= (first statement)
                          entity-id)
@@ -101,17 +101,17 @@
                         (= (second statement)
                            a)
                         true)))
-               (subseq eatvc >= [entity-id a transaction-hash nil nil])))
+               (subseq eatcv >= [entity-id a transaction-hash nil nil])))
 
-  ([eatvc entity-id a t-from t-to]
+  ([eatcv entity-id a t-from t-to]
    (take-while (fn [statement]
                  (<= (nth statement 2)
                      t-to))
-               (eatvc-statements eatvc entity-id a t-from))))
+               (eatcv-statements eatcv entity-id a t-from))))
 
-(deftest eatvc-statements-test
+(deftest eatcv-statements-test
   (is (= '([2 :friend 1 :add "2 frend 1"] [2 :friend 2 :add "2 frend 2"])
-         (eatvc-statements  (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (eatcv-statements  (sorted-set [1 :friend 1 :add "1 frend 1"]
                                         [2 :friend 1 :add "2 frend 1"]
                                         [2 :friend 2 :add "2 frend 2"]
                                         [2 :name 2 :add "2 frend 2"]
@@ -122,7 +122,7 @@
   (is (= '([2 :friend 1 :add "2 frend 1"]
            [2 :friend 2 :add "2 frend 2"]
            [2 :name 2 :add "2 frend 2"])
-         (eatvc-statements (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (eatcv-statements (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [2 :friend 1 :add "2 frend 1"]
                                        [2 :friend 2 :add "2 frend 2"]
                                        [2 :name 2 :add "2 frend 2"]
@@ -130,7 +130,7 @@
                            2)))
 
   (is (= '([2 :friend 2 :add "2 frend 2"])
-         (eatvc-statements (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (eatcv-statements (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [2 :friend 1 :add "2 frend 1"]
                                        [2 :friend 2 :add "2 frend 2"]
                                        [2 :name 2 :add "2 frend 2"]
@@ -141,7 +141,7 @@
 
   (is (= '([1 :friend 2 :add "frend 2"]
            [1 :friend 3 :add "frend 3"])
-         (eatvc-statements (sorted-set [1 :friend 1 :add "frend 1"]
+         (eatcv-statements (sorted-set [1 :friend 1 :add "frend 1"]
                                        [1 :friend 2 :add "frend 2"]
                                        [1 :friend 3 :add "frend 3"]
                                        [1 :friend 4 :add "frend 4"])
@@ -150,15 +150,15 @@
                            2
                            3))))
 
-(defn get-eatvc-values [eatvc entity-id a]
+(defn get-eatcv-values [eatcv entity-id a]
   (reduce accumulate-values #{}
-          (map eatvc-statement-vector-to-map
-               (eatvc-statements eatvc entity-id a))))
+          (map eatcv-statement-vector-to-map
+               (eatcv-statements eatcv entity-id a))))
 
-(deftest get-eatvc-values-test
+(deftest get-eatcv-values-test
   (is (= #{"2 frend 2"
            "2 frend 1"}
-         (get-eatvc-values (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (get-eatcv-values (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [2 :friend 1 :add "2 frend 1"]
                                        [2 :friend 2 :add "2 frend 2"]
                                        [3 :friend 2 :add "2 frend 2"])
@@ -168,7 +168,7 @@
 
   
   (is (= #{"1 frend 2"}
-         (get-eatvc-values (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (get-eatcv-values (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [1 :friend 2 :add  "1 frend 2"]
                                        [1 :friend 3 :retract "1 frend 1"])
                            1
@@ -176,7 +176,7 @@
       "retract")
 
   (is (= #{"1 frend 1"}
-         (get-eatvc-values (sorted-set [1 :friend 1 :add "1 frend 1"]
+         (get-eatcv-values (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [1 :friend 2 :add "1 frend 2"]
                                        [1 :friend 3 :set "1 frend 1"])
                            1
@@ -184,7 +184,7 @@
       "set"))
 
 (defn create []
-  {:eatvcs {}
+  {:eatcvs {}
    :transactions {}
    :transaction-children {}
    :next-branch-number 0
@@ -388,9 +388,9 @@
                                     ;; :first-common-parents  (first-common-parents-for-parents db (:parents transaction))
                                     )]
     (-> db
-        (update-in [:eatvcs branch-number]  (fnil (fn [eatvc]
+        (update-in [:eatcvs branch-number]  (fnil (fn [eatcv]
                                                     (apply conj
-                                                           eatvc
+                                                           eatcv
                                                            (map (partial add-transaction-number-to-eavc
                                                                          transaction-number)
                                                                 (:statements transaction))))
@@ -783,7 +783,7 @@
          parts (parent-parts db last-transaction)]
     (if-let [part (first parts)]
       (recur (concat statements
-                     (eatvc-statements (get-in db [:eatvcs (:branch-number part)])
+                     (eatcv-statements (get-in db [:eatcvs (:branch-number part)])
                                        entity-id
                                        a
                                        (:first-transaction-number part)
@@ -836,7 +836,7 @@
 
 (defn get-value [db transaction-hash entity-id a]
   (reduce accumulate-values #{}
-          (map eatvc-statement-vector-to-map
+          (map eatcv-statement-vector-to-map
                (get-statements db transaction-hash entity-id a))))
 
 (deftest test-get-value
