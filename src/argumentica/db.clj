@@ -198,7 +198,7 @@
    v
    c])
 
-(defn transaction [parents & statements]
+(defn create-transaction [parents & statements]
   {:parents parents
    :statements statements})
 
@@ -325,21 +325,21 @@
 (deftest test-new-branch?
   (is (= true
          (new-branch? {:transaction-children {:parent #{:child1 :child2}}}
-                      (transaction [:parent]
-                                   [1 :friend :add "1 frend 1"]
-                                   [2 :friend :add "2 frend 1"]))))
+                      (create-transaction [:parent]
+                                          [1 :friend :add "1 frend 1"]
+                                          [2 :friend :add "2 frend 1"]))))
 
   (is (= false
          (new-branch? {:transaction-children {:parent #{}}}
-                      (transaction [:parent]
-                                   [1 :friend :add "1 frend 1"]
-                                   [2 :friend :add "2 frend 1"]))))
+                      (create-transaction [:parent]
+                                          [1 :friend :add "1 frend 1"]
+                                          [2 :friend :add "2 frend 1"]))))
 
   (is (= true
          (new-branch? {:transaction-children {:parent #{:child1 :child2}}}
-                      (transaction []
-                                   [1 :friend :add "1 frend 1"]
-                                   [2 :friend :add "2 frend 1"])))))
+                      (create-transaction []
+                                          [1 :friend :add "1 frend 1"]
+                                          [2 :friend :add "2 frend 1"])))))
 
 
 (defn new-forks [db transaction]
@@ -840,13 +840,13 @@
                (get-statements db transaction-hash entity-id a))))
 
 (deftest test-get-value
-  (let [transaction-1 (transaction []
-                                   [1 :friend :add "1 frend 1"]
-                                   [2 :friend :add "2 frend 1"])
-        transaction-2 (transaction [(transaction-hash transaction-1)]
-                                   [1 :friend :set "1 frend 2"])
-        transaction-3 (transaction [(transaction-hash transaction-1)]
-                                   [1 :friend :set "1 frend 3"])
+  (let [transaction-1 (create-transaction []
+                                          [1 :friend :add "1 frend 1"]
+                                          [2 :friend :add "2 frend 1"])
+        transaction-2 (create-transaction [(transaction-hash transaction-1)]
+                                          [1 :friend :set "1 frend 2"])
+        transaction-3 (create-transaction [(transaction-hash transaction-1)]
+                                          [1 :friend :set "1 frend 3"])
         db (-> (create)
                (transact transaction-1)
                (transact transaction-2)
@@ -896,7 +896,7 @@
                                  reference-to-be-merged))
             (str "unknown reference to be merged:" reference-to-be-merged)))
   
-  (apply transaction
+  (apply create-transaction
          (->> (map (partial get-reference db)
                    parent-references)
               (filter (complement nil?)))
@@ -958,12 +958,92 @@
       (throw (Exception. (str "unknown reference or transaction " reference-or-transaction-hash))))))
 
 
+(defn entity [statement]
+  (get statement 0))
+
+(defn attribute [statement]
+  (get statement 1))
+
+(defn transaction [statement]
+  (get statement 2))
+
+(defn command [statement]
+  (get statement 3))
+
+(defn value [statement]
+  (get statement 4))
+
+
 (defn squash-statements [statements]
-  )
+  (sort (reduce (fn [result-statements statement]
+                  (case (command statement)
+                    :add (conj (set/select (fn [result-statement]
+                                             (not (and (= (entity statement)
+                                                          (entity result-statement))
+                                                       (= (attribute statement)
+                                                          (attribute result-statement))
+                                                       (= (value statement)
+                                                          (value result-statement))
+                                                       (= :retract
+                                                          (command result-statement)))))
+                                           result-statements)
+                               statement)
+                    :retract (let [removed-statements (set/select (fn [result-statement]
+                                                                    (and (= (entity statement)
+                                                                            (entity result-statement))
+                                                                         (= (attribute statement)
+                                                                            (attribute result-statement))
+                                                                         (= (value statement)
+                                                                            (value result-statement))))
+                                                                  result-statements)]
+                               
+                               (if (empty? removed-statements)
+                                 (conj result-statements
+                                       statement)
+                                 (set/difference result-statements
+                                                 removed-statements)))
+                    :set  (conj (set/select (fn [result-statement]
+                                              (not (and (= (entity statement)
+                                                           (entity result-statement))
+                                                        (= (attribute statement)
+                                                           (attribute result-statement)))))
+                                            result-statements)
+                                statement)))
+                #{}
+                statements)))
+
 
 (deftest test-squash-statements
-  (is (= [[1 :friend :add 1]]
-         (squash-statements [[1 :friend :add 1]]))))
+  (is (= [[1 :friend 1 :add 1]]
+         (squash-statements [[1 :friend 1 :add 1]])))
+
+  (is (= []
+         (squash-statements [[1 :friend 1 :add 1]
+                             [1 :friend 2 :retract 1]])))
+
+  (is (= [[1 :friend 2 :add 1]]
+         (squash-statements [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]])))
+
+  (is (= []
+         (squash-statements [[1 :friend 1 :set 1]
+                             [1 :friend 2 :retract 1]])))
+
+  (is (= [[1 :friend 1 :retract 1]]
+         (squash-statements [[1 :friend 1 :retract 1]])))
+
+
+  (is (= [[1 :friend 4 :set 2]]
+         (squash-statements [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]
+                             [1 :friend 3 :add 2]
+                             [1 :friend 4 :set 2]])))
+
+  (is (= [[1 :friend 2 :add 1]]
+         (squash-statements [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]
+                             [1 :friend 3 :add 2]
+                             [1 :friend 1 :retract 2]]))))
 
 
 (defn rebase [db from-transaction-hash to-transaction-hash new-base-transaction-hash]
