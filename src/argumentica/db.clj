@@ -69,21 +69,27 @@
 (defn transaction-hash [transaction]
   (base-16-encode (sha-256 (pr-str (select-keys transaction [:statements :parents])))))
 
-(defn eatcv-statement-value [statement]
-  (nth statement 4))
 
-(defn eatcv-statement-vector-to-map [statement]
-  {:entity (nth statement 0)
-   :attribute (nth statement 1)
-   :transaction (nth statement 2)
-   :command (nth statement 3)
-   :value (nth statement 4)})
+(defn entity [statement]
+  (get statement 0))
 
-(defn accumulate-values [values statement-map]
-  (case (:command statement-map)
-    :add (conj values (:value statement-map))
-    :retract (disj values (:value statement-map))
-    :set  #{(:value statement-map)}
+(defn attribute [statement]
+  (get statement 1))
+
+(defn transaction-number [statement]
+  (get statement 2))
+
+(defn command [statement]
+  (get statement 3))
+
+(defn value [statement]
+  (get statement 4))
+
+(defn accumulate-values [values statement]
+  (case (command statement)
+    :add (conj values (value statement))
+    :retract (disj values (value statement))
+    :set  #{(value statement)}
     values))
 
 (defn eatcv-statements
@@ -150,10 +156,11 @@
                            2
                            3))))
 
+
+
 (defn get-eatcv-values [eatcv entity-id a]
   (reduce accumulate-values #{}
-          (map eatcv-statement-vector-to-map
-               (eatcv-statements eatcv entity-id a))))
+          (eatcv-statements eatcv entity-id a)))
 
 (deftest get-eatcv-values-test
   (is (= #{"2 frend 2"
@@ -678,7 +685,7 @@
            (map temporal-ids (parent-transactions db
                                                   (hashes 6)))))))
 
-(defn partition-transaction-hashes-in-to-parts [db transaction-hashes-in-topological-order]
+(defn partition-transaction-hashes-into-parts [db transaction-hashes-in-topological-order]
   (->> (partition-by (fn [transaction-hash]
                        (get-in db [:transactions transaction-hash :branch-number]))
                      transaction-hashes-in-topological-order)
@@ -705,13 +712,13 @@
 
     (is (= '("0:0-1" "1:0-0" "0:2-2")
            (map part-label
-                (partition-transaction-hashes-in-to-parts db
-                                                          (parent-transactions db (hashes 4))))))
+                (partition-transaction-hashes-into-parts db
+                                                         (parent-transactions db (hashes 4))))))
     
     (is (= '("0:0-1" "1:0-0" "0:2-2" "2:0-0" "0:3-3")
            (map part-label
-                (partition-transaction-hashes-in-to-parts db
-                                                          (parent-transactions db (hashes 6)))))))
+                (partition-transaction-hashes-into-parts db
+                                                         (parent-transactions db (hashes 6)))))))
 
   (let [{:keys [db hashes]} (create-test-db  #_true false
                                              1 []
@@ -721,8 +728,8 @@
 
     (is (= '("0:0-0" "1:0-0" "0:1-1" "1:1-1")
            (map part-label
-                (partition-transaction-hashes-in-to-parts db
-                                                          (parent-transactions db (hashes 4))))))))
+                (partition-transaction-hashes-into-parts db
+                                                         (parent-transactions db (hashes 4))))))))
 
 
 (deftest test-branches-to-graph
@@ -774,9 +781,9 @@
                                            6 [2 5])))
 
 (defn parent-parts [db last-transaction-hash]
-  (partition-transaction-hashes-in-to-parts db
-                                            (parent-transactions db
-                                                                 last-transaction-hash)))
+  (partition-transaction-hashes-into-parts db
+                                           (parent-transactions db
+                                                                last-transaction-hash)))
 
 (defn get-statements [db last-transaction entity-id a]
   (loop [statements []
@@ -836,8 +843,7 @@
 
 (defn get-value [db transaction-hash entity-id a]
   (reduce accumulate-values #{}
-          (map eatcv-statement-vector-to-map
-               (get-statements db transaction-hash entity-id a))))
+          (get-statements db transaction-hash entity-id a)))
 
 (deftest test-get-value
   (let [transaction-1 (create-transaction []
@@ -958,21 +964,15 @@
       (throw (Exception. (str "unknown reference or transaction " reference-or-transaction-hash))))))
 
 
-(defn entity [statement]
-  (get statement 0))
 
-(defn attribute [statement]
-  (get statement 1))
 
-(defn transaction [statement]
-  (get statement 2))
-
-(defn command [statement]
-  (get statement 3))
-
-(defn value [statement]
-  (get statement 4))
-
+(defn eatcv-statements-for-transation-range [eatcv from-transaction-index to-transaction-index]
+  (set/select (fn [statement]
+                (and (<= from-transaction-index
+                         (transaction-number statement))
+                     (>= to-transaction-index
+                         (transaction-number statement))))
+              eatcv))
 
 (defn squash-statements [statements]
   (sort (reduce (fn [result-statements statement]
@@ -1045,25 +1045,44 @@
                              [1 :friend 3 :add 2]
                              [1 :friend 1 :retract 2]]))))
 
+(defn statements-for-transaction-hashes [db transaction-hashes]
+  (loop [statements []
+         parts (partition-transaction-hashes-into-parts db
+                                                        transaction-hashes)]
+    (if-let [part (first parts)]
+      (recur (concat statements
+                     (eatcv-statements-for-transation-range (get-in db [:eatcvs (:branch-number part)])
+                                                            (:first-transaction-number part)
+                                                            (:last-transaction-number part)))
+             (rest parts))
+      statements)))
 
-(defn rebase [db from-transaction-hash to-transaction-hash new-base-transaction-hash]
+(defn property-conflicts [our-statements their-statements]
+  (let [properties (fn [statements]
+                     (into #{}
+                           (map (fn [statement]
+                                  [(entity statement)
+                                   (attribute statement)])
+                                statements)))]
+    (set/intersection (properties our-statements)
+                      (properties their-statements))))
+
+(defn novel-transaction-hashes [db first-common-transaction-hash our-latest-transaction-hash their-latest-transaction-hash]
   (let [common-transactions-set (into #{}
-                                      (sort-topologically from-transaction-hash
+                                      (sort-topologically first-common-transaction-hash
                                                           (fn [transaction-hash]
                                                             (get-in db [:transactions transaction-hash :parents]))
                                                           identity))
         non-common-parent-hashes (fn [transaction-hash]
                                    (filter (complement common-transactions-set)
-                                           (get-in db [:transactions transaction-hash :parents])))
-        
-        their-new-transaction-hashes (sort-topologically new-base-transaction-hash
-                                                         non-common-parent-hashes
-                                                         identity)
-        our-new-transaction-hashes (sort-topologically to-transaction-hash
-                                                       non-common-parent-hashes
-                                                       identity)])
-  
-  )
+                                           (get-in db [:transactions transaction-hash :parents])))]
+    {:their-novel-transaction-hashes (sort-topologically their-latest-transaction-hash
+                                                      non-common-parent-hashes
+                                                      identity)
+     :our-novel-transaction-hashes (sort-topologically our-latest-transaction-hash
+                                                    non-common-parent-hashes
+                                                    identity)}))
+
 
 (deftype Entity [db entity-id transaction-hash]
   Object
