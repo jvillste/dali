@@ -12,6 +12,7 @@
            [java.util UUID])
   (:use clojure.test))
 
+
 (comment 
   (-> (d/empty-db)
       (d/conn-from-db)
@@ -662,10 +663,21 @@
                                  :children
                                  :value))))
 
+(defn get-transaction [db transaction-hash]
+  (if-let [transaction (get-in db [:transactions transaction-hash])]
+    transaction
+    (loop [parents (:parents db)]
+      (if-let [parent (first parents)]
+        (if-let  [transaction (get-in db [:transactions transaction-hash])]
+          transaction
+          (recur (rest parents)))
+        nil))))
+
 (defn parent-transactions [db last-transaction-hash]
   (sort-topologically last-transaction-hash
                       (fn [transaction-hash]
-                        (get-in db [:transactions transaction-hash :parents]))
+                        (:parents (get-transaction db transaction-hash))
+                        #_(get-in db [:transactions transaction-hash :parents]))
                       identity))
 
 (deftest test-parent-transactions
@@ -840,6 +852,11 @@
                            (hashes 6)
                            1
                            :friend)))))
+
+(defn with-parents [db & parents]
+  (assoc db :parents parents))
+
+
 
 (defn get-value [db transaction-hash entity-id a]
   (reduce accumulate-values #{}
