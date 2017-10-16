@@ -54,6 +54,10 @@
   (.encode (BaseEncoding/base64)
            bytes))
 
+(comment
+  (String. (.decode (BaseEncoding/base64)
+                    "bW")))
+
 (defn base-16-encode [bytes]
   (.encode (BaseEncoding/base16)
            bytes))
@@ -1094,12 +1098,11 @@
                                    (filter (complement common-transactions-set)
                                            (get-in db [:transactions transaction-hash :parents])))]
     {:their-novel-transaction-hashes (sort-topologically their-latest-transaction-hash
-                                                      non-common-parent-hashes
-                                                      identity)
+                                                         non-common-parent-hashes
+                                                         identity)
      :our-novel-transaction-hashes (sort-topologically our-latest-transaction-hash
-                                                    non-common-parent-hashes
-                                                    identity)}))
-
+                                                       non-common-parent-hashes
+                                                       identity)}))
 
 (deftype Entity [db entity-id transaction-hash]
   Object
@@ -1140,6 +1143,9 @@
                                                     entity-id
                                                     attribute)
                                          not-found)))
+
+(defn add-statements [btree value]
+  )
 
 (defn start []
 
