@@ -1,4 +1,4 @@
-(ns argumentica.storage
+(ns argumentica.index
   (:require [flow-gl.tools.trace :as trace]
             [flow-gl.debug :as debug])
   (:use [clojure.test]))
@@ -54,15 +54,15 @@
           :median-value 3}
          (split-sorted-set (sorted-set 1 2 3 4 5)))))
 
-(defn distribute-children [storage old-node-id new-node-id]
-  (if-let [child-ids (get-in storage [:nodes old-node-id :child-ids])]
+(defn distribute-children [index old-node-id new-node-id]
+  (if-let [child-ids (get-in index [:nodes old-node-id :child-ids])]
     (let [[lesser-child-ids greater-child-ids] (partition (/ (count child-ids)
                                                              2)
                                                           child-ids)]
-      (-> storage
+      (-> index
           (assoc-in [:nodes old-node-id :child-ids] (vec lesser-child-ids))
           (assoc-in [:nodes new-node-id :child-ids] (vec greater-child-ids))))
-    storage))
+    index))
 
 (defn insert-after [sequence old-value new-value]
   (loop [head []
@@ -87,10 +87,10 @@
                        3
                        4))))
 
-(defn split-child [storage parent-id old-child-id]
-  (let [{:keys [lesser-values greater-values median-value]} (split-sorted-set (get-in storage [:nodes old-child-id :values]))
-        new-child-id (:next-node-id storage)]
-    (-> storage
+(defn split-child [index parent-id old-child-id]
+  (let [{:keys [lesser-values greater-values median-value]} (split-sorted-set (get-in index [:nodes old-child-id :values]))
+        new-child-id (:next-node-id index)]
+    (-> index
         (update :next-node-id inc)
         (assoc-in [:nodes old-child-id :values] lesser-values)
         (update-in [:nodes parent-id :values] conj median-value)
@@ -143,14 +143,14 @@
                       5
                       6))))
 
-(defn split-root [storage]
-  (let [new-root-id (:next-node-id storage)]
-    (-> storage
+(defn split-root [index]
+  (let [new-root-id (:next-node-id index)]
+    (-> index
         (update :next-node-id inc)
         (assoc :root-id new-root-id)
-        (assoc-in [:nodes new-root-id] {:child-ids [(:root-id storage)]
+        (assoc-in [:nodes new-root-id] {:child-ids [(:root-id index)]
                                         :values (sorted-set)})
-        (split-child new-root-id (:root-id storage)))))
+        (split-child new-root-id (:root-id index)))))
 
 (deftest test-split-root
   (is (= {:nodes
@@ -240,38 +240,38 @@
 (defn leaf-node? [node]
   (not (:child-ids node)))
 
-(defn node [storage node-id]
-  (get-in storage [:nodes node-id]))
+(defn node [index node-id]
+  (get-in index [:nodes node-id]))
 
-(defn add [storage value]
-  (loop [storage (if ((:full? storage) (node storage
-                                             (:root-id storage)))
-                   (split-root storage)
-                   storage)
+(defn add [index value]
+  (loop [index (if ((:full? index) (node index
+                                             (:root-id index)))
+                   (split-root index)
+                   index)
          previous-node-id nil
-         node-id (:root-id storage)]
-    (let [the-node (node storage
+         node-id (:root-id index)]
+    (let [the-node (node index
                          node-id)]
       (if (leaf-node? the-node)
-        (update-in storage
+        (update-in index
                    [:nodes node-id :values]
                    conj value)
         (if-let [the-child-id (child-id the-node
                                         value)]
-          (let [storage (if ((:full? storage) (node storage
+          (let [index (if ((:full? index) (node index
                                                     the-child-id))
-                          (split-child storage
+                          (split-child index
                                        node-id
                                        the-child-id)
-                          storage)]
-            (if-let [the-child-id (child-id (node storage
+                          index)]
+            (if-let [the-child-id (child-id (node index
                                                   node-id)
                                             value)]
-              (recur storage
+              (recur index
                      node-id
                      the-child-id)
-              storage))
-          storage)))))
+              index))
+          index)))))
 
 
 (deftest test-add
@@ -326,16 +326,16 @@
                    :full? full?}
                   2))))))
 
-(defn next-cursor [storage cursor]
+(defn next-cursor [index cursor]
   (loop [cursor cursor]
-    (if-let [parent (node storage
+    (if-let [parent (node index
                           (last (drop-last cursor)))]
       (if-let [next-node-id-downwards (get (:child-ids parent)
                                            (inc (find-index (:child-ids parent)
                                                             (last cursor))))]
         (loop [cursor (conj (vec (drop-last cursor))
                             next-node-id-downwards)]
-          (let [next-node-downwards (node storage
+          (let [next-node-downwards (node index
                                           (last cursor))]
             (if (leaf-node? next-node-downwards)
               cursor
@@ -415,9 +415,9 @@
   (rest (drop-until-equal (:child-ids parent)
                           child-id)))
 
-(defn splitter-after-cursor [storage cursor]
+(defn splitter-after-cursor [index cursor]
   (loop [cursor cursor]
-    (if-let [parent (node storage
+    (if-let [parent (node index
                           (last (drop-last cursor)))]
       (if (empty? (children-after parent
                                   (last cursor)))
@@ -428,7 +428,7 @@
 
 
 (deftest test-splitter-after-cursor
-  (let [storage {:nodes {0 {:values (sorted-set 0)}
+  (let [index {:nodes {0 {:values (sorted-set 0)}
                          1 {:values (sorted-set 1)
                             :child-ids [0 2]}
                          2 {:values (sorted-set 2)}
@@ -441,19 +441,19 @@
                  :next-node-id 7,
                  :root-id 5}]
     (is (= 3
-           (splitter-after-cursor storage
+           (splitter-after-cursor index
                                   [5 1 2])))
 
     (is (= nil
-           (splitter-after-cursor storage
+           (splitter-after-cursor index
                                   [5 6 4])))
 
     (is (= 5
-           (splitter-after-cursor storage
+           (splitter-after-cursor index
                                   [5 6 3]))))
 
 
-  (let [storage {:nodes
+  (let [index {:nodes
                  {0 {:values (sorted-set 1 2)},
                   1 {:values (sorted-set 3)
                      :child-ids [0 2]},
@@ -461,11 +461,11 @@
                  :root-id 1}]
 
     (is (= 3
-           (splitter-after-cursor storage
+           (splitter-after-cursor index
                                   [1 0])))
 
     (is (= nil
-           (splitter-after-cursor storage
+           (splitter-after-cursor index
                                   [1 2])))))
 
 (defn append-if-not-null [collection value]
@@ -474,10 +474,10 @@
             [value])
     collection))
 
-(defn sequence-for-cursor [storage cursor]
-  (append-if-not-null (seq (:values (node storage
+(defn sequence-for-cursor [index cursor]
+  (append-if-not-null (seq (:values (node index
                                           (last cursor))))
-                      (splitter-after-cursor storage
+                      (splitter-after-cursor index
                                              cursor)))
 
 (deftest test-sequence-for-cursor
@@ -494,18 +494,18 @@
                                 2 {:values (sorted-set 4 5 6)}}}
                               [1 2]))))
 
-(defn cursor-and-sequence-for-value [storage value]
-  (loop [cursor [(:root-id storage)]
-         node-id (:root-id storage)]
-    (let [the-node (node storage
+(defn cursor-and-sequence-for-value [index value]
+  (loop [cursor [(:root-id index)]
+         node-id (:root-id index)]
+    (let [the-node (node index
                          node-id)]
       (if (leaf-node? the-node)
-        {:cursor (next-cursor storage
+        {:cursor (next-cursor index
                               cursor)
          :sequence (append-if-not-null (subseq (:values the-node)
                                                >=
                                                value)
-                                       (splitter-after-cursor storage
+                                       (splitter-after-cursor index
                                                               cursor))}
         (if-let [the-child-id (child-id the-node
                                         value)]
@@ -520,7 +520,7 @@
            :sequence [value]})))))
 
 (deftest test-cursor-and-sequence-for-value
-  (let [storage {:nodes
+  (let [index {:nodes
                  {0 {:values (sorted-set 1 2)},
                   1 {:values (sorted-set 3)
                      :child-ids [0 2]},
@@ -529,81 +529,81 @@
 
     (is (= {:cursor [1 2]
             :sequence '(1 2 3)}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           0)))
     
     (is (= {:cursor [1 2]
             :sequence '(1 2 3)}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           1)))
 
     (is (= {:cursor [1 2]
             :sequence [3]}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           3)))
 
     (is (= {:cursor [1 2]
             :sequence [1 2 3]}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           -10)))
 
     (is (= {:cursor nil
             :sequence [5 6]}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           5)))
 
     (is (= {:cursor nil
             :sequence nil}
-           (cursor-and-sequence-for-value storage
+           (cursor-and-sequence-for-value index
                                           50)))))
 
-(defn inclusive-subsequence-for-sequence-and-cursor [storage sequence cursor]
+(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
   (if-let [value (first sequence)]
-    (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor storage
+    (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
                                                                          (rest sequence)
                                                                          cursor)))
     (if cursor
-      (inclusive-subsequence-for-sequence-and-cursor storage
-                                                     (sequence-for-cursor storage
+      (inclusive-subsequence-for-sequence-and-cursor index
+                                                     (sequence-for-cursor index
                                                                           cursor)
-                                                     (next-cursor storage
+                                                     (next-cursor index
                                                                   cursor))
       [])))
 
-(defn inclusive-subsequence [storage value]
-  (clojure.pprint/pprint storage)
-  (let [{:keys [sequence cursor]} (cursor-and-sequence-for-value storage
+(defn inclusive-subsequence [index value]
+  (clojure.pprint/pprint index)
+  (let [{:keys [sequence cursor]} (cursor-and-sequence-for-value index
                                                                  value)]
 
-    (inclusive-subsequence-for-sequence-and-cursor storage
+    (inclusive-subsequence-for-sequence-and-cursor index
                                                    sequence
                                                    cursor)))
 
 (deftest test-inclusive-subsequence
-  (let [storage {:nodes
+  (let [index {:nodes
                  {0 {:values (sorted-set 1 2)},
                   1 {:values (sorted-set 3)
                      :child-ids [0 2]},
                   2 {:values (sorted-set 4 5 6)}}
                  :root-id 1}]
     (is (= [1 2 3 4 5 6]
-           (inclusive-subsequence storage
+           (inclusive-subsequence index
                                   0)))
 
     (is (= [2 3 4 5 6]
-           (inclusive-subsequence storage
+           (inclusive-subsequence index
                                   2)))
 
     (is (= [3 4 5 6]
-           (inclusive-subsequence storage
+           (inclusive-subsequence index
                                   3)))
 
     (is (= [4 5 6]
-           (inclusive-subsequence storage
+           (inclusive-subsequence index
                                   4)))
 
     (is (= []
-           (inclusive-subsequence storage
+           (inclusive-subsequence index
                                   7)))
 
     (let [values (range 200)]
@@ -613,10 +613,11 @@
                                             values)
                                     (first values)))))))
 
-(deftest test-storage
+(deftest test-index
   (repeatedly 100 
-              (let [values (take 200 (repeatedly (fn [] (rand-int 1000))))
-                    smallest (rand 1000)]
+              (let [maximum 1000
+                    values (take 200 (repeatedly (fn [] (rand-int maximum))))
+                    smallest (rand maximum)]
                 (is (= (subseq (apply sorted-set values)
                                >=
                                smallest)
@@ -625,3 +626,14 @@
                                                       values)
                                               smallest))))))
 
+
+(defn serialize-node [node]
+  (prn-str node))
+
+(defn save-to-persistent-storage [index])
+
+
+(defn start []
+  (reduce add
+          (create (full-after-maximum-number-of-values 3))
+          (range 30)))
