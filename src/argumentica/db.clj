@@ -3,12 +3,13 @@
             [datascript.db :as db]
             [clojure.uuid :as uuid]
             [loom.alg :as alg]
-            [loom.graph :as graph]
+            loom.graph
+            argumentica.graph
             [loom.io :as loom-io]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [argumentica.encode :as encode]
+            [argumentica.cryptography :as cryptography])
   (:import [java.security MessageDigest]
-           [java.util Base64]
-           [com.google.common.io BaseEncoding]
            [java.util UUID])
   (:use clojure.test))
 
@@ -21,58 +22,13 @@
                     {:db/id 3, :age "b"}
                     {:db/id 4, :age 2}])))
 
-
-#_(deftest test-entity
-
-
-    #_(let [db (-> (d/empty-db)
-                   (d/db-with [{:db/id 1, :age 19}
-                               {:db/id 2, :age "a"}
-                               {:db/id 3, :age "b"}
-                               {:db/id 4, :age 2}]))]
-        (is (= nil
-               (d/datoms db :eavt)))
-        (is (= (:age (d/entity db 1)) 19))
-        (is (= (:age (d/entity db 2)) "foo"))))
-
-#_(let [db (:db-after (d/with (d/empty-db)
-                              [{:db/id 1, :name "Foo"}] :haa))]
-
-    (d/datoms db :eavt))
-
-
-#_(def compare-transaction-index [a b]
-    (if (= :max a)
-      ))
-
 (defn uuid []
   (.toString (UUID/randomUUID)))
 
-#_ (uuid)
-
-(defn base-64-encode [bytes]
-  (.encode (BaseEncoding/base64)
-           bytes))
-
-(comment
-  (String. (.decode (BaseEncoding/base64)
-                    "bW")))
-
-(defn base-16-encode [bytes]
-  (.encode (BaseEncoding/base16)
-           bytes))
-
-(defn sha-256 [message]
-  (.digest (MessageDigest/getInstance "SHA-256")
-           (.getBytes message "UTF-8")))
-
-(defn sha-1 [message]
-  (.digest (MessageDigest/getInstance "SHA-1")
-           (.getBytes message "UTF-8")))
 
 
 (defn transaction-hash [transaction]
-  (base-16-encode (sha-256 (pr-str (select-keys transaction [:statements :parents])))))
+  (encode/base-16-encode (cryptography/sha-256 (pr-str (select-keys transaction [:statements :parents])))))
 
 
 (defn entity [statement]
@@ -502,7 +458,7 @@
                    (create)
                    (temporal-ids-to-hashes transactions))
         branch-node-to-label (partial branch-node-to-label db temporal-ids)]
-    (loom-io/view (graph/digraph (-> (branches-to-graph (:branches db))
+    (loom-io/view (loom.graph/digraph (-> (branches-to-graph (:branches db))
                                      (add-other-branch-node-parents db)
                                      (update-values (partial map branch-node-to-label))
                                      (update-keys branch-node-to-label))))))
@@ -516,7 +472,7 @@
        (partition 2 graph)))
 
 (defn view-transaction-graph [transactions]
-  (loom-io/view (graph/digraph (transaction-map-to-graph (transactions-to-transaction-map transactions)))))
+  (loom-io/view (loom.graph/digraph (transaction-map-to-graph (transactions-to-transaction-map transactions)))))
 
 
 
@@ -611,61 +567,6 @@
        (>= (:last-transaction-number part)
            transaction-number)))
 
-(defn sort-topologically [root get-children get-value]
-  (loop [sorted-nodes []
-         to-be-added [root]]
-    (if (empty? to-be-added)
-      sorted-nodes
-      (let [children (->> (get-children (peek to-be-added))
-                          (reverse)
-                          (drop-while (fn [child]
-                                        (some #{(get-value child)}
-                                              sorted-nodes))))]
-        (if (empty? children)
-
-          (recur (conj sorted-nodes
-                       (get-value (peek to-be-added)))
-                 (pop to-be-added))
-          
-          (recur sorted-nodes
-                 (vec (concat to-be-added
-                              children))))))))
-
-(deftest test-sort-topologically
-  (is (= [2 3 1]
-         (sort-topologically {:value 1
-                              :children [{:value 2}
-                                         {:value 3}]}
-                             :children
-                             :value))))
-
-
-#_(defn breath-first-search [root get-children get-value]
-    (loop [sorted-nodes []
-           to-be-added [root]]
-      (let [children (->> (get-children (peek to-be-added))
-                          (reverse)
-                          (drop-while (fn [child]
-                                        (some #{(get-value child)}
-                                              sorted-nodes))))]
-        (if (empty? children)
-
-          (recur (conj sorted-nodes
-                       (get-value (peek to-be-added)))
-                 (pop to-be-added))
-          
-          (recur sorted-nodes
-                 (vec (concat to-be-added
-                              children)))))))
-
-
-#_(deftest test-breath-first-search
-    #_(is (= [2 3 1]
-             (sort-topologically {:value 1
-                                  :children [{:value 2}
-                                             {:value 3}]}
-                                 :children
-                                 :value))))
 
 (defn get-transaction [db transaction-hash]
   (if-let [transaction (get-in db [:transactions transaction-hash])]
@@ -678,11 +579,11 @@
         nil))))
 
 (defn parent-transactions [db last-transaction-hash]
-  (sort-topologically last-transaction-hash
-                      (fn [transaction-hash]
-                        (:parents (get-transaction db transaction-hash))
-                        #_(get-in db [:transactions transaction-hash :parents]))
-                      identity))
+  (argumentica.graph/sort-topologically last-transaction-hash
+                                        (fn [transaction-hash]
+                                          (:parents (get-transaction db transaction-hash))
+                                          #_(get-in db [:transactions transaction-hash :parents]))
+                                        identity))
 
 (deftest test-parent-transactions
   (let [{:keys [db hashes temporal-ids]} (create-test-db #_true false
@@ -1090,17 +991,17 @@
 
 (defn novel-transaction-hashes [db first-common-transaction-hash our-latest-transaction-hash their-latest-transaction-hash]
   (let [common-transactions-set (into #{}
-                                      (sort-topologically first-common-transaction-hash
+                                      (argumentica.graph/sort-topologically first-common-transaction-hash
                                                           (fn [transaction-hash]
                                                             (get-in db [:transactions transaction-hash :parents]))
                                                           identity))
         non-common-parent-hashes (fn [transaction-hash]
                                    (filter (complement common-transactions-set)
                                            (get-in db [:transactions transaction-hash :parents])))]
-    {:their-novel-transaction-hashes (sort-topologically their-latest-transaction-hash
+    {:their-novel-transaction-hashes (argumentica.graph/sort-topologically their-latest-transaction-hash
                                                          non-common-parent-hashes
                                                          identity)
-     :our-novel-transaction-hashes (sort-topologically our-latest-transaction-hash
+     :our-novel-transaction-hashes (argumentica.graph/sort-topologically our-latest-transaction-hash
                                                        non-common-parent-hashes
                                                        identity)}))
 
