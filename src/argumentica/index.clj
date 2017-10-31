@@ -686,15 +686,16 @@
 (defn unloaded? [node-id]
   (string? node-id))
 
-(defn replace-node-ids-with-stoarge-keys [index parent-id child-id storage-key]
+(defn replace-node-id [index parent-id old-child-id new-child-id]
   (if parent-id
     (update-in index
                [:nodes parent-id :child-ids]
                (partial replace
-                        {child-id storage-key}))
-    (assoc index :root-id storage-key)))
+                        {old-child-id new-child-id}))
+    (assoc index :root-id new-child-id)))
 
 (defn unload-cursor [index storage cursor]
+  (prn cursor)
   (loop [cursor cursor
          index index
          storage storage]
@@ -704,9 +705,9 @@
                                      node-id-to-be-unloded))
           the-storage-key (storage-key bytes)
           index (-> index
-                    (replace-node-ids-with-stoarge-keys parent-id
-                                                        node-id-to-be-unloded
-                                                        the-storage-key)
+                    (replace-node-id parent-id
+                                     node-id-to-be-unloded
+                                     the-storage-key)
                     (update :nodes dissoc node-id-to-be-unloded))
           storage (assoc storage
                          the-storage-key
@@ -746,34 +747,6 @@
                                 {}
                                 [1 2])))))
 
-(defn unload-node [index storage parent-id node-id]
-  (let [the-node (node index
-                       node-id) 
-        bytes (node-to-bytes the-node)
-        the-storage-key (storage-key bytes)]
-    {:index (-> index
-                (update-in [:nodes parent-id :child-ids]
-                           (partial replace
-                                    {node-id the-storage-key}))
-                (update :nodes dissoc node-id))
-     :storage (assoc storage
-                     the-storage-key
-                     bytes)}))
-
-(deftest test-unload-node
-  (is (= {:nodes {1 {:values #{3},
-                     :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
-                                 2]},
-                  2 {:values #{4 5 6}}},
-          :root-id 1}
-         (:index (unload-node {:nodes {0 {:values (sorted-set 1 2)},
-                                       1 {:values (sorted-set 3), :child-ids [0 2]},
-                                       2 {:values (sorted-set 4 5 6)}}
-                               :root-id 1}
-                              {}
-                              1
-                              0)))))
-
 (defn cursors [cursor index]
   (if-let [the-next-cursor (next-cursor index
                                         cursor)]
@@ -793,67 +766,92 @@
            (cursors (first-cursor index)
                     index)))))
 
-#_(defn save-to-storage [index storage save]
-    (loop [index index
-           storage storage
-           cursors (cursors (first-cursor index))]
-      (if-let [cursor (first cursors)]
-        (let [{:keys [index storage]} (unload-node index
+(defn save-to-storage [index storage]
+  (loop [index index
+         storage storage
+         cursors (cursors (first-cursor index)
+                          index)]
+    (if-let [cursor (first cursors)]
+      (let [{:keys [index storage]} (unload-cursor index
                                                    storage
-                                                   (last (drop-last cursor))
-                                                   (last cursor))])
+                                                   cursor)]
         (recur index
                storage
-               (rest cursors))
-        {:storage storage
-         :root-node-key nil})))
+               (rest cursors)))
+      {:storage storage
+       :index index})))
 
-#_(defn save-to-storage [index storage save]
-    (let [node-ids (graph/sort-topologically (:root-id index)
-                                             (fn [node-id]
-                                               (get-in index [:nodes node-id :child-ids]))
-                                             identity)]
-      (loop [index index
-             storage storage
-             node-ids node-ids]
-        (if-let [node-id (first node-ids)]
-          (let [the-node (child-ids-to-storage-keys (node index node-id)
-                                                    index) 
-                bytes (node-to-bytes the-node)
-                the-storage-key (storage-key bytes)]
-            (recur (-> index
-                       (assoc-in [:nodes node-id]
-                                 (-> the-node
-                                     (assoc :storage-key the-storage-key)
-                                     (dissoc :values))))
-                   (save storage
-                         the-storage-key
-                         bytes)
-                   (rest node-ids)))
-          {:storage storage
-           :index index}))))
+(deftest test-save-to-storage
+  (let [full? (full-after-maximum-number-of-values 3)]
+    (is {:nodes {},
+         :next-node-id 8,
+         :root-id "E8E43D7CC21CEAE35F88DF61E1846070DF17B13B8E683D3D9F592A324D640B92",
+         :full? full?}
+        (:index (save-to-storage (reduce add
+                                         (create full?)
+                                         (range 10))
+                                 {})))))
 
+(defn load-node [index storage parent-id storage-key]
+  (-> index
+      (assoc-in [:nodes (:next-node-id index)]
+                (bytes-to-node (get storage
+                                    storage-key)))
+      (replace-node-id parent-id
+                       storage-key
+                       (:next-node-id index))
+      (update :next-node-id
+              inc)))
 
+(deftest test-load-node
+  (let [full? (full-after-maximum-number-of-values 3)
+        {:keys [index storage]} (save-to-storage (reduce add
+                                                         (create full?)
+                                                         (range 10))
+                                                 {})]
+    (is (= {:nodes {8
+                    {:child-ids
+                     ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                      "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+                     :values #{3}}},
+            :next-node-id 9,
+            :root-id 8,
+            :full? full?}
+           (load-node index
+                      storage
+                      nil
+                      (:root-id index))))
 
-#_(deftest test-save-to-storage
-    (is nil
-        (save-to-storage (reduce add
-                                 (create (full-after-maximum-number-of-values 3))
-                                 (range 10))
-                         {}
-                         assoc)))
+    (is (= {:nodes
+            {8 {:child-ids
+                [9
+                 "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+                :values #{3}},
+             9 {:child-ids ["C4CC9E545538D9A3096C3CC138E25FA778DCFBF6836A2BBFE8AD20364C7A013F"
+                            "B956188026D6E929C661B37B7E1C1D9D9BDC3643F5E8B3E9650D1FBDE21489CD"],
+                :values #{1}}},
+            :next-node-id 10,
+            :root-id 8,
+            :full? full?}
+           
+           (load-node {:nodes {8
+                               {:child-ids
+                                ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                                 "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+                                :values #{3}}},
+                       :next-node-id 9,
+                       :root-id 8,
+                       :full? full?}
+                      storage
+                      8
+                      "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))
 
-(defn load-node [index node-id bytes]
-  (assoc-in index
-            [:nodes node-id]
-            (bytes-to-node bytes)))
-
-(defn load-index [storage root-node-key]
-  (let [index (create)]
-    (assoc-in index
-              [:nodes (:root-id index)]
-              (bytes-to-node (get storage
-                                  root-node-key)))))
+#_(defn load-index [storage root-node-key]
+    (let [index (create)]
+      (assoc-in index
+                [:nodes (:root-id index)]
+                (bytes-to-node (get storage
+                                    root-node-key)))))
 
 (defn loaded? [node]
   (not (:storage-key node)))
