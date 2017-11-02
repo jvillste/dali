@@ -54,6 +54,9 @@
 (defn loaded? [node-id]
   (number? node-id))
 
+(defn storage-key? [node-id]
+  (string? node-id))
+
 (defn median-value [values]
   (get values
        (int (/ (count values)
@@ -212,10 +215,6 @@
                               4 {:values (sorted-set 6 7)}},
                       :next-node-id 5,
                       :root-id 1}))))
-
-
-
-
 
 
 (defn child-index [splitter-values value]
@@ -536,14 +535,171 @@
                                 1 {:values (sorted-set 3), :child-ids [0 2]},
                                 2 {:values (sorted-set 4 5 6)}}
                         :root-id 1}))))
+(defn parent-id [cursor]
+  (last (drop-last cursor)))
+
+(defn replace-node-id [index parent-id old-child-id new-child-id]
+  (if parent-id
+    (update-in index
+               [:nodes parent-id :child-ids]
+               (partial replace
+                        {old-child-id new-child-id}))
+    (assoc index :root-id new-child-id)))
+
+(defn node-to-bytes [node]
+  (.getBytes (prn-str node)
+             "UTF-8"))
+
+(defn bytes-to-node [bytes]
+  (binding [*read-eval* false]
+    (read-string (String. bytes
+                          "UTF-8"))))
+
+(defn storage-key [bytes]
+  (encode/base-16-encode (cryptography/sha-256 bytes)))
+
+(deftest test-node-serialization
+  (let [node (create-node)]
+    (is (= node
+           (bytes-to-node (node-to-bytes node))))))
+
+(defn load-node [index parent-id storage-key]
+  (-> index
+      (assoc-in [:nodes (:next-node-id index)]
+                (bytes-to-node (get-from-storage (:storage index)
+                                                 storage-key)))
+      (replace-node-id parent-id
+                       storage-key
+                       (:next-node-id index))
+      (update :next-node-id
+              inc)))
+
+(defn cursors [cursor index]
+  (if-let [the-next-cursor (next-cursor index
+                                        cursor)]
+    (lazy-seq (cons cursor
+                    (cursors (next-cursor index
+                                          cursor)
+                             index)))
+    [cursor]))
+
+(deftest test-cursors
+  (is (= '([1 0]
+           [1 2])
+         (let [index {:nodes {0 {:values (sorted-set 1 2)},
+                              1 {:values (sorted-set 3), :child-ids [0 2]},
+                              2 {:values (sorted-set 4 5 6)}}
+                      :root-id 1}]
+           (cursors (first-cursor index)
+                    index)))))
+
+(defn unload-cursor [index cursor]
+  (loop [cursor cursor
+         index index]
+    (let [node-id-to-be-unloded (last cursor)
+          parent-id (last (drop-last cursor))
+          bytes (node-to-bytes (node index
+                                     node-id-to-be-unloded))
+          the-storage-key (storage-key bytes)
+          index (-> index
+                    (replace-node-id parent-id
+                                     node-id-to-be-unloded
+                                     the-storage-key)
+                    (update :nodes dissoc node-id-to-be-unloded)
+                    (update :storage
+                            put-to-storage
+                            the-storage-key
+                            bytes))]
+      (if (and parent-id
+               (every? (complement loaded?)
+                       (:child-ids (node index
+                                         parent-id))))
+        (recur (drop-last cursor)
+               index)
+        index))))
+
+(deftest test-unload-cursor
+  (is (= {1 {:values #{3},
+             :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
+                         2]},
+          2 {:values #{4 5 6}}}
+         (:nodes (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
+                                         1 {:values (sorted-set 3), :child-ids [0 2]},
+                                         2 {:values (sorted-set 4 5 6)}}
+                                 :root-id 1
+                                 :storage {}}
+                                [1 0]))))
+
+  (is (= {:nodes {},
+          :root-id "7761BC24541DD827301A1AFE64FB273ED86C1B7F14A474192575A4A3428C0732"}
+         (-> (unload-cursor {:nodes
+                             {1 {:values #{3},
+                                 :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
+                                             2]},
+                              2 {:values #{4 5 6}}},
+                             :storage {}
+                             :root-id 1}
+                            [1 2])
+             (select-keys [:nodes :root-id])))))
+
+(defn unload-index [index]
+  (loop [index index
+         cursors (cursors (first-cursor index)
+                          index)]
+    (if-let [cursor (first cursors)]
+      (let [index (unload-cursor index
+                                 cursor)]
+        (recur index
+               (rest cursors)))
+      index)))
+
+(deftest test-load-node
+  (let [full? (full-after-maximum-number-of-values 3)
+        index (unload-index (reduce add
+                                    (create full?)
+                                    (range 10)))]
+    (is (= {8 {:child-ids
+               ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+               :values #{3}}}
+           (:nodes(load-node index
+                             nil
+                             (:root-id index)))))
+
+    (is (= {8 {:child-ids
+               [9
+                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+               :values #{3}},
+            9 {:child-ids ["C4CC9E545538D9A3096C3CC138E25FA778DCFBF6836A2BBFE8AD20364C7A013F"
+                           "B956188026D6E929C661B37B7E1C1D9D9BDC3643F5E8B3E9650D1FBDE21489CD"],
+               :values #{1}}}
+           
+           (:nodes (load-node {:nodes {8
+                                       {:child-ids
+                                        ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                                         "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+                                        :values #{3}}},
+                               :next-node-id 9,
+                               :root-id 8,
+                               :full? full?
+                               :storage (:storage index)}
+                              8
+                              "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"))))))
 
 (defn cursor-and-sequence-for-value [index value]
-  (loop [cursor [(:root-id index)]
+  (loop [index index
+         cursor [(:root-id index)]
          node-id (:root-id index)]
-    (let [the-node (node index
+    (let [index (if (storage-key? node-id)
+                  (load-node index
+                             (parent-id cursor)
+                             node-id)
+                  index)
+          the-node (node index
                          node-id)]
       (if (leaf-node? the-node)
-        {:cursor (next-cursor index
+        {:index index
+         :cursor (next-cursor index
                               cursor)
          :sequence (append-if-not-null (subseq (:values the-node)
                                                >=
@@ -552,9 +708,11 @@
                                                               cursor))}
         (if-let [the-child-id (child-id the-node
                                         value)]
-          (recur (conj cursor the-child-id)
+          (recur index
+                 (conj cursor the-child-id)
                  the-child-id)
-          {:cursor (if-let [child-id (get (:child-ids the-node)
+          {:index index
+           :cursor (if-let [child-id (get (:child-ids the-node)
                                           (inc (find-index (:values the-node)
                                                            value)))]
                      (conj cursor
@@ -568,43 +726,59 @@
                 1 {:values (sorted-set 3)
                    :child-ids [0 2]},
                 2 {:values (sorted-set 4 5 6)}}
-               :root-id 1}]
+               :root-id 1}
+        call-cursor-and-sequence-for-value (fn [value]
+                                             (-> (cursor-and-sequence-for-value index
+                                                                                value)
+                                                 (select-keys [:cursor :sequence])))]
 
     (is (= {:cursor [1 2]
             :sequence '(1 2 3)}
-           (cursor-and-sequence-for-value index
-                                          0)))
+           (call-cursor-and-sequence-for-value 0)))
     
     (is (= {:cursor [1 2]
             :sequence '(1 2 3)}
-           (cursor-and-sequence-for-value index
-                                          1)))
+           (call-cursor-and-sequence-for-value 1)))
 
     (is (= {:cursor [1 2]
             :sequence [3]}
-           (cursor-and-sequence-for-value index
-                                          3)))
+           (call-cursor-and-sequence-for-value 3)))
 
     (is (= {:cursor [1 2]
             :sequence [1 2 3]}
-           (cursor-and-sequence-for-value index
-                                          -10)))
+           (call-cursor-and-sequence-for-value -10)))
 
     (is (= {:cursor nil
             :sequence [5 6]}
-           (cursor-and-sequence-for-value index
-                                          5)))
+           (call-cursor-and-sequence-for-value 5)))
 
     (is (= {:cursor nil
             :sequence nil}
-           (cursor-and-sequence-for-value index
-                                          50)))))
+           (call-cursor-and-sequence-for-value 50)))))
 
 (defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
+    (if-let [value (first sequence)]
+      (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
+                                                                           (rest sequence)
+                                                                           cursor)))
+      (if cursor
+        (inclusive-subsequence-for-sequence-and-cursor index
+                                                       (sequence-for-cursor index
+                                                                            cursor)
+                                                       (next-cursor index
+                                                                    cursor))
+        [])))
+
+
+#_(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
+  (let [])
+  (lazy-seq (cons {:index index :sequence sequence}
+                  (let [the-next-cursor (next-cursor index cursor)]
+                    (inclusive-subsequence-for-sequence-and-cursor index
+                                                                   (se)
+                                                                   cursor))))
   (if-let [value (first sequence)]
-    (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
-                                                                         (rest sequence)
-                                                                         cursor)))
+    
     (if cursor
       (inclusive-subsequence-for-sequence-and-cursor index
                                                      (sequence-for-cursor index
@@ -614,8 +788,8 @@
       [])))
 
 (defn inclusive-subsequence [index value]
-  (let [{:keys [sequence cursor]} (cursor-and-sequence-for-value index
-                                                                 value)]
+  (let [{:keys [index sequence cursor]} (cursor-and-sequence-for-value index
+                                                                       value)]
 
     (inclusive-subsequence-for-sequence-and-cursor index
                                                    sequence
@@ -670,23 +844,10 @@
                                                       values)
                                               smallest))))))
 
+;; loading and unloading
 
-(defn node-to-bytes [node]
-  (.getBytes (prn-str node)
-             "UTF-8"))
 
-(defn bytes-to-node [bytes]
-  (binding [*read-eval* false]
-    (read-string (String. bytes
-                          "UTF-8"))))
 
-(defn storage-key [bytes]
-  (encode/base-16-encode (cryptography/sha-256 bytes)))
-
-(deftest test-node-serialization
-  (let [node (create-node)]
-    (is (= node
-           (bytes-to-node (node-to-bytes node))))))
 
 (defn node-id-to-storage-key [index node-id]
   (:storage-key (node index node-id)))
@@ -704,92 +865,13 @@
 
 
 
-(defn replace-node-id [index parent-id old-child-id new-child-id]
-  (if parent-id
-    (update-in index
-               [:nodes parent-id :child-ids]
-               (partial replace
-                        {old-child-id new-child-id}))
-    (assoc index :root-id new-child-id)))
 
-(defn unload-cursor [index cursor]
-  (loop [cursor cursor
-         index index]
-    (let [node-id-to-be-unloded (last cursor)
-          parent-id (last (drop-last cursor))
-          bytes (node-to-bytes (node index
-                                     node-id-to-be-unloded))
-          the-storage-key (storage-key bytes)
-          index (-> index
-                    (replace-node-id parent-id
-                                     node-id-to-be-unloded
-                                     the-storage-key)
-                    (update :nodes dissoc node-id-to-be-unloded)
-                    (update :storage
-                            put-to-storage
-                            the-storage-key
-                            bytes))]
-      (if (and parent-id
-               (every? (complement loaded?)
-                       (:child-ids (node index
-                                         parent-id))))
-        (recur (drop-last cursor)
-               index)
-        index))))
 
-(deftest test-unload-cursor
-  (is (= {1 {:values #{3},
-             :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
-                         2]},
-          2 {:values #{4 5 6}}}
-         (:nodes (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
-                                         1 {:values (sorted-set 3), :child-ids [0 2]},
-                                         2 {:values (sorted-set 4 5 6)}}
-                                 :root-id 1
-                                 :storage {}}
-                                [1 0]))))
 
-  (is (= {:nodes {},
-          :root-id "7761BC24541DD827301A1AFE64FB273ED86C1B7F14A474192575A4A3428C0732"}
-         (-> (unload-cursor {:nodes
-                             {1 {:values #{3},
-                                 :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
-                                             2]},
-                              2 {:values #{4 5 6}}},
-                             :storage {}
-                             :root-id 1}
-                            [1 2])
-             (select-keys [:nodes :root-id])))))
 
-(defn cursors [cursor index]
-  (if-let [the-next-cursor (next-cursor index
-                                        cursor)]
-    (lazy-seq (cons cursor
-                    (cursors (next-cursor index
-                                          cursor)
-                             index)))
-    [cursor]))
 
-(deftest test-cursors
-  (is (= '([1 0]
-           [1 2])
-         (let [index {:nodes {0 {:values (sorted-set 1 2)},
-                              1 {:values (sorted-set 3), :child-ids [0 2]},
-                              2 {:values (sorted-set 4 5 6)}}
-                      :root-id 1}]
-           (cursors (first-cursor index)
-                    index)))))
 
-(defn unload-index [index]
-  (loop [index index
-         cursors (cursors (first-cursor index)
-                          index)]
-    (if-let [cursor (first cursors)]
-      (let [index (unload-cursor index
-                                 cursor)]
-        (recur index
-               (rest cursors)))
-      index)))
+
 
 (deftest test-save-to-storage
   (let [full? (full-after-maximum-number-of-values 3)]
@@ -801,49 +883,7 @@
                               (create full?)
                               (range 10))))))
 
-(defn load-node [index parent-id storage-key]
-  (-> index
-      (assoc-in [:nodes (:next-node-id index)]
-                (bytes-to-node (get-from-storage (:storage index)
-                                                 storage-key)))
-      (replace-node-id parent-id
-                       storage-key
-                       (:next-node-id index))
-      (update :next-node-id
-              inc)))
 
-(deftest test-load-node
-  (let [full? (full-after-maximum-number-of-values 3)
-        index (unload-index (reduce add
-                                    (create full?)
-                                    (range 10)))]
-    (is (= {8 {:child-ids
-               ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
-                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
-               :values #{3}}}
-           (:nodes(load-node index
-                             nil
-                             (:root-id index)))))
-
-    (is (= {8 {:child-ids
-               [9
-                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
-               :values #{3}},
-            9 {:child-ids ["C4CC9E545538D9A3096C3CC138E25FA778DCFBF6836A2BBFE8AD20364C7A013F"
-                           "B956188026D6E929C661B37B7E1C1D9D9BDC3643F5E8B3E9650D1FBDE21489CD"],
-               :values #{1}}}
-           
-           (:nodes (load-node {:nodes {8
-                                       {:child-ids
-                                        ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
-                                         "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
-                                        :values #{3}}},
-                               :next-node-id 9,
-                               :root-id 8,
-                               :full? full?
-                               :storage (:storage index)}
-                              8
-                              "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"))))))
 
 
 
