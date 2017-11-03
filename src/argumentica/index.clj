@@ -551,9 +551,13 @@
              "UTF-8"))
 
 (defn bytes-to-node [bytes]
-  (binding [*read-eval* false]
-    (read-string (String. bytes
-                          "UTF-8"))))
+  (-> (binding [*read-eval* false]
+        (read-string (String. bytes
+                              "UTF-8")))
+      (update :values
+              (fn [values]
+                (into (sorted-set)
+                      values)))))
 
 (defn storage-key [bytes]
   (encode/base-16-encode (cryptography/sha-256 bytes)))
@@ -562,17 +566,6 @@
   (let [node (create-node)]
     (is (= node
            (bytes-to-node (node-to-bytes node))))))
-
-(defn load-node [index parent-id storage-key]
-  (-> index
-      (assoc-in [:nodes (:next-node-id index)]
-                (bytes-to-node (get-from-storage (:storage index)
-                                                 storage-key)))
-      (replace-node-id parent-id
-                       storage-key
-                       (:next-node-id index))
-      (update :next-node-id
-              inc)))
 
 (defn cursors [cursor index]
   (if-let [the-next-cursor (next-cursor index
@@ -653,7 +646,21 @@
                (rest cursors)))
       index)))
 
-(deftest test-load-node
+(defn get-node-content [storage storage-key]
+  (bytes-to-node (get-from-storage storage
+                                   storage-key)))
+
+(defn set-node-content [index parent-id storage-key node-content]
+  (-> index
+      (assoc-in [:nodes (:next-node-id index)]
+                node-content)
+      (replace-node-id parent-id
+                       storage-key
+                       (:next-node-id index))
+      (update :next-node-id
+              inc)))
+
+(deftest test-set-node-content
   (let [full? (full-after-maximum-number-of-values 3)
         index (unload-index (reduce add
                                     (create full?)
@@ -662,9 +669,11 @@
                ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
                 "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
                :values #{3}}}
-           (:nodes(load-node index
-                             nil
-                             (:root-id index)))))
+           (:nodes (set-node-content index
+                                     nil
+                                     (:root-id index)
+                                     (get-node-content (:storage index)
+                                                       (:root-id index))))))
 
     (is (= {8 {:child-ids
                [9
@@ -674,111 +683,161 @@
                            "B956188026D6E929C661B37B7E1C1D9D9BDC3643F5E8B3E9650D1FBDE21489CD"],
                :values #{1}}}
            
-           (:nodes (load-node {:nodes {8
-                                       {:child-ids
-                                        ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
-                                         "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
-                                        :values #{3}}},
-                               :next-node-id 9,
-                               :root-id 8,
-                               :full? full?
-                               :storage (:storage index)}
-                              8
-                              "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"))))))
+           (:nodes (set-node-content {:nodes {8
+                                              {:child-ids
+                                               ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                                                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+                                               :values #{3}}},
+                                      :next-node-id 9,
+                                      :root-id 8,
+                                      :full? full?
+                                      :storage (:storage index)}
+                                     8
+                                     "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
+                                     (get-node-content (:storage index)
+                                                       "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))))
 
-(defn cursor-and-sequence-for-value [index value]
-  (loop [index index
+
+(defn load-node [index-atom parent-id storage-key]
+  (swap! index-atom
+         set-node-content
+         parent-id
+         storage-key
+         (get-node-content (:storage @index-atom)
+                           storage-key)))
+
+
+
+#_(defn cursor-and-sequence-for-value [index-atom value]
+    (loop [index @index-atom
+           cursor [(:root-id index)]
+           node-id (:root-id index)]
+      (if (storage-key? node-id)
+        (do (load-node index-atom
+                       (parent-id cursor)
+                       node-id)
+            (let [index @index-atom]
+              (recur index
+                     [(:root-id index)]
+                     (:root-id index))))
+        (let [the-node (node index
+                             node-id)]
+          (if (leaf-node? the-node)
+            {:index index-atom
+             :cursor (next-cursor index-atom
+                                  cursor)
+             :sequence (append-if-not-null (subseq (:values the-node)
+                                                   >=
+                                                   value)
+                                           (splitter-after-cursor index-atom
+                                                                  cursor))}
+            (if-let [the-child-id (child-id the-node
+                                            value)]
+              (recur index-atom
+                     (conj cursor the-child-id)
+                     the-child-id)
+              {:index index-atom
+               :cursor (if-let [child-id (get (:child-ids the-node)
+                                              (inc (find-index (:values the-node)
+                                                               value)))]
+                         (conj cursor
+                               child-id)
+                         cursor)
+               :sequence [value]}))))))
+
+#_(deftest test-cursor-and-sequence-for-value
+    (let [index {:nodes
+                 {0 {:values (sorted-set 1 2)},
+                  1 {:values (sorted-set 3)
+                     :child-ids [0 2]},
+                  2 {:values (sorted-set 4 5 6)}}
+                 :root-id 1}
+          call-cursor-and-sequence-for-value (fn [value]
+                                               (-> (cursor-and-sequence-for-value index
+                                                                                  value)
+                                                   (select-keys [:cursor :sequence])))]
+
+      (is (= {:cursor [1 2]
+              :sequence '(1 2 3)}
+             (call-cursor-and-sequence-for-value 0)))
+      
+      (is (= {:cursor [1 2]
+              :sequence '(1 2 3)}
+             (call-cursor-and-sequence-for-value 1)))
+
+      (is (= {:cursor [1 2]
+              :sequence [3]}
+             (call-cursor-and-sequence-for-value 3)))
+
+      (is (= {:cursor [1 2]
+              :sequence [1 2 3]}
+             (call-cursor-and-sequence-for-value -10)))
+
+      (is (= {:cursor nil
+              :sequence [5 6]}
+             (call-cursor-and-sequence-for-value 5)))
+
+      (is (= {:cursor nil
+              :sequence nil}
+             (call-cursor-and-sequence-for-value 50)))))
+
+
+(defn sequence-for-value [index-atom value]
+  (loop [index @index-atom
          cursor [(:root-id index)]
          node-id (:root-id index)]
-    (let [index (if (storage-key? node-id)
-                  (load-node index
-                             (parent-id cursor)
-                             node-id)
-                  index)
-          the-node (node index
-                         node-id)]
-      (if (leaf-node? the-node)
-        {:index index
-         :cursor (next-cursor index
-                              cursor)
-         :sequence (append-if-not-null (subseq (:values the-node)
-                                               >=
-                                               value)
-                                       (splitter-after-cursor index
-                                                              cursor))}
-        (if-let [the-child-id (child-id the-node
-                                        value)]
-          (recur index
-                 (conj cursor the-child-id)
-                 the-child-id)
-          {:index index
-           :cursor (if-let [child-id (get (:child-ids the-node)
-                                          (inc (find-index (:values the-node)
-                                                           value)))]
-                     (conj cursor
-                           child-id)
-                     cursor)
-           :sequence [value]})))))
+    (if (storage-key? node-id)
+      (do (load-node index-atom
+                     (parent-id cursor)
+                     node-id)
+          (let [index @index-atom]
+            (recur index
+                   [(:root-id index)]
+                   (:root-id index))))
+      (let [the-node (node index
+                           node-id)]
+        (if (leaf-node? the-node)
+          (append-if-not-null (subseq (:values the-node)
+                                      >=
+                                      value)
+                              (splitter-after-cursor index
+                                                     cursor))
+          (if-let [the-child-id (child-id the-node
+                                          value)]
+            (recur index
+                   (conj cursor the-child-id)
+                   the-child-id)
+            [value]))))))
 
-(deftest test-cursor-and-sequence-for-value
-  (let [index {:nodes
-               {0 {:values (sorted-set 1 2)},
-                1 {:values (sorted-set 3)
-                   :child-ids [0 2]},
-                2 {:values (sorted-set 4 5 6)}}
-               :root-id 1}
-        call-cursor-and-sequence-for-value (fn [value]
-                                             (-> (cursor-and-sequence-for-value index
-                                                                                value)
-                                                 (select-keys [:cursor :sequence])))]
+(deftest test-sequence-for-value
+  (let [index-atom (atom {:nodes
+                          {0 {:values (sorted-set 1 2)},
+                           1 {:values (sorted-set 3)
+                              :child-ids [0 2]},
+                           2 {:values (sorted-set 4 5 6)}}
+                          :root-id 1
+                          :storage {}
+                          :next-node-id 3})]
+    (swap! index-atom
+           unload-index)
 
-    (is (= {:cursor [1 2]
-            :sequence '(1 2 3)}
-           (call-cursor-and-sequence-for-value 0)))
-    
-    (is (= {:cursor [1 2]
-            :sequence '(1 2 3)}
-           (call-cursor-and-sequence-for-value 1)))
+    (are [value sequence]
+        (= sequence
+           (sequence-for-value index-atom
+                               value))
 
-    (is (= {:cursor [1 2]
-            :sequence [3]}
-           (call-cursor-and-sequence-for-value 3)))
-
-    (is (= {:cursor [1 2]
-            :sequence [1 2 3]}
-           (call-cursor-and-sequence-for-value -10)))
-
-    (is (= {:cursor nil
-            :sequence [5 6]}
-           (call-cursor-and-sequence-for-value 5)))
-
-    (is (= {:cursor nil
-            :sequence nil}
-           (call-cursor-and-sequence-for-value 50)))))
+      0   [1 2 3]
+      1   [1 2 3]
+      3   [3]
+      -10 [1 2 3]
+      5   [5 6]
+      50  nil)))
 
 (defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
-    (if-let [value (first sequence)]
-      (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
-                                                                           (rest sequence)
-                                                                           cursor)))
-      (if cursor
-        (inclusive-subsequence-for-sequence-and-cursor index
-                                                       (sequence-for-cursor index
-                                                                            cursor)
-                                                       (next-cursor index
-                                                                    cursor))
-        [])))
-
-
-#_(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
-  (let [])
-  (lazy-seq (cons {:index index :sequence sequence}
-                  (let [the-next-cursor (next-cursor index cursor)]
-                    (inclusive-subsequence-for-sequence-and-cursor index
-                                                                   (se)
-                                                                   cursor))))
   (if-let [value (first sequence)]
-    
+    (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
+                                                                         (rest sequence)
+                                                                         cursor)))
     (if cursor
       (inclusive-subsequence-for-sequence-and-cursor index
                                                      (sequence-for-cursor index
@@ -787,62 +846,80 @@
                                                                   cursor))
       [])))
 
-(defn inclusive-subsequence [index value]
-  (let [{:keys [index sequence cursor]} (cursor-and-sequence-for-value index
-                                                                       value)]
 
-    (inclusive-subsequence-for-sequence-and-cursor index
-                                                   sequence
-                                                   cursor)))
+#_(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
+    (let [])
+    (lazy-seq (cons {:index index :sequence sequence}
+                    (let [the-next-cursor (next-cursor index cursor)]
+                      (inclusive-subsequence-for-sequence-and-cursor index
+                                                                     (se)
+                                                                     cursor))))
+    (if-let [value (first sequence)]
+      
+      (if cursor
+        (inclusive-subsequence-for-sequence-and-cursor index
+                                                       (sequence-for-cursor index
+                                                                            cursor)
+                                                       (next-cursor index
+                                                                    cursor))
+        [])))
 
-(deftest test-inclusive-subsequence
-  (let [index {:nodes
-               {0 {:values (sorted-set 1 2)},
-                1 {:values (sorted-set 3)
-                   :child-ids [0 2]},
-                2 {:values (sorted-set 4 5 6)}}
-               :root-id 1}]
-    (is (= [1 2 3 4 5 6]
-           (inclusive-subsequence index
-                                  0)))
+#_(defn inclusive-subsequence [index-atom value]
+    (let [{:keys [sequence cursor]} (cursor-and-sequence-for-value index-atom
+                                                                   value)]
 
-    (is (= [2 3 4 5 6]
-           (inclusive-subsequence index
-                                  2)))
+      (inclusive-subsequence-for-sequence-and-cursor index-atom
+                                                     sequence
+                                                     cursor)))
 
-    (is (= [3 4 5 6]
-           (inclusive-subsequence index
-                                  3)))
+#_(deftest test-inclusive-subsequence
+    (let [index {:nodes
+                 {0 {:values (sorted-set 1 2)},
+                  1 {:values (sorted-set 3)
+                     :child-ids [0 2]},
+                  2 {:values (sorted-set 4 5 6)}}
+                 :root-id 1}]
+      (is (= [1 2 3 4 5 6]
+             (inclusive-subsequence index
+                                    0)))
 
-    (is (= [4 5 6]
-           (inclusive-subsequence index
-                                  4)))
+      (is (= [2 3 4 5 6]
+             (inclusive-subsequence index
+                                    2)))
 
-    (is (= []
-           (inclusive-subsequence index
-                                  7)))
+      (is (= [3 4 5 6]
+             (inclusive-subsequence index
+                                    3)))
 
-    (let [values (range 200)]
-      (is (= values
-             (inclusive-subsequence (reduce add
-                                            (create (full-after-maximum-number-of-values 3))
-                                            values)
-                                    (first values)))))))
+      (is (= [4 5 6]
+             (inclusive-subsequence index
+                                    4)))
 
-(deftest test-index
-  (repeatedly 100 
-              (let [maximum 1000
-                    values (take 200
-                                 (repeatedly (fn [] (rand-int maximum))))
-                    smallest (rand maximum)]
-                (is (= (subseq (apply sorted-set
-                                      values)
-                               >=
-                               smallest)
-                       (inclusive-subsequence (reduce add
-                                                      (create (full-after-maximum-number-of-values 3))
-                                                      values)
-                                              smallest))))))
+      (is (= []
+             (inclusive-subsequence index
+                                    7)))
+
+      (let [values (range 200)]
+        (is (= values
+               (inclusive-subsequence (reduce add
+                                              (create (full-after-maximum-number-of-values 3))
+                                              values)
+                                      (first values)))))))
+
+#_(deftest test-index
+    (repeatedly 100 
+                (let [maximum 1000
+                      values (take 200
+                                   (repeatedly (fn [] (rand-int maximum))))
+                      smallest (rand maximum)]
+                  (is (= (subseq (apply sorted-set
+                                        values)
+                                 >=
+                                 smallest)
+                         (inclusive-subsequence (reduce add
+                                                        (create (full-after-maximum-number-of-values 3))
+                                                        values)
+                                                smallest))))))
 
 ;; loading and unloading
 
