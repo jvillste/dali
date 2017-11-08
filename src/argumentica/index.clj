@@ -3,8 +3,12 @@
             [flow-gl.debug :as debug]
             [argumentica.cryptography :as cryptography]
             [argumentica.encode :as encode]
-            [argumentica.graph :as graph])
-  (:use [clojure.test]))
+            [argumentica.graph :as graph]
+            [clojure.java.io :as io])
+  (:use [clojure.test])
+  (:import [java.io DataInputStream DataOutputStream]
+           [java.nio.file Files Paths OpenOption]
+           [java.nio.file.attribute FileAttribute]))
 
 (defn create-node []
   {:values (sorted-set)})
@@ -50,6 +54,38 @@
   (assoc storage
          key
          value))
+
+
+(defrecord DirectoryStorage [path])
+
+
+(defn string-to-path [string]
+  (Paths/get string
+             (into-array String [])))
+
+(defmethod get-from-storage
+  DirectoryStorage
+  [this key]
+  (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
+
+(defmethod put-to-storage
+  DirectoryStorage
+  [this key bytes]
+  (Files/write (string-to-path (str (:path this) "/" key))
+               bytes
+               (into-array OpenOption [])))
+
+(defn create-directories [path]
+  (Files/createDirectories (string-to-path path)
+                           (into-array FileAttribute [])))
+
+(comment (String. (get-from-storage (DirectoryStorage. "src/argumentica")
+                                    "index.clj"))
+
+         (put-to-storage (DirectoryStorage. "")
+                         "/Users/jukka/Downloads/test.txt"
+                         (.getBytes "test"
+                                    "UTF-8")))
 
 (defn loaded? [node-id]
   (number? node-id))
@@ -349,10 +385,13 @@
                    :full? full?}
                   2))))))
 
+(defn parent-id [cursor]
+  (last (drop-last cursor)))
+
 (defn next-cursor [index cursor]
   (loop [cursor cursor]
     (if-let [parent (node index
-                          (last (drop-last cursor)))]
+                          (parent-id cursor))]
       (if-let [next-node-id-downwards (get (:child-ids parent)
                                            (inc (find-index (:child-ids parent)
                                                             (last cursor))))]
@@ -535,8 +574,7 @@
                                 1 {:values (sorted-set 3), :child-ids [0 2]},
                                 2 {:values (sorted-set 4 5 6)}}
                         :root-id 1}))))
-(defn parent-id [cursor]
-  (last (drop-last cursor)))
+
 
 (defn replace-node-id [index parent-id old-child-id new-child-id]
   (if parent-id
@@ -587,6 +625,7 @@
                     index)))))
 
 (defn unload-cursor [index cursor]
+  (prn "unload-cursor" cursor)
   (loop [cursor cursor
          index index]
     (let [node-id-to-be-unloded (last cursor)
@@ -633,7 +672,10 @@
                              :storage {}
                              :root-id 1}
                             [1 2])
-             (select-keys [:nodes :root-id])))))
+             (select-keys [:nodes :root-id]))))
+
+
+  )
 
 (defn unload-index [index]
   (loop [index index
@@ -645,6 +687,22 @@
         (recur index
                (rest cursors)))
       index)))
+
+
+(deftest test-unload-index
+  (unload-index {:nodes {0 {:values (sorted-set 0)}
+                         1 {:values (sorted-set 1)
+                            :child-ids [0 2]}
+                         2 {:values (sorted-set 2)}
+                         3 {:values (sorted-set 4)}
+                         4 {:values (sorted-set 6 7 8)}
+                         5 {:values (sorted-set 3)
+                            :child-ids [1 6]}
+                         6 {:values (sorted-set 5)
+                            :child-ids [3 4]}},
+                 :next-node-id 7,
+                 :root-id 5
+                 :storage {}}))
 
 (defn get-node-content [storage storage-key]
   (bytes-to-node (get-from-storage storage
@@ -708,81 +766,7 @@
 
 
 
-#_(defn cursor-and-sequence-for-value [index-atom value]
-    (loop [index @index-atom
-           cursor [(:root-id index)]
-           node-id (:root-id index)]
-      (if (storage-key? node-id)
-        (do (load-node index-atom
-                       (parent-id cursor)
-                       node-id)
-            (let [index @index-atom]
-              (recur index
-                     [(:root-id index)]
-                     (:root-id index))))
-        (let [the-node (node index
-                             node-id)]
-          (if (leaf-node? the-node)
-            {:index index-atom
-             :cursor (next-cursor index-atom
-                                  cursor)
-             :sequence (append-if-not-null (subseq (:values the-node)
-                                                   >=
-                                                   value)
-                                           (splitter-after-cursor index-atom
-                                                                  cursor))}
-            (if-let [the-child-id (child-id the-node
-                                            value)]
-              (recur index-atom
-                     (conj cursor the-child-id)
-                     the-child-id)
-              {:index index-atom
-               :cursor (if-let [child-id (get (:child-ids the-node)
-                                              (inc (find-index (:values the-node)
-                                                               value)))]
-                         (conj cursor
-                               child-id)
-                         cursor)
-               :sequence [value]}))))))
-
-#_(deftest test-cursor-and-sequence-for-value
-    (let [index {:nodes
-                 {0 {:values (sorted-set 1 2)},
-                  1 {:values (sorted-set 3)
-                     :child-ids [0 2]},
-                  2 {:values (sorted-set 4 5 6)}}
-                 :root-id 1}
-          call-cursor-and-sequence-for-value (fn [value]
-                                               (-> (cursor-and-sequence-for-value index
-                                                                                  value)
-                                                   (select-keys [:cursor :sequence])))]
-
-      (is (= {:cursor [1 2]
-              :sequence '(1 2 3)}
-             (call-cursor-and-sequence-for-value 0)))
-      
-      (is (= {:cursor [1 2]
-              :sequence '(1 2 3)}
-             (call-cursor-and-sequence-for-value 1)))
-
-      (is (= {:cursor [1 2]
-              :sequence [3]}
-             (call-cursor-and-sequence-for-value 3)))
-
-      (is (= {:cursor [1 2]
-              :sequence [1 2 3]}
-             (call-cursor-and-sequence-for-value -10)))
-
-      (is (= {:cursor nil
-              :sequence [5 6]}
-             (call-cursor-and-sequence-for-value 5)))
-
-      (is (= {:cursor nil
-              :sequence nil}
-             (call-cursor-and-sequence-for-value 50)))))
-
-
-(defn sequence-for-value [index-atom value]
+(defn cursor-and-index-for-value [index-atom value]
   (loop [index @index-atom
          cursor [(:root-id index)]
          node-id (:root-id index)]
@@ -797,17 +781,128 @@
       (let [the-node (node index
                            node-id)]
         (if (leaf-node? the-node)
-          (append-if-not-null (subseq (:values the-node)
-                                      >=
-                                      value)
-                              (splitter-after-cursor index
-                                                     cursor))
+          {:index index
+           :cursor cursor}
           (if-let [the-child-id (child-id the-node
                                           value)]
             (recur index
                    (conj cursor the-child-id)
                    the-child-id)
-            [value]))))))
+            {:index index
+             :cursor cursor}))))))
+
+
+(deftest test-cursor-and-index-for-value
+  (let [index-atom (atom {:nodes
+                          {0 {:values (sorted-set 1 2)},
+                           1 {:values (sorted-set 3)
+                              :child-ids [0 2]},
+                           2 {:values (sorted-set 4 5 6)}}
+                          :root-id 1
+                          :storage {}
+                          :next-node-id 3})]
+    (swap! index-atom
+           unload-index)
+
+    (is (= {:nodes {3 {:values #{3},
+                       :child-ids [4
+                                   "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                    4 {:values #{1 2}}},
+            :root-id 3,
+            :next-node-id 5}
+           (dissoc (:index (cursor-and-index-for-value index-atom
+                                                       1))
+                   :storage)))
+
+    (is (= [3 4]
+           (:cursor (cursor-and-index-for-value index-atom
+                                                1))))
+
+    (is (= [3]
+           (:cursor (cursor-and-index-for-value index-atom
+                                                3))))))
+
+(defn index-and-node-id-after-splitter [index-atom splitter]
+  (let [{:keys [cursor index]} (cursor-and-index-for-value index-atom
+                                                           splitter)
+
+        node-with-the-splitter (node index
+                                     (last cursor))
+        node-id-after-splitter (get (:child-ids node-with-the-splitter)
+                                    (inc (find-index (:values node-with-the-splitter)
+                                                     splitter)))]
+    
+    {:node-id-after-splitter node-id-after-splitter
+     :index index
+     :cursor (conj cursor
+                   node-id-after-splitter)}))
+
+(defn sequence-after-splitter [index-atom splitter]
+
+  (let [{:keys [node-id-after-splitter index cursor]} (index-and-node-id-after-splitter index-atom
+                                                                                        splitter)]
+
+    (loop [index index
+           cursor cursor
+           node-id node-id-after-splitter]
+      (if (storage-key? node-id)
+        (do (load-node index-atom
+                       (parent-id cursor)
+                       node-id)
+            (let [{:keys [node-id-after-splitter index cursor]} (index-and-node-id-after-splitter index-atom
+                                                                                                  splitter)]
+              (recur index
+                     cursor
+                     node-id-after-splitter)))
+        (let [the-node (node index
+                             node-id)]
+          (if (leaf-node? the-node)
+            (append-if-not-null (:values the-node)
+                                (splitter-after-cursor index
+                                                       cursor))
+            (let [the-child-id (first (:child-ids the-node))]
+              (recur index
+                     (conj cursor the-child-id)
+                     the-child-id))))))))
+
+(deftest test-sequence-after-splitter
+  (let [index-atom (atom {:nodes {0 {:values (sorted-set 0)}
+                                  1 {:values (sorted-set 1)
+                                     :child-ids [0 2]}
+                                  2 {:values (sorted-set 2)}
+                                  3 {:values (sorted-set 4)}
+                                  4 {:values (sorted-set 6 7 8)}
+                                  5 {:values (sorted-set 3)
+                                     :child-ids [1 6]}
+                                  6 {:values (sorted-set 5)
+                                     :child-ids [3 4]}},
+                          :next-node-id 7,
+                          :root-id 5
+                          :storage {}})]
+    (swap! index-atom
+           unload-index)
+
+    (are [splitter sequence]
+        (= sequence
+           (sequence-after-splitter index-atom
+                                    splitter))
+
+      3   [4 5]
+      8   nil)))
+
+
+(defn sequence-for-value [index-atom value]
+  (let [{:keys [cursor index]} (cursor-and-index-for-value index-atom
+                                                           value)]
+    (let [the-node (node index
+                         (last cursor))]
+      (if (leaf-node? the-node)
+        (append-if-not-null (subseq (:values the-node)
+                                    >=
+                                    value)
+                            (splitter-after-cursor index
+                                                   cursor))
+        [value]))))
 
 (deftest test-sequence-for-value
   (let [index-atom (atom {:nodes
@@ -846,65 +941,63 @@
                                                                   cursor))
       [])))
 
+(defn lazy-sequence [index-atom sequence]
+  (if-let [sequence (if (first (rest sequence))
+                      sequence
+                      (if-let [value (first sequence)]
+                        (cons value
+                              (sequence-after-splitter index-atom
+                                                       (first sequence)))
+                        nil))]
+    (lazy-seq (cons (first sequence)
+                    (lazy-sequence index-atom
+                                   (rest sequence))))
+    []))
 
-#_(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
-    (let [])
-    (lazy-seq (cons {:index index :sequence sequence}
-                    (let [the-next-cursor (next-cursor index cursor)]
-                      (inclusive-subsequence-for-sequence-and-cursor index
-                                                                     (se)
-                                                                     cursor))))
-    (if-let [value (first sequence)]
-      
-      (if cursor
-        (inclusive-subsequence-for-sequence-and-cursor index
-                                                       (sequence-for-cursor index
-                                                                            cursor)
-                                                       (next-cursor index
-                                                                    cursor))
-        [])))
+(defn inclusive-subsequence [index-atom value]
+  (lazy-sequence index-atom
+                 (sequence-for-value index-atom
+                                     value)))
 
-#_(defn inclusive-subsequence [index-atom value]
-    (let [{:keys [sequence cursor]} (cursor-and-sequence-for-value index-atom
-                                                                   value)]
+(deftest test-inclusive-subsequence
+  (let [index-atom (atom {:nodes
+                          {0 {:values (sorted-set 1 2)},
+                           1 {:values (sorted-set 3)
+                              :child-ids [0 2]},
+                           2 {:values (sorted-set 4 5 6)}}
+                          :root-id 1
+                          :next-node-id 3
+                          :storage {}})]
 
-      (inclusive-subsequence-for-sequence-and-cursor index-atom
-                                                     sequence
-                                                     cursor)))
+    (swap! index-atom
+           unload-index)
+    
+    (is (= [1 2 3 4 5 6]
+           (inclusive-subsequence index-atom
+                                  0)))
 
-#_(deftest test-inclusive-subsequence
-    (let [index {:nodes
-                 {0 {:values (sorted-set 1 2)},
-                  1 {:values (sorted-set 3)
-                     :child-ids [0 2]},
-                  2 {:values (sorted-set 4 5 6)}}
-                 :root-id 1}]
-      (is (= [1 2 3 4 5 6]
-             (inclusive-subsequence index
-                                    0)))
+    (is (= [2 3 4 5 6]
+           (inclusive-subsequence index-atom
+                                  2)))
 
-      (is (= [2 3 4 5 6]
-             (inclusive-subsequence index
-                                    2)))
+    (is (= [3 4 5 6]
+           (inclusive-subsequence index-atom
+                                  3)))
 
-      (is (= [3 4 5 6]
-             (inclusive-subsequence index
-                                    3)))
+    (is (= [4 5 6]
+           (inclusive-subsequence index-atom
+                                  4)))
 
-      (is (= [4 5 6]
-             (inclusive-subsequence index
-                                    4)))
+    (is (= []
+           (inclusive-subsequence index-atom
+                                  7)))
 
-      (is (= []
-             (inclusive-subsequence index
-                                    7)))
-
-      (let [values (range 200)]
-        (is (= values
-               (inclusive-subsequence (reduce add
-                                              (create (full-after-maximum-number-of-values 3))
-                                              values)
-                                      (first values)))))))
+    (let [values (range 200)]
+      (is (= values
+             (inclusive-subsequence (atom (reduce add
+                                                  (create (full-after-maximum-number-of-values 3))
+                                                  values))
+                                    (first values)))))))
 
 #_(deftest test-index
     (repeatedly 100 
