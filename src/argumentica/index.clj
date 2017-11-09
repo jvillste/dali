@@ -928,19 +928,6 @@
       5   [5 6]
       50  nil)))
 
-(defn inclusive-subsequence-for-sequence-and-cursor [index sequence cursor]
-  (if-let [value (first sequence)]
-    (lazy-seq (cons value (inclusive-subsequence-for-sequence-and-cursor index
-                                                                         (rest sequence)
-                                                                         cursor)))
-    (if cursor
-      (inclusive-subsequence-for-sequence-and-cursor index
-                                                     (sequence-for-cursor index
-                                                                          cursor)
-                                                     (next-cursor index
-                                                                  cursor))
-      [])))
-
 (defn lazy-sequence [index-atom sequence]
   (if-let [sequence (if (first (rest sequence))
                       sequence
@@ -952,7 +939,7 @@
     (lazy-seq (cons (first sequence)
                     (lazy-sequence index-atom
                                    (rest sequence))))
-    []))
+    nil))
 
 (defn inclusive-subsequence [index-atom value]
   (lazy-sequence index-atom
@@ -988,7 +975,7 @@
            (inclusive-subsequence index-atom
                                   4)))
 
-    (is (= []
+    (is (= nil
            (inclusive-subsequence index-atom
                                   7)))
 
@@ -999,48 +986,20 @@
                                                   values))
                                     (first values)))))))
 
-#_(deftest test-index
-    (repeatedly 100 
-                (let [maximum 1000
-                      values (take 200
-                                   (repeatedly (fn [] (rand-int maximum))))
-                      smallest (rand maximum)]
-                  (is (= (subseq (apply sorted-set
-                                        values)
-                                 >=
-                                 smallest)
-                         (inclusive-subsequence (reduce add
-                                                        (create (full-after-maximum-number-of-values 3))
-                                                        values)
-                                                smallest))))))
-
-;; loading and unloading
-
-
-
-
-(defn node-id-to-storage-key [index node-id]
-  (:storage-key (node index node-id)))
-
-(defn child-ids-to-storage-keys [the-node index]
-  (if (leaf-node? the-node)
-    the-node
-    (update the-node
-            :child-ids
-            (fn [child-ids]
-              (vec (map
-                    (partial node-id-to-storage-key
-                             index)
-                    child-ids))))))
-
-
-
-
-
-
-
-
-
+(deftest test-index
+  (repeatedly 100 
+              (let [maximum 1000
+                    values (take 200
+                                 (repeatedly (fn [] (rand-int maximum))))
+                    smallest (rand maximum)]
+                (is (= (subseq (apply sorted-set
+                                      values)
+                               >=
+                               smallest)
+                       (inclusive-subsequence (atom (reduce add
+                                                            (create (full-after-maximum-number-of-values 3))
+                                                            values))
+                                              smallest))))))
 
 
 (deftest test-save-to-storage
