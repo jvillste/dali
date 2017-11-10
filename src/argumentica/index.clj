@@ -336,10 +336,10 @@
               index))
           index)))))
 
-
 (deftest test-add
   (let [full? (fn [node]
                 (= 5 (count (:values node))))]
+
     (testing "root is full"
       (is (= {0 {:values #{1 2}},
               1 {:values #{3}, :child-ids [0 2]},
@@ -384,6 +384,82 @@
                    :root-id 1,
                    :full? full?}
                   2))))))
+
+
+
+(defn add-to-atom
+  "Adds a value to an index atom. Loads nodes from storage as needed.
+  WARNING: Overrides any concurrent modifications to the atom."
+  [index-atom value]
+  (let [{:keys [index]} (cursor-and-index-for-value index-atom
+                                                    value)]
+    (reset! index-atom
+            (add index
+                 value))))
+
+
+(deftest test-add-to-atom
+  (let [full? (fn [node]
+                (= 5 (count (:values node))))
+
+        run-test (fn [index value nodes-after-addition]
+                   (let [index-atom (atom index)]
+                     (swap! index-atom
+                            unload-index)
+
+                     (add-to-atom index-atom
+                                  value)
+
+                     (is (= nodes-after-addition
+                            (:nodes @index-atom)))))]
+
+    (testing "root is full"
+      (run-test {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
+                 :next-node-id 1
+                 :root-id 0
+                 :storage {}
+                 :full? full?}
+                
+                6
+                
+                {1 {:values #{1 2}},
+                 2 {:child-ids [1 3], :values #{3}},
+                 3 {:values #{4 5 6}}}))
+
+    (testing "no splits needed"
+      (run-test {:nodes {0 {:values (sorted-set 1 2)},
+                         1 {:values (sorted-set 3), :child-ids [0 2]},
+                         2 {:values (sorted-set 4 5 6)}},
+                 :next-node-id 3,
+                 :root-id 1,
+                 :storage {}
+                 :full? full?}
+                
+                -1
+                
+                {3 {:values #{3},
+                    :child-ids [4
+                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                 4 {:values #{-1 1 2}}}))
+
+    (testing "leaf is full"
+      (run-test {:nodes
+                 {0 {:values (sorted-set -3 -2 -1 0 1)},
+                  1 {:values (sorted-set 3), :child-ids [0 2]},
+                  2 {:values (sorted-set 4 5 6)}},
+                 :next-node-id 3,
+                 :root-id 1,
+                 :storage {}
+                 :full? full?}
+
+                2
+
+                {3 {:values #{-1 3},
+                    :child-ids [4
+                                5
+                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                 4 {:values #{-3 -2}},
+                 5 {:values #{0 1 2}}}))))
 
 (defn parent-id [cursor]
   (last (drop-last cursor)))
