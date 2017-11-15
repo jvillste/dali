@@ -171,7 +171,6 @@
    {:eatcvs {}
     :create-index create-index
     :transactions {}
-    :transaction-children {}
     :next-branch-number 0
     :branches {}}))
 
@@ -190,14 +189,6 @@
   {:parents parents
    :statements statements})
 
-(defn add-child [child db parent]
-  (update-in db [:transaction-children parent] (fnil conj #{}) child))
-
-(deftest add-child-test
-  (is (= {:transaction-children {:parent #{:child}}}
-         (add-child :child
-                    {:transaction-children {}}
-                    :parent))))
 
 (defn update-values [m f & args]
   (reduce (fn [r [k v]]
@@ -298,27 +289,27 @@
                                    :id 5}]))))
 
 
-
-
 (defn new-branch? [db transaction]
   (or (empty? (:parents transaction))
-      (< 0 (count (get-in db [:transaction-children (first (:parents transaction))])))))
+      (< 0 (count (get-in db [:transactions
+                              (first (:parents transaction))
+                              :children])))))
 
 (deftest test-new-branch?
   (is (= true
-         (new-branch? {:transaction-children {:parent #{:child1 :child2}}}
+         (new-branch? {:transactions {:parent {:children #{:child1 :child2}}}}
                       (create-transaction [:parent]
                                           [1 :friend :add "1 frend 1"]
                                           [2 :friend :add "2 frend 1"]))))
 
   (is (= false
-         (new-branch? {:transaction-children {:parent #{}}}
+         (new-branch? {:transactions {:parent {:children #{}}}}
                       (create-transaction [:parent]
                                           [1 :friend :add "1 frend 1"]
                                           [2 :friend :add "2 frend 1"]))))
 
   (is (= true
-         (new-branch? {:transaction-children {:parent #{:child1 :child2}}}
+         (new-branch? {:transactions {:parent {:children #{:child1 :child2}}}}
                       (create-transaction []
                                           [1 :friend :add "1 frend 1"]
                                           [2 :friend :add "2 frend 1"])))))
@@ -329,7 +320,7 @@
          forks []]
     (if-let [parent (first parents)]
       (recur (rest parents)
-             (if (= 1 (count (get-in db [:transaction-children parent])))
+             (if (= 1 (count (get-in db [:tansactions parent :children])))
                (conj forks parent)
                forks))
       forks)))
@@ -345,6 +336,20 @@
   (apply conj
          this
          values))
+
+(defn add-child [db parent child]
+  (update-in db
+             [:transactions
+              parent
+              :children]
+             (fnil conj #{}) child))
+
+(deftest add-child-test
+  (is (= {:transactions {:parent {:children #{:child}}}}
+         (add-child {:transactions {}}
+                    :parent
+                    :child))))
+
 
 (defn transact [db transaction]
   (doseq [parent-hash (:parents transaction)]
@@ -406,7 +411,8 @@
         (update :transaction-log (fnil conj []) transaction)
         
         (cond-> (first (:parents transaction))
-          (update-in [:transaction-children (first (:parents transaction))] (fnil conj #{}) hash)))))
+          (add-child (first (:parents transaction))
+                     hash)))))
 
 (defn transaction-number-for-hash [transaction-hash db]
   (get-in db [:transactions
@@ -573,7 +579,7 @@
           transaction-hash)))))
 
 (deftest test-parts-first-transaction-hash
-  (let [{:keys [db hashes temporal-ids]} (create-test-db true #_false
+  (let [{:keys [db hashes temporal-ids]} (create-test-db #_true false
                                                          1 []
                                                          2 [1]
                                                          3 [1]
