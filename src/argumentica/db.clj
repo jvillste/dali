@@ -408,7 +408,7 @@
 
         (update :transactions assoc hash transaction-metadata)
 
-        (update :transaction-log (fnil conj []) transaction)
+        #_(update :transaction-log (fnil conj []) transaction)
         
         (cond-> (first (:parents transaction))
           (add-child (first (:parents transaction))
@@ -739,6 +739,27 @@
   (partition-transaction-hashes-into-parts db
                                            (parent-transactions db
                                                                 last-transaction-hash)))
+
+(deftest test-parent-parts
+  (let [{:keys [db hashes]} (create-test-db  false #_true
+                                             1 []
+                                             2 [1]
+                                             3 [1]
+                                             4 [2 3]
+                                             5 []
+                                             6 [5 4]
+                                             7 [4])]
+    (is (= '({:branch-number 0,
+              :first-transaction-number 0,
+              :last-transaction-number 1}
+             {:branch-number 1,
+              :first-transaction-number 0,
+              :last-transaction-number 0}
+             {:branch-number 0,
+              :first-transaction-number 2,
+              :last-transaction-number 3})
+           (parent-parts db
+                         (hashes 7))))))
 
 (defn get-statements [db last-transaction entity-id a]
   (loop [statements []
@@ -1099,10 +1120,10 @@
                        1 []
                        2 [1]
                        3 [1]
-                       ;; 4 [2 3]
-                       ;; 5 []
-                       ;; 6 [4 5]
-                       ;; 7 [4]
+                       4 [2 3]
+                       5 []
+                       6 [4 5]
+                       7 [4]
                        )))
 
 #_(start)
