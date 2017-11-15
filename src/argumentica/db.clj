@@ -28,8 +28,8 @@
 
 
 (defn transaction-hash [transaction]
-  (encode/base-16-encode (cryptography/sha-256 (pr-str (select-keys transaction [:statements :parents])))))
-
+  (encode/base-16-encode (cryptography/sha-256 (.getBytes (pr-str (select-keys transaction [:statements :parents]))
+                                                          "UTF-8"))))
 
 (defn entity [statement]
   (get statement 0))
@@ -53,6 +53,17 @@
     :set  #{(value statement)}
     values))
 
+(defmulti inclusive-subsequence
+  (fn [coll key]
+    (type coll)))
+
+(defmethod inclusive-subsequence
+  (type (sorted-set))
+  [coll key]
+  (subseq coll
+          >=
+          key))
+
 (defn eatcv-statements
   ([eatcv entity-id]
    (eatcv-statements eatcv entity-id nil 0))
@@ -68,7 +79,8 @@
                         (= (second statement)
                            a)
                         true)))
-               (subseq eatcv >= [entity-id a transaction-hash nil nil])))
+               (inclusive-subsequence eatcv
+                                      [entity-id a transaction-hash nil nil])))
 
   ([eatcv entity-id a t-from t-to]
    (take-while (fn [statement]
@@ -151,20 +163,28 @@
                            :friend))
       "set"))
 
-(defn create []
-  {:eatcvs {}
-   :transactions {}
-   :transaction-children {}
-   :next-branch-number 0
-   :branches {}})
+(defn create
+  ([]
+   (create sorted-set))
+  
+  ([create-index]
+   {:eatcvs {}
+    :create-index create-index
+    :transactions {}
+    :transaction-children {}
+    :next-branch-number 0
+    :branches {}}))
 
-
-(defn add-transaction-number-to-eavc [transaction-number [entity-id a v c]]
+(defn add-transaction-number-to-eacv [transaction-number [entity-id a c v]]
   [entity-id
    a
    transaction-number
-   v
-   c])
+   c
+   v])
+
+(comment
+  (apply str (repeat (/ 256 8) "x"))
+  (apply str (repeat (/ 128 8) "x")))
 
 (defn create-transaction [parents & statements]
   {:parents parents
@@ -277,13 +297,7 @@
                                   {:parents [1 3]
                                    :id 5}]))))
 
-(defn transaction-number [transaction-hash db]
-  (get-in db [:branches
-              (get-in db [:transactions
-                          transaction-hash
-                          :branch-number])
-              :transaction-numbers
-              transaction-hash]))
+
 
 
 (defn new-branch? [db transaction]
@@ -320,6 +334,18 @@
                forks))
       forks)))
 
+(defmulti unload-index (fn [index]
+                         (type index)))
+
+(defmulti add-to-index (fn [index & values]
+                         (type index)))
+
+(defmethod add-to-index (type (sorted-set))
+  [this & values]
+  (apply conj
+         this
+         values))
+
 (defn transact [db transaction]
   (doseq [parent-hash (:parents transaction)]
     (assert (get-in db [:transactions parent-hash])
@@ -333,11 +359,13 @@
         new-branch (when is-new-branch
                      (let [new-branch {:number (:next-branch-number db)
                                        :next-transaction-number 1
-                                       :transaction-numbers {hash 0}
                                        :merges #{}}]
                        (if-let [first-parent-transaction-hash  (first (:parents transaction))]
                          (assoc new-branch
-                                :parent-transaction-number (get-in db [:branches (:branch-number ((:transactions db) first-parent-transaction-hash)) :transaction-numbers first-parent-transaction-hash])
+                                :parent-transaction-number (get-in db
+                                                                   [:transactions
+                                                                    first-parent-transaction-hash
+                                                                    :transaction-number])
                                 :parent-branch-number (get-in db [:transactions first-parent-transaction-hash :branch-number]))
                          new-branch)))
         
@@ -356,20 +384,19 @@
                                     ;; :first-common-parents  (first-common-parents-for-parents db (:parents transaction))
                                     )]
     (-> db
-        (update-in [:eatcvs branch-number]  (fnil (fn [eatcv]
-                                                    (apply conj
-                                                           eatcv
-                                                           (map (partial add-transaction-number-to-eavc
-                                                                         transaction-number)
-                                                                (:statements transaction))))
-                                                  (sorted-set)))
+        (update-in [:eatcvs branch-number] (fnil (fn [eatcv]
+                                                   (apply add-to-index
+                                                          eatcv
+                                                          (map (partial add-transaction-number-to-eacv
+                                                                        transaction-number)
+                                                               (:statements transaction))))
+                                                 (sorted-set)))
         (cond-> is-new-branch
           (-> (update :next-branch-number inc)
               (assoc-in [:branches (:number new-branch)] new-branch)))
         
         (cond-> (not is-new-branch)
-          (-> (update-in [:branches branch-number :next-transaction-number] inc)
-              (assoc-in [:branches branch-number :transaction-numbers hash] transaction-number)))
+          (-> (update-in [:branches branch-number :next-transaction-number] inc)))
 
         (cond-> (< 1 (count (:parents transaction)))
           (-> (update-in [:branches branch-number :merges] conj transaction-number)))
@@ -381,7 +408,10 @@
         (cond-> (first (:parents transaction))
           (update-in [:transaction-children (first (:parents transaction))] (fnil conj #{}) hash)))))
 
-
+(defn transaction-number-for-hash [transaction-hash db]
+  (get-in db [:transactions
+              transaction-hash
+              :transaction-number]))
 
 (defn add-other-branch-node-parents [branch-graph db]
   (loop [branch-graph branch-graph
@@ -389,19 +419,21 @@
     (if-let [transaction-hash (first transaction-hashes)]
       (recur (reduce (fn [branch-graph parent-transaction-hash]
                        (update branch-graph
-                               {:transaction-number (transaction-number transaction-hash db)
+                               {:transaction-number (transaction-number-for-hash transaction-hash db)
                                 :branch-number (get-in db [:transactions transaction-hash :branch-number])}
                                conj
-                               {:transaction-number (transaction-number parent-transaction-hash db)
+                               {:transaction-number (transaction-number-for-hash parent-transaction-hash db)
                                 :branch-number (get-in db [:transactions parent-transaction-hash :branch-number])}))
                      branch-graph
                      (rest (get-in db [:transactions transaction-hash :parents])))
              (rest transaction-hashes))
       branch-graph)))
 
+
 (defn add-transaction-hash [db branch-node]
   (assoc branch-node
-         :transaction-hash ((set/map-invert (get-in db [:branches (:branch-number branch-node) :transaction-numbers]))
+         :transaction-hash ((set/map-invert (update-values (:transactions db)
+                                                           :transaction-number))
                             (:transaction-number branch-node))))
 
 (defn add-temporal-id [temporal-ids branch-node]
@@ -459,9 +491,9 @@
                    (temporal-ids-to-hashes transactions))
         branch-node-to-label (partial branch-node-to-label db temporal-ids)]
     (loom-io/view (loom.graph/digraph (-> (branches-to-graph (:branches db))
-                                     (add-other-branch-node-parents db)
-                                     (update-values (partial map branch-node-to-label))
-                                     (update-keys branch-node-to-label))))))
+                                          (add-other-branch-node-parents db)
+                                          (update-values (partial map branch-node-to-label))
+                                          (update-keys branch-node-to-label))))))
 
 
 (defn create-test-transactions [& graph]
@@ -541,7 +573,7 @@
           transaction-hash)))))
 
 (deftest test-parts-first-transaction-hash
-  (let [{:keys [db hashes temporal-ids]} (create-test-db false
+  (let [{:keys [db hashes temporal-ids]} (create-test-db true #_false
                                                          1 []
                                                          2 [1]
                                                          3 [1]
@@ -854,6 +886,7 @@
                                      :master)
                       [1]
                       :friend)))
+    
     (let [db (-> db
                  (transact-statements-over [:master] [[1] :friend :retract "friend 1"]))]
       
@@ -888,7 +921,7 @@
 
 
 
-(defn eatcv-statements-for-transation-range [eatcv from-transaction-index to-transaction-index]
+(defn eatcv-statements-for-transaction-range [eatcv from-transaction-index to-transaction-index]
   (set/select (fn [statement]
                 (and (<= from-transaction-index
                          (transaction-number statement))
@@ -973,9 +1006,9 @@
                                                         transaction-hashes)]
     (if-let [part (first parts)]
       (recur (concat statements
-                     (eatcv-statements-for-transation-range (get-in db [:eatcvs (:branch-number part)])
-                                                            (:first-transaction-number part)
-                                                            (:last-transaction-number part)))
+                     (eatcv-statements-for-transaction-range (get-in db [:eatcvs (:branch-number part)])
+                                                             (:first-transaction-number part)
+                                                             (:last-transaction-number part)))
              (rest parts))
       statements)))
 
@@ -992,18 +1025,24 @@
 (defn novel-transaction-hashes [db first-common-transaction-hash our-latest-transaction-hash their-latest-transaction-hash]
   (let [common-transactions-set (into #{}
                                       (argumentica.graph/sort-topologically first-common-transaction-hash
-                                                          (fn [transaction-hash]
-                                                            (get-in db [:transactions transaction-hash :parents]))
-                                                          identity))
+                                                                            (fn [transaction-hash]
+                                                                              (get-in db [:transactions transaction-hash :parents]))
+                                                                            identity))
         non-common-parent-hashes (fn [transaction-hash]
                                    (filter (complement common-transactions-set)
                                            (get-in db [:transactions transaction-hash :parents])))]
     {:their-novel-transaction-hashes (argumentica.graph/sort-topologically their-latest-transaction-hash
-                                                         non-common-parent-hashes
-                                                         identity)
+                                                                           non-common-parent-hashes
+                                                                           identity)
      :our-novel-transaction-hashes (argumentica.graph/sort-topologically our-latest-transaction-hash
-                                                       non-common-parent-hashes
-                                                       identity)}))
+                                                                         non-common-parent-hashes
+                                                                         identity)}))
+
+(comment
+  (let [metadata (meta #'println)]
+    (get (:ns metadata)
+         (:nmae metadata))))
+
 
 (deftype Entity [db entity-id transaction-hash]
   Object
