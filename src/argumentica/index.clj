@@ -7,7 +7,7 @@
             [clojure.java.io :as io])
   (:use [clojure.test])
   (:import [java.io DataInputStream DataOutputStream]
-           [java.nio.file Files Paths OpenOption]
+           
            [java.nio.file.attribute FileAttribute]))
 
 (defn create-node []
@@ -31,6 +31,13 @@
    {:nodes {0 (create-node)}
     :next-node-id 1
     :root-id 0
+    :full? full?
+    :storage storage})
+
+  ([full? storage root-storage-key]
+   {:nodes {}
+    :next-node-id 0
+    :root-id root-storage-key
     :full? full?
     :storage storage}))
 
@@ -56,36 +63,7 @@
          value))
 
 
-(defrecord DirectoryStorage [path])
 
-
-(defn string-to-path [string]
-  (Paths/get string
-             (into-array String [])))
-
-(defmethod get-from-storage
-  DirectoryStorage
-  [this key]
-  (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
-
-(defmethod put-to-storage
-  DirectoryStorage
-  [this key bytes]
-  (Files/write (string-to-path (str (:path this) "/" key))
-               bytes
-               (into-array OpenOption [])))
-
-(defn create-directories [path]
-  (Files/createDirectories (string-to-path path)
-                           (into-array FileAttribute [])))
-
-(comment (String. (get-from-storage (DirectoryStorage. "src/argumentica")
-                                    "index.clj"))
-
-         (put-to-storage (DirectoryStorage. "")
-                         "/Users/jukka/Downloads/test.txt"
-                         (.getBytes "test"
-                                    "UTF-8")))
 
 (defn loaded? [node-id]
   (number? node-id))
@@ -387,79 +365,7 @@
 
 
 
-(defn add-to-atom
-  "Adds a value to an index atom. Loads nodes from storage as needed.
-  WARNING: Overrides any concurrent modifications to the atom."
-  [index-atom value]
-  (let [{:keys [index]} (cursor-and-index-for-value index-atom
-                                                    value)]
-    (reset! index-atom
-            (add index
-                 value))))
 
-
-(deftest test-add-to-atom
-  (let [full? (fn [node]
-                (= 5 (count (:values node))))
-
-        run-test (fn [index value nodes-after-addition]
-                   (let [index-atom (atom index)]
-                     (swap! index-atom
-                            unload-index)
-
-                     (add-to-atom index-atom
-                                  value)
-
-                     (is (= nodes-after-addition
-                            (:nodes @index-atom)))))]
-
-    (testing "root is full"
-      (run-test {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
-                 :next-node-id 1
-                 :root-id 0
-                 :storage {}
-                 :full? full?}
-                
-                6
-                
-                {1 {:values #{1 2}},
-                 2 {:child-ids [1 3], :values #{3}},
-                 3 {:values #{4 5 6}}}))
-
-    (testing "no splits needed"
-      (run-test {:nodes {0 {:values (sorted-set 1 2)},
-                         1 {:values (sorted-set 3), :child-ids [0 2]},
-                         2 {:values (sorted-set 4 5 6)}},
-                 :next-node-id 3,
-                 :root-id 1,
-                 :storage {}
-                 :full? full?}
-                
-                -1
-                
-                {3 {:values #{3},
-                    :child-ids [4
-                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
-                 4 {:values #{-1 1 2}}}))
-
-    (testing "leaf is full"
-      (run-test {:nodes
-                 {0 {:values (sorted-set -3 -2 -1 0 1)},
-                  1 {:values (sorted-set 3), :child-ids [0 2]},
-                  2 {:values (sorted-set 4 5 6)}},
-                 :next-node-id 3,
-                 :root-id 1,
-                 :storage {}
-                 :full? full?}
-
-                2
-
-                {3 {:values #{-1 3},
-                    :child-ids [4
-                                5
-                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
-                 4 {:values #{-3 -2}},
-                 5 {:values #{0 1 2}}}))))
 
 (defn parent-id [cursor]
   (last (drop-last cursor)))
@@ -701,7 +607,6 @@
                     index)))))
 
 (defn unload-cursor [index cursor]
-  (prn "unload-cursor" cursor)
   (loop [cursor cursor
          index index]
     (let [node-id-to-be-unloded (last cursor)
@@ -748,10 +653,7 @@
                              :storage {}
                              :root-id 1}
                             [1 2])
-             (select-keys [:nodes :root-id]))))
-
-
-  )
+             (select-keys [:nodes :root-id])))))
 
 (defn unload-index [index]
   (loop [index index
@@ -897,6 +799,80 @@
     (is (= [3]
            (:cursor (cursor-and-index-for-value index-atom
                                                 3))))))
+
+(defn add-to-atom
+  "Adds a value to an index atom. Loads nodes from storage as needed.
+  WARNING: Overrides any concurrent modifications to the atom."
+  [index-atom value]
+  (let [{:keys [index]} (cursor-and-index-for-value index-atom
+                                                    value)]
+    (reset! index-atom
+            (add index
+                 value))))
+
+
+(deftest test-add-to-atom
+  (let [full? (fn [node]
+                (= 5 (count (:values node))))
+
+        run-test (fn [index value nodes-after-addition]
+                   (let [index-atom (atom index)]
+                     (swap! index-atom
+                            unload-index)
+
+                     (add-to-atom index-atom
+                                  value)
+
+                     (is (= nodes-after-addition
+                            (:nodes @index-atom)))))]
+
+    (testing "root is full"
+      (run-test {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
+                 :next-node-id 1
+                 :root-id 0
+                 :storage {}
+                 :full? full?}
+                
+                6
+                
+                {1 {:values #{1 2}},
+                 2 {:child-ids [1 3], :values #{3}},
+                 3 {:values #{4 5 6}}}))
+
+    (testing "no splits needed"
+      (run-test {:nodes {0 {:values (sorted-set 1 2)},
+                         1 {:values (sorted-set 3), :child-ids [0 2]},
+                         2 {:values (sorted-set 4 5 6)}},
+                 :next-node-id 3,
+                 :root-id 1,
+                 :storage {}
+                 :full? full?}
+                
+                -1
+                
+                {3 {:values #{3},
+                    :child-ids [4
+                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                 4 {:values #{-1 1 2}}}))
+
+    (testing "leaf is full"
+      (run-test {:nodes
+                 {0 {:values (sorted-set -3 -2 -1 0 1)},
+                  1 {:values (sorted-set 3), :child-ids [0 2]},
+                  2 {:values (sorted-set 4 5 6)}},
+                 :next-node-id 3,
+                 :root-id 1,
+                 :storage {}
+                 :full? full?}
+
+                2
+
+                {3 {:values #{-1 3},
+                    :child-ids [4
+                                5
+                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                 4 {:values #{-3 -2}},
+                 5 {:values #{0 1 2}}}))))
 
 (defn index-and-node-id-after-splitter [index-atom splitter]
   (let [{:keys [cursor index]} (cursor-and-index-for-value index-atom
@@ -1061,6 +1037,9 @@
                                                   (create (full-after-maximum-number-of-values 3))
                                                   values))
                                     (first values)))))))
+
+(defn all-values [index-atom]
+  )
 
 (deftest test-index
   (repeatedly 100 
