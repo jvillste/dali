@@ -13,5 +13,6 @@
                  [spootnik/net "0.3.3-beta9"]
                  [org.clojure/core.async "0.3.443"]
                  [org.clojure/algo.monads "0.1.6"]
-                 [iota "1.1.3"]]
+                 [iota "1.1.3"]
+                 [net.cgrand/xforms "0.15.0"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])

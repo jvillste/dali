@@ -1,5 +1,6 @@
 (ns examples.cars
-  (:require (argumentica [db :as db]
+  (:require [net.cgrand.xforms :as xforms]
+            (argumentica [db :as db]
                          [index :as index]
                          [btree-index :as btree-index]
                          [directory-storage :as directory-storage])
@@ -104,6 +105,13 @@
                          nop-reducer)
     nil))
 
+(comment
+  (transduce-csv-lines-as-maps source-file-name
+                               (comp (xforms/partition 2)
+                                     (take 2)
+                                     (map-indexed (fn [index foo]
+                                                    (prn index foo))))))
+
 
 
 (defn new-entity-id []
@@ -175,11 +183,11 @@
                          (take 2))
                    (range 10)))
 
-(defn add-to-index [index transaction-number eatcv-to-datom columns]
+(defn add-to-index [index transaction-number eatcv-to-datom entity-map]
   (doseq [datom (map-to-transaction transaction-number
                                     (new-entity-id)
                                     eatcv-to-datom
-                                    columns)]
+                                    entity-map)]
     (index/add-to-index index
                         datom)))
 
@@ -192,17 +200,21 @@
         avtec (crate-index)]
 
     (transduce-csv-lines-as-maps source-file-name
-                                 (comp (take 10)
-                                       (map (fn [columns]
-                                              (add-to-index eatcv
-                                                            1
-                                                            eatcv-to-eatcv-datom
-                                                            columns)
+                                 (comp (xforms/partition 10)
+                                       (take 10)
+                                       (map-indexed (fn [transaction-number entity-maps]
+                                                      (doseq [entity-map entity-maps]
+                                                        (add-to-index eatcv
+                                                                      transaction-number
+                                                                      eatcv-to-eatcv-datom
+                                                                      entity-map)
                                  
-                                              (add-to-index avtec
-                                                            1
-                                                            eatcv-to-avtec-datom
-                                                            columns)))))
+                                                        (add-to-index avtec
+                                                                      transaction-number
+                                                                      eatcv-to-avtec-datom
+                                                                      entity-map))
+
+                                                      ))))
     
     #_(process-csv-lines-as-maps source-file-name
                                  (fn [columns]
@@ -218,15 +230,17 @@
                                  10)
 
     #_(:nodes @(:index-atom eatcv))
-    (:nodes @(:index-atom avtec))
+    #_(:nodes @(:index-atom avtec))
 
-    #_(let [target-a :ajoneuvoluokka
-            target-v "M1"]
-        (take-while (fn [[a v t e c]]
-                      (and (= a target-a)
-                           (= v target-v)))
-                    (index/inclusive-subsequence avtec
-                                                 [target-a target-v nil nil nil])))
+    (let [target-a :ajoneuvoluokka
+          target-v "M1"
+          latest-transaction-number 6]
+      (take-while (fn [[a v t e c]]
+                    (and (= a target-a)
+                         (= v target-v)
+                         (<= t latest-transaction-number)))
+                  (index/inclusive-subsequence avtec
+                                               [target-a target-v nil nil nil])))
     
     #_(db/unload-index eatcv)
 
