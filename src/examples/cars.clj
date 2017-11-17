@@ -26,100 +26,215 @@
                            (drop drop-count
                                  (line-seq rdr))))))))
 
+(defn conj-reducer [collection]
+  (fn ([collection value]
+       (conj collection
+             value))
+                      
+    ([result]
+     result)
+                      
+    ([]
+     collection)))
+
+(defn nop-reducer
+  ([a b]
+   nil)
+                      
+  ([a]
+   nil)
+                      
+  ([]
+   nil))
+
+(defn transduce-csv-lines [file-name transducer reducer]
+  (with-open [rdr (clojure.java.io/reader file-name)]
+    (transduce (comp (map read-line)
+                     transducer)
+               reducer
+               (line-seq rdr))))
+
+(comment
+  (transduce-csv-lines source-file-name
+                       (comp (drop 1)
+                             (take 5)
+                             (map prn))
+                       nop-reducer)
+
+  (transduce-csv-lines source-file-name
+                       (comp (drop 1)
+                             (take 5))
+                       (conj-reducer #{}))
+
+  (transduce-csv-lines source-file-name
+                       (comp (drop 1)
+                             (take 5))
+                       conj))
+
+(defn keys-and-values-to-hash-map [keys values]
+  (apply hash-map
+         (interleave keys
+                     values)))
 
 (defn process-csv-lines-as-maps [file-name function take-count]
   (let [csv-columns (map keyword (first (process-csv-lines source-file-name
                                                            identity
                                                            0
                                                            1)))]
+
     (process-csv-lines source-file-name
-                       (fn [values]
-                         (function (apply hash-map
-                                          (interleave csv-columns
-                                                      values))))
-                       1
-                       10)
+                             (fn [values]
+                               (function (apply hash-map
+                                                (interleave csv-columns
+                                                            values))))
+                             1
+                             10)
+    nil))
+
+(defn transduce-csv-lines-as-maps [file-name transducer]
+  (let [csv-columns (map keyword (first (transduce-csv-lines source-file-name
+                                                             (comp (take 1))
+                                                             (conj-reducer []))))]
+
+    (transduce-csv-lines file-name
+                         (comp (drop 1)
+                               (map (partial keys-and-values-to-hash-map
+                                             csv-columns))
+                               transducer)
+                         nop-reducer)
     nil))
 
 
-(defn new-entity-id []
-  (let [uuid (UUID/randomUUID)]
-    [(.getMostSignificantBits uuid)
-     (.getLeastSignificantBits uuid)]))
 
-(defn map-to-transaction [a-map]
-  (let [entity-id (new-entity-id)]
-    (reduce (fn [transaction [key value]]
-              (conj transaction
-                    [entity-id
-                     key
-                     value
-                     :set]))
-            []
-            a-map)))
+(defn new-entity-id []
+  (UUID/randomUUID))
+
+(defn eatcv-to-eatcv-datom [e a t c v]
+  [e a t c v])
+
+(defn eatcv-to-avtec-datom [e a t c v]
+  [a v t e c])
+
+(defn map-to-transaction [transaction-number entity-id eatcv-to-datom a-map]
+  (reduce (fn [transaction [key value]]
+            (conj transaction
+                  (eatcv-to-datom entity-id
+                                  key
+                                  transaction-number
+                                  :set
+                                  value)))
+          []
+          a-map))
 
 (deftest test-map-to-transaction
-  (is (= [[[-6446814645696639752 -8132693421789540280] :name "Foo" :set]
-          [[-6446814645696639752 -8132693421789540280] :age 20 :set]]
-         (map-to-transaction {:name "Foo"
+  (is (= [[2 :name 1 :set "Foo"]
+          [2 :age 1 :set 20]]
+         (map-to-transaction 1
+                             2
+                             eatcv-to-eatcv-datom
+                             {:name "Foo"
                               :age 20}))))
 
-(comment (index/unload-index )
-
-         (compare (new-entity-id)
-                  (new-entity-id))
-
-         (into (sorted-set) (take 10 (repeatedly (fn [] (UUID/randomUUID)))))
-         
-         (compare (UUID/randomUUID)
-                  (UUID/randomUUID))
-         
-         (< (byte-array [1 2])
-            (byte-array [1 2])))
-
-
-
-(comment
-
+(comment (transduce (map inc)
+                    +
+                    [1 2 3])
   
+         (transduce (map inc)
+                    (fn
+                      ([a b]
+                       (conj a b))
+                      
+                      ([a]
+                       a))
+                    []
+                    [1 2 3])
 
-  (process-csv-lines)
+         (transduce (comp (drop 2)
+                          (take 2)
+                          (map prn))
+                    (fn
+                      ([a b]
+                       nil)
+                      
+                      ([a]
+                       nil)
+                      
+                      ([]
+                       nil))
+                    (range 10))
 
-  (transduce (map inc)
-             +
-             [1 2 3])
-  
-  (transduce (map inc)
-             (fn
-               ([a b]
-                (+ a b))
-               ([a]
-                a))
-             0
-             [1 2 3])
+         (transduce (map inc)
+                    to-array
+                    0
+                    [1 2 3])
 
-  (index/create (index/full-after-maximum-number-of-values 10)
-                (create-directory-index ))
-  
-  )
+         (let [conter (atom 0)]
+           )
+
+         (sequence (comp (map inc)
+                         (take 2))
+                   (range 10)))
+
+(defn add-to-index [index transaction-number eatcv-to-datom columns]
+  (doseq [datom (map-to-transaction transaction-number
+                                    (new-entity-id)
+                                    eatcv-to-datom
+                                    columns)]
+    (index/add-to-index index
+                        datom)))
 
 (defn start []
-  (let [index (btree-index/create 100
-                                  {}
-                                  #_(directory-storage/create "data/1"))]
-    (process-csv-lines-as-maps source-file-name
-                               (fn [columns]
-                                 (doseq [eacv (map-to-transaction columns)]
-                                   (index/add-to-index index
-                                                       (db/add-transaction-number-to-eacv 1 eacv))))
-                               10)
-    #_(db/unload-index index)
+  (let [crate-index (fn []
+                      (btree-index/create 100
+                                          {}
+                                          #_(directory-storage/create "data/1")))
+        eatcv (crate-index)
+        avtec (crate-index)]
 
-    (db/eatcv-statements index
-                         [-4480628169839524227 -4844517864935213435]))
+    (transduce-csv-lines-as-maps source-file-name
+                                 (comp (take 10)
+                                       (map (fn [columns]
+                                              (add-to-index eatcv
+                                                            1
+                                                            eatcv-to-eatcv-datom
+                                                            columns)
+                                 
+                                              (add-to-index avtec
+                                                            1
+                                                            eatcv-to-avtec-datom
+                                                            columns)))))
+    
+    #_(process-csv-lines-as-maps source-file-name
+                                 (fn [columns]
+                                   (add-to-index eatcv
+                                                 1
+                                                 eatcv-to-eatcv-datom
+                                                 columns)
+                                 
+                                   (add-to-index avtec
+                                                 1
+                                                 eatcv-to-avtec-datom
+                                                 columns))
+                                 10)
 
-  #_(let [index (btree-index/create 100
+    #_(:nodes @(:index-atom eatcv))
+    (:nodes @(:index-atom avtec))
+
+    #_(let [target-a :ajoneuvoluokka
+            target-v "M1"]
+        (take-while (fn [[a v t e c]]
+                      (and (= a target-a)
+                           (= v target-v)))
+                    (index/inclusive-subsequence avtec
+                                                 [target-a target-v nil nil nil])))
+    
+    #_(db/unload-index eatcv)
+
+    #_(db/eatcv-statements eatcv
+                           [-4480628169839524227 -4844517864935213435]))
+
+  #_(let [eatcv (btree-index/create 100
                                     (directory-storage/create "data/1")
                                     "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
-      (db/eatcv-statements index
+      (db/eatcv-statements eatcv
                            [-4480628169839524227 -4844517864935213435])))

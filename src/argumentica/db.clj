@@ -72,7 +72,7 @@
                            a)
                         true)))
                (index/inclusive-subsequence eatcv
-                                      [entity-id a t-from nil nil])))
+                                            [entity-id a t-from nil nil])))
 
   ([eatcv entity-id a t-from t-to]
    (take-while (fn [statement]
