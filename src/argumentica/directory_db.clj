@@ -1,51 +1,27 @@
 (ns argumentica.directory-db
-  (:require [argumentica.index :as index]
-            [argumentica.db :as db]
+  (:require (argumentica [index :as index]
+                         [db :as db]
+                         [directory-storage :as directory-storage])
             [iota :as iota])
   (:import [java.util UUID]
            [java.nio.file Files Paths OpenOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
 
-
-(defrecord DirectoryStorage [path])
-
-
-(defn string-to-path [string]
-  (Paths/get string
-             (into-array String [])))
-
-(defmethod index/get-from-storage
-  DirectoryStorage
-  [this key]
-  (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
-
-(defmethod index/put-to-storage
-  DirectoryStorage
-  [this key bytes]
-  (Files/write (string-to-path (str (:path this) "/" key))
-               bytes
-               (into-array OpenOption [])))
-
-(defn create-directories [path]
-  (Files/createDirectories (string-to-path path)
-                           (into-array FileAttribute [])))
-
-(comment (String. (get-from-storage (DirectoryStorage. "src/argumentica")
-                                    "index.clj"))
-
-         (put-to-storage (DirectoryStorage. "")
-                         "/Users/jukka/Downloads/test.txt"
-                         (.getBytes "test"
-                                    "UTF-8")))
-
 (defrecord Index [index-atom])
 
-(defn create-directory-index [directory-path]
-  (create-directories directory-path)
-  (->Index (atom (index/create
-                  (index/full-after-maximum-number-of-values 3)
-                  (->DirectoryStorage directory-path)))))
+(defn create-directory-index
+
+  ([directory-path]
+   (create-directory-index directory-path
+                           nil))
+
+  ([directory-path root-id]
+   (directory-storage/create-directories directory-path)
+   (->Index (atom (index/create
+                   (index/full-after-maximum-number-of-values 101)
+                   (directory-storage/->DirectoryStorage directory-path)
+                   root-id)))))
 
 (defn create-hash-map-index []
   (->Index (atom (index/create

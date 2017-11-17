@@ -71,22 +71,14 @@
          
          (compare (UUID/randomUUID)
                   (UUID/randomUUID))
+         
          (< (byte-array [1 2])
-            (byte-array [1 2]))
-
-         (read-string "#function[examples.cars/test-transact-statements-over]"))
+            (byte-array [1 2])))
 
 
 
 (comment
-  (let [directory-index (directory-db/create-directory-index "data/1")]
-    (process-csv-lines-as-maps source-file-name
-                               (fn [columns]
-                                 (doseq [eacv (map-to-transaction columns)]
-                                   (db/add-to-index directory-index
-                                                    (db/add-transaction-number-to-eavc 1 eacv))))
-                               10)
-    (db/unload-index directory-index))
+
   
 
   (process-csv-lines)
@@ -109,4 +101,18 @@
   
   )
 
+(defn start []
+  (let [index #_(directory-db/create-directory-index "data/1")
+        (directory-db/create-hash-map-index)]
+    (process-csv-lines-as-maps source-file-name
+                               (fn [columns]
+                                 (doseq [eacv (map-to-transaction columns)]
+                                   (db/add-to-index index
+                                                    (db/add-transaction-number-to-eacv 1 eacv))))
+                               10)
+    (db/unload-index index))
 
+  (let [index (directory-db/create-directory-index "data/1"
+                                                             "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
+    (db/eatcv-statements index
+                         [-4480628169839524227 -4844517864935213435])))

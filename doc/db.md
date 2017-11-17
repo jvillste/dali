@@ -34,14 +34,16 @@ Each branch is indexed as a sorted set of datoms. To query the database state as
 
 ## TODO
 
+* It should be possible to calculate transactions parent parts based on (:brances db) and the branch and transaciton number of the desired db version. There should not be a need to know every transactions parents.
+
 * Client applications need an in memory database that refers to a server database as a basis on which local branch is developed. Eventually the local transactions are squashed and sent to the server as a single transaction. The local branch is rebased periodically to take in to account the server changes between the branching and the transacting of the server.
 
 * All transactions can be saved in to the same index
   * the transaction ids should be sorted in topological order
   * links between branches must be stored separately
-  * merging two graphs would invalidate the old indexes. If the old indexes are kept separate, they can be kept i caches
-  * 
+  * merging two graphs would invalidate the old indexes. If the old indexes are kept separate, they can be kept in caches
   
-* transactions should have running numbering so that clients can tell if they have got all transactions and in the right order.  
+* Transactions should have running numbering so that clients can tell if they have got all transactions and in the right order.
+
   
   

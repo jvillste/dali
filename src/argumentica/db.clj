@@ -71,7 +71,7 @@
   ([eatcv entity-id a]
    (eatcv-statements eatcv entity-id a 0))
 
-  ([eatcv entity-id a transaction-hash]
+  ([eatcv entity-id a t-from]
    (take-while (fn [statement]
                  (and (= (first statement)
                          entity-id)
@@ -80,7 +80,7 @@
                            a)
                         true)))
                (inclusive-subsequence eatcv
-                                      [entity-id a transaction-hash nil nil])))
+                                      [entity-id a t-from nil nil])))
 
   ([eatcv entity-id a t-from t-to]
    (take-while (fn [statement]
@@ -514,7 +514,7 @@
 
 
 
-(defn parent-nodes [db branch-number transaction-number]
+#_(defn parent-nodes [db branch-number transaction-number]
   (loop [branch-number branch-number
          parent-nodes (branch-nodes branch-number transaction-number)]
     (if-let [parent-branch-number (get-in db [:branches branch-number :parent-branch-number])]
@@ -523,7 +523,7 @@
                                                 (get-in db [:branches branch-number :parent-transaction-number]))))
       parent-nodes)))
 
-(deftest test-parent-nodes
+#_(deftest test-parent-nodes
   (let [transactions (create-test-transactions 1 []
                                                2 [1]
                                                3 [1]
@@ -825,6 +825,10 @@
 (defn get-value [db transaction-hash entity-id a]
   (reduce accumulate-values #{}
           (get-statements db transaction-hash entity-id a)))
+
+(defn get-value-from-eatcv [eatcv entity-id a]
+  (reduce accumulate-values #{}
+          (eatcv-statements eatcv entity-id a)))
 
 (deftest test-get-value
   (let [transaction-1 (create-transaction []

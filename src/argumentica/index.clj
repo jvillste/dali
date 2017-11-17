@@ -231,6 +231,7 @@
                       :root-id 1}))))
 
 
+
 (defn child-index [splitter-values value]
   (loop [splitter-values splitter-values
          child-index 0]
@@ -238,8 +239,8 @@
       (if (= splitter-value
              value)
         nil
-        (if (< value
-               splitter-value)
+        (if (neg? (compare value
+                           splitter-value))
           child-index
           (recur (rest splitter-values)
                  (inc child-index))))
