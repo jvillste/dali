@@ -7,8 +7,9 @@
             argumentica.graph
             [loom.io :as loom-io]
             [clojure.set :as set]
-            [argumentica.encode :as encode]
-            [argumentica.cryptography :as cryptography])
+            (argumentica [index :as index]
+                         [encode :as encode]
+                         [cryptography :as cryptography]))
   (:import [java.security MessageDigest]
            [java.util UUID])
   (:use clojure.test))
@@ -53,16 +54,7 @@
     :set  #{(value statement)}
     values))
 
-(defmulti inclusive-subsequence
-  (fn [coll key]
-    (type coll)))
 
-(defmethod inclusive-subsequence
-  (type (sorted-set))
-  [coll key]
-  (subseq coll
-          >=
-          key))
 
 (defn eatcv-statements
   ([eatcv entity-id]
@@ -79,7 +71,7 @@
                         (= (second statement)
                            a)
                         true)))
-               (inclusive-subsequence eatcv
+               (index/inclusive-subsequence eatcv
                                       [entity-id a t-from nil nil])))
 
   ([eatcv entity-id a t-from t-to]
@@ -325,17 +317,6 @@
                forks))
       forks)))
 
-(defmulti unload-index (fn [index]
-                         (type index)))
-
-(defmulti add-to-index (fn [index & values]
-                         (type index)))
-
-(defmethod add-to-index (type (sorted-set))
-  [this & values]
-  (apply conj
-         this
-         values))
 
 (defn add-child [db parent child]
   (update-in db
@@ -390,7 +371,7 @@
                                     )]
     (-> db
         (update-in [:eatcvs branch-number] (fnil (fn [eatcv]
-                                                   (apply add-to-index
+                                                   (apply index/add-to-index
                                                           eatcv
                                                           (map (partial add-transaction-number-to-eacv
                                                                         transaction-number)
