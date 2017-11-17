@@ -1,7 +1,8 @@
 (ns examples.cars
-  (:require [argumentica.index :as index]
-            [argumentica.db :as db]
-            [argumentica.directory-db :as directory-db]
+  (:require (argumentica [db :as db]
+                         [btree-index :as btree-index]
+                         [directory-storage :as directory-storage])
+
             [iota :as iota])
   (:import [java.util UUID]
            )
@@ -102,17 +103,21 @@
   )
 
 (defn start []
-  (let [index #_(directory-db/create-directory-index "data/1")
-        (directory-db/create-hash-map-index)]
+  (let [index (btree-index/create 100
+                                  {}
+                                  #_(directory-storage/create "data/1"))]
     (process-csv-lines-as-maps source-file-name
                                (fn [columns]
                                  (doseq [eacv (map-to-transaction columns)]
                                    (db/add-to-index index
                                                     (db/add-transaction-number-to-eacv 1 eacv))))
                                10)
-    (db/unload-index index))
+    #_(db/unload-index index)
+
+    #_(db/eatcv-statements index
+                         [-4480628169839524227 -4844517864935213435]))
 
   (let [index (directory-db/create-directory-index "data/1"
-                                                             "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
+                                                   "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
     (db/eatcv-statements index
                          [-4480628169839524227 -4844517864935213435])))

@@ -1,5 +1,5 @@
 (ns argumentica.directory-storage
-  (:require [argumentica.index :as index])
+  (:require (argumentica [btree :as btree]))
   (:import [java.nio.file Files Paths OpenOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
@@ -12,12 +12,12 @@
   (Paths/get string
              (into-array String [])))
 
-(defmethod index/get-from-storage
+(defmethod btree/get-from-storage
   DirectoryStorage
   [this key]
   (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
 
-(defmethod index/put-to-storage
+(defmethod btree/put-to-storage
   DirectoryStorage
   [this key bytes]
   (Files/write (string-to-path (str (:path this) "/" key))
@@ -29,10 +29,15 @@
   (Files/createDirectories (string-to-path path)
                            (into-array FileAttribute [])))
 
-(comment (String. (get-from-storage (DirectoryStorage. "src/argumentica")
-                                    "index.clj"))
 
-         (put-to-storage (DirectoryStorage. "")
-                         "/Users/jukka/Downloads/test.txt"
-                         (.getBytes "test"
-                                    "UTF-8")))
+(defn create [directory-path]
+  (create-directories directory-path)
+  (->DirectoryStorage directory-path))
+
+(comment (String. (btree/get-from-storage (DirectoryStorage. "src/argumentica")
+                                          "directory_storage.clj"))
+
+         (btree/put-to-storage (DirectoryStorage. "data")
+                               "test.txt"
+                               (.getBytes "test"
+                                          "UTF-8")))
