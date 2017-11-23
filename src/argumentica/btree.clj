@@ -912,21 +912,23 @@
 
 (deftest test-unload-excess-nodes
   (is (match/contains-map? {:nodes
-                            {1 {:child-ids [0 match/any-string],
+                            {1 {:child-ids [0
+                                            match/any-string],
                                 :values #{1}},
                              5 {:child-ids [1 6]
                                 :values #{3}},
                              6 {:values #{5 7},
-                                :child-ids [3 match/any-string
+                                :child-ids [3
+                                            match/any-string
                                             7]},
                              7 {:values #{8 9}}},
                             :usages {[5 6 7] 9},
-                            :next-usage-number 10}
-                           (dissoc (unload-excess-nodes (reduce add
-                                                                (create (full-after-maximum-number-of-values 3))
-                                                                (range 10))
-                                                        3)
-                                   :storage))))
+                            :next-usage-number 10
+                            :root-id match/any-string}
+                           (unload-excess-nodes (reduce add
+                                                        (create (full-after-maximum-number-of-values 3))
+                                                        (range 10))
+                                                3))))
 
 (defn add-to-atom
   "Adds a value to an btree atom. Loads nodes from storage as needed.
