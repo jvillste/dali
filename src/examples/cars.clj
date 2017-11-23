@@ -212,9 +212,7 @@
                                                         (add-to-index avtec
                                                                       transaction-number
                                                                       eatcv-to-avtec-datom
-                                                                      entity-map))
-
-                                                      ))))
+                                                                      entity-map))))))
     
     #_(process-csv-lines-as-maps source-file-name
                                  (fn [columns]
