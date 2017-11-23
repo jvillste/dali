@@ -9,7 +9,7 @@
          (equals ~@body))
 
        (defmethod print-method ~type-name
-         [this# w#] (.write w# ~(str name)))
+         [this# writer#] (.write writer# ~(str name)))
 
        (def ~name (~(symbol (str type-name ".")))))))
 
