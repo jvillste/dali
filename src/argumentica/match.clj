@@ -17,3 +17,7 @@
 (def-matcher any-function [_ value] (fn? value))
 
 
+(defn contains-map? [desired-map target-map]
+  (= desired-map
+     (select-keys target-map
+                  (keys desired-map))))

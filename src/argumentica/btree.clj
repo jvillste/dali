@@ -37,7 +37,7 @@
     :root-id 0
     :full? full?
     :storage storage
-    :usage (priority-map/priority-map)})
+    :usages (priority-map/priority-map)})
 
   ([full? storage root-storage-key]
    {:nodes {}
@@ -46,7 +46,7 @@
     :root-id root-storage-key
     :full? full?
     :storage storage
-    :usage (priority-map/priority-map)}))
+    :usages (priority-map/priority-map)}))
 
 (defmulti get-from-storage
   (fn [storage key]
@@ -911,27 +911,22 @@
 
 
 (deftest test-unload-excess-nodes
-  (is (= {:nodes
-          {1 {:child-ids [0 match/any-string],
-              :values #{1}},
-           5 {:child-ids [1 6]
-              :values #{3}},
-           6 {:values #{5 7},
-              :child-ids [3 match/any-string
-                          7]},
-           7 {:values #{8 9}}},
-          :next-node-id 8,
-          :loaded-nodes 3,
-          :root-id match/any-string
-          :full? match/any-function
-          :usage {},
-          :usages {[5 6 7] 9},
-          :next-usage-number 10}
-         (dissoc (unload-excess-nodes (reduce add
-                                              (create (full-after-maximum-number-of-values 3))
-                                              (range 10))
-                                      3)
-                 :storage))))
+  (is (match/contains-map? {:nodes
+                            {1 {:child-ids [0 match/any-string],
+                                :values #{1}},
+                             5 {:child-ids [1 6]
+                                :values #{3}},
+                             6 {:values #{5 7},
+                                :child-ids [3 match/any-string
+                                            7]},
+                             7 {:values #{8 9}}},
+                            :usages {[5 6 7] 9},
+                            :next-usage-number 10}
+                           (dissoc (unload-excess-nodes (reduce add
+                                                                (create (full-after-maximum-number-of-values 3))
+                                                                (range 10))
+                                                        3)
+                                   :storage))))
 
 (defn add-to-atom
   "Adds a value to an btree atom. Loads nodes from storage as needed.
