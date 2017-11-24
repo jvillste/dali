@@ -1,5 +1,6 @@
 (ns argumentica.match
-  (:require [clojure.string :as string]))
+  (:require [clojure.string :as string]
+            [clojure.data :as data]))
 
 (defmacro def-matcher [name & body]
   (let [type-name (symbol (string/capitalize name))]
@@ -18,6 +19,10 @@
 
 
 (defn contains-map? [desired-map target-map]
-  (= desired-map
-     (select-keys target-map
-                  (keys desired-map))))
+  (let [diff (data/diff desired-map
+                        (select-keys target-map
+                                     (keys desired-map)))]
+    (if (empty? (first diff))
+      true
+      (do (prn (take 2 diff))
+          false))))
