@@ -4,7 +4,8 @@
             (argumentica [match :as match]
                          [cryptography :as cryptography]
                          [encode :as encode]
-                         [graph :as graph])
+                         [graph :as graph]
+                         [zip :as zip])
             [clojure.java.io :as io]
             [clojure.data.priority-map :as priority-map]
             [schema.core :as schema])
@@ -666,12 +667,17 @@
     (assoc btree :root-id new-child-id)))
 
 (defn node-to-bytes [node]
-  (.getBytes (prn-str node)
-             "UTF-8"))
+  (let [zip-output-stream (zip/byte-array-output-stream)]
+    
+    (zip/write-zip-file-with-one-entry (zip/string-input-stream (prn-str node)
+                                                                "UTF-8")
+                                       zip-output-stream)
+
+    (.toByteArray zip-output-stream)))
 
 (defn bytes-to-node [bytes]
   (-> (binding [*read-eval* false]
-        (read-string (String. bytes
+        (read-string (String. (zip/read-first-entry-from-zip (zip/byte-array-input-stream bytes))
                               "UTF-8")))
       (update :values
               (fn [values]
@@ -734,7 +740,7 @@
 
 (deftest test-unload-cursor
   (is (= {1 {:values #{3},
-             :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
+             :child-ids [match/any-string
                          2]},
           2 {:values #{4 5 6}}}
          (:nodes (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
@@ -746,7 +752,7 @@
                                 [1 0]))))
 
   (is (= {:nodes {},
-          :root-id "7761BC24541DD827301A1AFE64FB273ED86C1B7F14A474192575A4A3428C0732"
+          :root-id match/any-string
           :loaded-nodes 0}
          (-> (unload-cursor {:nodes
                              {1 {:values #{3},
@@ -810,8 +816,8 @@
                                     (create full?)
                                     (range 10)))]
     (is (= {8 {:child-ids
-               ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
-                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+               [match/any-string
+                match/any-string],
                :values #{3}}}
            (:nodes (set-node-content btree
                                      nil
@@ -820,12 +826,9 @@
                                                        (:root-id btree))))))
 
     (is (= {8 {:child-ids
-               [9
-                "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
-               :values #{3}},
-            9 {:child-ids ["C4CC9E545538D9A3096C3CC138E25FA778DCFBF6836A2BBFE8AD20364C7A013F"
-                           "B956188026D6E929C661B37B7E1C1D9D9BDC3643F5E8B3E9650D1FBDE21489CD"],
-               :values #{1}}}
+             [9 "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
+             :values #{3}},
+            9 "abc"}
            
            (:nodes (set-node-content {:nodes {8
                                               {:child-ids
@@ -838,8 +841,9 @@
                                       :storage (:storage btree)}
                                      8
                                      "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
-                                     (get-node-content (:storage btree)
-                                                       "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))))
+                                     "abc"
+                                     #_(get-node-content (:storage btree)
+                                                         "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))))
 
 
 (defn load-node [btree-atom parent-id storage-key]
@@ -894,7 +898,7 @@
 
     (is (= {:nodes {3 {:values #{3},
                        :child-ids [4
-                                   "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                                   match/any-string]},
                     4 {:values #{1 2}}},
             :root-id 3,
             :loaded-nodes 2
@@ -1003,15 +1007,15 @@
                                                         (range 10))
                                                 3))))
 
+
 (defn add-to-atom
   "Adds a value to an btree atom. Loads nodes from storage as needed.
   WARNING: Overrides any concurrent modifications to the atom."
   [btree-atom value]
-  (let [{:keys [btree]} (cursor-and-btree-for-value btree-atom
-                                                    value)]
-    (reset! btree-atom
-            (add btree
-                 value))))
+  (reset! btree-atom
+          (add (:btree (cursor-and-btree-for-value btree-atom
+                                                   value))
+               value)))
 
 
 (deftest test-add-to-atom
@@ -1057,7 +1061,7 @@
                 
                 {3 {:values #{3},
                     :child-ids [4
-                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                                match/any-string]},
                  4 {:values #{-1 1 2}}}))
 
     (testing "leaf is full"
@@ -1076,7 +1080,7 @@
                 {3 {:values #{-1 3},
                     :child-ids [4
                                 5
-                                "6638B45DAD7C0BDDD3BBA79F164FCC125102B1B638B090910E958DE120A8EA6A"]},
+                                match/any-string]},
                  4 {:values #{-3 -2}},
                  5 {:values #{0 1 2}}}))))
 
