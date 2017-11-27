@@ -2,6 +2,7 @@
   (:require [net.cgrand.xforms :as xforms]
             (argumentica [db :as db]
                          [index :as index]
+                         [btree :as btree]
                          [btree-index :as btree-index]
                          [directory-storage :as directory-storage])
 
@@ -189,21 +190,38 @@
                                     eatcv-to-datom
                                     entity-map)]
     (index/add-to-index index
-                        datom)))
+                        datom)
+
+    (swap! (:index-atom index)
+           btree/unload-excess-nodes 1000)))
+
+(defn log-index-state [name btree-index log-state-atom]
+  (swap! log-state-atom
+         update :count  (fnil inc 0))
+  (when (= 0 (mod (:count @log-state-atom)
+                  100))
+    (prn (conj (select-keys @(:index-atom btree-index)
+                            [:loaded-nodes])
+               @log-state-atom
+               {:name name}))))
 
 (defn start []
   (let [crate-index (fn []
-                      (btree-index/create 100
+                      (btree-index/create 1000
                                           {}
                                           #_(directory-storage/create "data/1")))
         eatcv (crate-index)
-        avtec (crate-index)]
+        avtec (crate-index)
+        eatcv-log-state (atom {})
+        avtec-log-state (atom {})]
 
     (transduce-csv-lines-as-maps source-file-name
-                                 (comp (xforms/partition 10)
-                                       (take 10)
+                                 (comp (xforms/partition 100)
+                                       (take 100)
                                        (map-indexed (fn [transaction-number entity-maps]
                                                       (doseq [entity-map entity-maps]
+                                                        
+                                                        
                                                         (add-to-index eatcv
                                                                       transaction-number
                                                                       eatcv-to-eatcv-datom
@@ -212,7 +230,10 @@
                                                         (add-to-index avtec
                                                                       transaction-number
                                                                       eatcv-to-avtec-datom
-                                                                      entity-map))))))
+                                                                      entity-map)
+
+                                                        (log-index-state "eatcv" eatcv eatcv-log-state)
+                                                        (log-index-state "avtec" avtec avtec-log-state))))))
     
     #_(process-csv-lines-as-maps source-file-name
                                  (fn [columns]
@@ -233,12 +254,13 @@
     (let [target-a :ajoneuvoluokka
           target-v "M1"
           latest-transaction-number 6]
-      (take-while (fn [[a v t e c]]
-                    (and (= a target-a)
-                         (= v target-v)
-                         (<= t latest-transaction-number)))
-                  (index/inclusive-subsequence avtec
-                                               [target-a target-v nil nil nil])))
+      (take 10
+            (take-while (fn [[a v t e c]]
+                          (and (= a target-a)
+                               (= v target-v)
+                               (<= t latest-transaction-number)))
+                        (index/inclusive-subsequence avtec
+                                                     [target-a target-v nil nil nil]))))
     
     #_(db/unload-index eatcv)
 

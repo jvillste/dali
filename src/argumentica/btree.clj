@@ -709,6 +709,22 @@
                               2 {:values (sorted-set 4 5 6)}}
                       :root-id 1}]
            (cursors (first-cursor btree)
+                    btree))))
+  (is (= [[13 5 1 0]
+          [13 5 1 2]
+          [13 5 match/any-string]
+          [13 14 9 7]
+          [13 14 9 8]
+          [13 14 12 10]
+          [13 14 12 11]
+          [13 14 12 15]
+          [13 14 12 16]]
+         (let [btree (-> (reduce add
+                                 (create (full-after-maximum-number-of-values 3))
+                                 (range 20))
+                         (unload-cursor [13 5 6 3])
+                         (unload-cursor [13 5 6 4]))]
+           (cursors [13 5 1 0]
                     btree)))))
 
 (defn unload-cursor [btree cursor]
@@ -767,8 +783,10 @@
 
 (defn unload-btree [btree]
   (loop [btree btree
-         cursors (cursors (first-cursor btree)
-                          btree)]
+         cursors (filter (fn [cursor]
+                           (loaded? (last cursor)))
+                         (cursors (first-cursor btree)
+                                  btree))]
     (if-let [cursor (first cursors)]
       (let [btree (unload-cursor btree
                                  cursor)]
@@ -778,20 +796,26 @@
 
 
 (deftest test-unload-btree
-  (unload-btree {:nodes {0 {:values (sorted-set 0)}
-                         1 {:values (sorted-set 1)
-                            :child-ids [0 2]}
-                         2 {:values (sorted-set 2)}
-                         3 {:values (sorted-set 4)}
-                         4 {:values (sorted-set 6 7 8)}
-                         5 {:values (sorted-set 3)
-                            :child-ids [1 6]}
-                         6 {:values (sorted-set 5)
-                            :child-ids [3 4]}},
-                 :loaded-nodes 7
-                 :next-node-id 7,
-                 :root-id 5
-                 :storage {}}))
+  (testing "unload btree when some nodes are unloaded in the middle"
+    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+           (inclusive-subsequence (atom (-> (reduce add
+                                                    (create (full-after-maximum-number-of-values 3))
+                                                    (range 20))
+                                            (unload-cursor [13 5 6 3])
+                                            (unload-cursor [13 5 6 4])
+                                            (unload-btree)))
+                                  0))))
+
+  (testing "unload btree when first nodes are unloaded"
+    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+           (inclusive-subsequence (atom (-> (reduce add
+                                                    (create (full-after-maximum-number-of-values 3))
+                                                    (range 20))
+                               
+                                            (unload-cursor [13 5 1 0])
+                                            (unload-cursor [13 5 1 2])
+                                            (unload-btree)))
+                                  0)))))
 
 (defn get-node-content [storage storage-key]
   (bytes-to-node (get-from-storage storage
@@ -1192,7 +1216,7 @@
       5   [5 6]
       50  nil)))
 
-(defn lazy-sequence [btree-atom sequence]
+(defn lazy-value-sequence [btree-atom sequence]
   (if-let [sequence (if (first (rest sequence))
                       sequence
                       (if-let [value (first sequence)]
@@ -1201,12 +1225,12 @@
                                                        (first sequence)))
                         nil))]
     (lazy-seq (cons (first sequence)
-                    (lazy-sequence btree-atom
-                                   (rest sequence))))
+                    (lazy-value-sequence btree-atom
+                                         (rest sequence))))
     nil))
 
 (defn inclusive-subsequence [btree-atom value]
-  (lazy-sequence btree-atom
+  (lazy-value-sequence btree-atom
                  (sequence-for-value btree-atom
                                      value)))
 
@@ -1276,10 +1300,6 @@
         (unload-btree (reduce add
                               (create full?)
                               (range 10))))))
-
-
-
-
 
 (comment
   (let [usage (-> (priority-map/priority-map [1 2] 1 [1 3] 2 [1 4] 3)
