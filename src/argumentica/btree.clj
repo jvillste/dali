@@ -667,7 +667,9 @@
     (assoc btree :root-id new-child-id)))
 
 (defn node-to-bytes [node]
-  (let [zip-output-stream (zip/byte-array-output-stream)]
+  (zip/compress-byte-array (.getBytes (pr-str node)
+                                      "UTF-8"))
+  #_(let [zip-output-stream (zip/byte-array-output-stream)]
     
     (zip/write-zip-file-with-one-entry (zip/string-input-stream (prn-str node)
                                                                 "UTF-8")
@@ -675,9 +677,15 @@
 
     (.toByteArray zip-output-stream)))
 
+(comment
+  (node-to-bytes {:a :b})
+  (storage-key (node-to-bytes {:a :b}))
+  (String. (zip/read-first-entry-from-zip (zip/byte-array-input-stream (node-to-bytes {:a :b})))
+           "UTF-8"))
+
 (defn bytes-to-node [bytes]
   (-> (binding [*read-eval* false]
-        (read-string (String. (zip/read-first-entry-from-zip (zip/byte-array-input-stream bytes))
+        (read-string (String. (zip/uncompress-byte-array bytes)
                               "UTF-8")))
       (update :values
               (fn [values]
@@ -692,40 +700,6 @@
     (is (= node
            (bytes-to-node (node-to-bytes node))))))
 
-(defn cursors [cursor btree]
-  (if-let [the-next-cursor (next-cursor btree
-                                        cursor)]
-    (lazy-seq (cons cursor
-                    (cursors (next-cursor btree
-                                          cursor)
-                             btree)))
-    [cursor]))
-
-(deftest test-cursors
-  (is (= '([1 0]
-           [1 2])
-         (let [btree {:nodes {0 {:values (sorted-set 1 2)},
-                              1 {:values (sorted-set 3), :child-ids [0 2]},
-                              2 {:values (sorted-set 4 5 6)}}
-                      :root-id 1}]
-           (cursors (first-cursor btree)
-                    btree))))
-  (is (= [[13 5 1 0]
-          [13 5 1 2]
-          [13 5 match/any-string]
-          [13 14 9 7]
-          [13 14 9 8]
-          [13 14 12 10]
-          [13 14 12 11]
-          [13 14 12 15]
-          [13 14 12 16]]
-         (let [btree (-> (reduce add
-                                 (create (full-after-maximum-number-of-values 3))
-                                 (range 20))
-                         (unload-cursor [13 5 6 3])
-                         (unload-cursor [13 5 6 4]))]
-           (cursors [13 5 1 0]
-                    btree)))))
 
 (defn unload-cursor [btree cursor]
   (loop [cursor cursor
@@ -781,41 +755,46 @@
                             [1 2])
              (select-keys [:nodes :root-id :loaded-nodes])))))
 
-(defn unload-btree [btree]
-  (loop [btree btree
-         cursors (filter (fn [cursor]
-                           (loaded? (last cursor)))
-                         (cursors (first-cursor btree)
-                                  btree))]
-    (if-let [cursor (first cursors)]
-      (let [btree (unload-cursor btree
-                                 cursor)]
-        (recur btree
-               (rest cursors)))
-      btree)))
+(defn cursors [cursor btree]
+  (if-let [the-next-cursor (next-cursor btree
+                                        cursor)]
+    (lazy-seq (cons cursor
+                    (cursors (next-cursor btree
+                                          cursor)
+                             btree)))
+    [cursor]))
+
+(deftest test-cursors
+  (is (= '([1 0]
+           [1 2])
+         (let [btree {:nodes {0 {:values (sorted-set 1 2)},
+                              1 {:values (sorted-set 3), :child-ids [0 2]},
+                              2 {:values (sorted-set 4 5 6)}}
+                      :root-id 1}]
+           (cursors (first-cursor btree)
+                    btree))))
+  (is (= [[13 5 1 0]
+          [13 5 1 2]
+          [13 5 match/any-string]
+          [13 14 9 7]
+          [13 14 9 8]
+          [13 14 12 10]
+          [13 14 12 11]
+          [13 14 12 15]
+          [13 14 12 16]]
+         (let [btree (-> (reduce add
+                                 (create (full-after-maximum-number-of-values 3))
+                                 (range 20))
+                         (unload-cursor [13 5 6 3])
+                         (unload-cursor [13 5 6 4]))]
+           (cursors [13 5 1 0]
+                    btree)))))
 
 
-(deftest test-unload-btree
-  (testing "unload btree when some nodes are unloaded in the middle"
-    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
-           (inclusive-subsequence (atom (-> (reduce add
-                                                    (create (full-after-maximum-number-of-values 3))
-                                                    (range 20))
-                                            (unload-cursor [13 5 6 3])
-                                            (unload-cursor [13 5 6 4])
-                                            (unload-btree)))
-                                  0))))
 
-  (testing "unload btree when first nodes are unloaded"
-    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
-           (inclusive-subsequence (atom (-> (reduce add
-                                                    (create (full-after-maximum-number-of-values 3))
-                                                    (range 20))
-                               
-                                            (unload-cursor [13 5 1 0])
-                                            (unload-cursor [13 5 1 2])
-                                            (unload-btree)))
-                                  0)))))
+
+
+
 
 (defn get-node-content [storage storage-key]
   (bytes-to-node (get-from-storage storage
@@ -833,6 +812,8 @@
 
       (update :loaded-nodes
               (fnil inc 0))))
+
+(declare unload-btree)
 
 (deftest test-set-node-content
   (let [full? (full-after-maximum-number-of-values 3)
@@ -1290,6 +1271,41 @@
                                                             values))
                                               smallest))))))
 
+(defn unload-btree [btree]
+  (loop [btree btree
+         cursors (filter (fn [cursor]
+                           (loaded? (last cursor)))
+                         (cursors (first-cursor btree)
+                                  btree))]
+    (if-let [cursor (first cursors)]
+      (let [btree (unload-cursor btree
+                                 cursor)]
+        (recur btree
+               (rest cursors)))
+      btree)))
+
+
+(deftest test-unload-btree
+  (testing "unload btree when some nodes are unloaded in the middle"
+    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+           (inclusive-subsequence (atom (-> (reduce add
+                                                    (create (full-after-maximum-number-of-values 3))
+                                                    (range 20))
+                                            (unload-cursor [13 5 6 3])
+                                            (unload-cursor [13 5 6 4])
+                                            (unload-btree)))
+                                  0))))
+
+  (testing "unload btree when first nodes are unloaded"
+    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
+           (inclusive-subsequence (atom (-> (reduce add
+                                                    (create (full-after-maximum-number-of-values 3))
+                                                    (range 20))
+                               
+                                            (unload-cursor [13 5 1 0])
+                                            (unload-cursor [13 5 1 2])
+                                            (unload-btree)))
+                                  0)))))
 
 (deftest test-save-to-storage
   (let [full? (full-after-maximum-number-of-values 3)]
@@ -1300,6 +1316,51 @@
         (unload-btree (reduce add
                               (create full?)
                               (range 10))))))
+
+
+(defn load-first-cursor [btree-atom]
+  (loop [cursor (first-cursor @btree-atom)]
+    (if (not (loaded? (last cursor)))
+      (recur (first-cursor (load-node btree-atom
+                                      (parent-id cursor)
+                                      (last cursor)))))))
+
+
+
+(defn storage-keys [storage root-key]
+  (tree-seq (fn [storage-key]
+              (not (leaf-node? (get-node-content storage
+                                                 storage-key))))
+            (fn [storage-key]
+              (:child-ids (get-node-content storage
+                                            storage-key)))
+            root-key))
+
+(deftest test-storage-keys
+  (is (= '("F9BB95AB72D53E649CBBF11393513766328FEC2854368CDF711BE0D9A0F7E50E"
+           "FC1BA555525A5BD07E5BF7F3A2F22D8DD9CC8F513E39933390A7CD5487E8B88D"
+           "796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C"
+           "C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
+           "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"
+           "1552ED8E39B3FF5EFF43E9D33F8312274F898739862A72A46557E53EF163CA0F"
+           "3383407D43C265C4D7E89F4AAE7AFFF0A7F34FB03480991ABD3552DF30F5780C"
+           "42521C364179D339A1D113688F7BE4E72D8AC5D4E10C10987B441847E9DACE45"
+           "3BE0B4C1B1B8AC80DE2624E516AEFC08E89B274BDCD332EFE687E244454EEADC"
+           "07827984EDC3C50B0F822622D379F5910F3FBA61F876DAB141A9006DA9D5C52F"
+           "E06A1920A38B07A5AA2096886C5F0E136DDCBF1A42C38CF2E895EECB769BD410"
+           "07C6028CA1B9FD0A62A622EC3AFAF75FADB678E1873BA017F601E5C17908DFDC"
+           "186882D1FB0CA8B418C7B8B0BB1111D155ECABA205B05DCE074C6E8506B3B007"
+           "32F8379E24C819D47612AFCA7EEB6979D3DC58518BE5E818375EACCF589620FE"
+           "BF1712D67656931C4CCC1AFFB6B9198A9A54389DDDD92F9650C088EBC6249EF9"
+           "36BDF55B4AF483308E6FCB89F07844F10CF52914F667560A22BF3CDFCD877AFB"
+           "5252BDB24DC15231B0F868D3EEB70E094AC5A95E4382E3C3CC6D469CECFFBC0A")
+         (let [btree (unload-btree (reduce add
+                                           (create (full-after-maximum-number-of-values 3))
+                                           (range 20)))]
+           
+           (storage-keys (:storage btree)
+                         (:root-id btree))))))
+
 
 (comment
   (let [usage (-> (priority-map/priority-map [1 2] 1 [1 3] 2 [1 4] 3)
