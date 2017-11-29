@@ -6,6 +6,9 @@
                          [encode :as encode]
                          [graph :as graph]
                          [zip :as zip])
+            [clojure.test.check.clojure-test :refer [defspec]]
+            [clojure.test.check.generators :as generators]
+            [clojure.test.check.properties :as properties]
             [clojure.java.io :as io]
             [clojure.data.priority-map :as priority-map]
             [schema.core :as schema])
@@ -18,6 +21,8 @@
   {:values (sorted-set)})
 
 (defn full-after-maximum-number-of-values [maximum]
+  (assert (odd? maximum)
+          "Maximum node size must be odd")
   (fn [node]
     (= maximum
        (count (:values node)))))
@@ -83,8 +88,46 @@
          key
          value))
 
+(defmulti storage-keys
+  (fn [storage]
+    (type storage)))
 
+(defmethod storage-keys
+  clojure.lang.PersistentHashMap
+  [storage]
+  (keys storage))
 
+(defmethod storage-keys
+  clojure.lang.PersistentArrayMap
+  [storage]
+  (keys storage))
+
+(defmulti remove-from-storage
+  (fn [storage key]
+    (type storage)))
+
+(defmethod remove-from-storage
+  clojure.lang.PersistentHashMap
+  [storage key]
+  (dissoc storage key))
+
+(defmethod remove-from-storage
+  clojure.lang.PersistentArrayMap
+  [storage key]
+  (dissoc storage key))
+
+(defn unused-storage-keys [btree]
+  (let [used-keys (into #{}
+                        (keys (:storage-metadata btree)))]
+    (filter (complement used-keys)
+            (storage-keys (:storage btree)))))
+
+(defn collect-storage-garbage [btree]
+  (update btree :storage
+          (fn [storage]
+            (reduce remove-from-storage
+                    storage
+                    (unused-storage-keys btree)))))
 
 (defn loaded? [node-id]
   (number? node-id))
@@ -363,12 +406,15 @@
 
 
 (defn add [btree value]
+
   (loop [btree (if ((:full? btree) (node btree
                                          (:root-id btree)))
                  (split-root btree)
                  btree)
          node-id (:root-id btree)
          cursor [node-id]]
+    (assert (loaded? node-id)
+            "Nodes needed for addition must be loaded. Use add-to-atom to load requried nodes and add a new value.")  
     (let [the-node (node btree
                          node-id)]
       (if (leaf-node? the-node)
@@ -685,8 +731,13 @@
 
 (defn bytes-to-node [bytes]
   (-> (binding [*read-eval* false]
-        (read-string (String. (zip/uncompress-byte-array bytes)
-                              "UTF-8")))
+        (try 
+          (read-string (String. (zip/uncompress-byte-array bytes)
+                                "UTF-8"))
+          (catch Exception e
+            (prn (String. (zip/uncompress-byte-array bytes)
+                          "UTF-8"))
+            (throw e))))
       (update :values
               (fn [values]
                 (into (sorted-set)
@@ -706,8 +757,9 @@
          btree btree]
     (let [node-id-to-be-unloded (last cursor)
           parent-id (last (drop-last cursor))
-          bytes (node-to-bytes (node btree
-                                     node-id-to-be-unloded))
+          the-node (node btree
+                         node-id-to-be-unloded)
+          bytes (node-to-bytes the-node)
           the-storage-key (storage-key bytes)
           btree (-> btree
                     (replace-node-id parent-id
@@ -716,6 +768,12 @@
                     (update :nodes dissoc node-id-to-be-unloded)
                     (update :loaded-nodes dec)
                     (update :usages dissoc node-id-to-be-unloded)
+                    (update :storage-metadata 
+                            assoc
+                            the-storage-key
+                            (conj (select-keys the-node [:child-ids])
+                                  {:value-count (count (:values the-node))
+                                   :storage-byte-count (count bytes)}))
                     (update :storage
                             put-to-storage
                             the-storage-key
@@ -790,12 +848,6 @@
            (cursors [13 5 1 0]
                     btree)))))
 
-
-
-
-
-
-
 (defn get-node-content [storage storage-key]
   (bytes-to-node (get-from-storage storage
                                    storage-key)))
@@ -811,7 +863,9 @@
               inc)
 
       (update :loaded-nodes
-              (fnil inc 0))))
+              (fnil inc 0))
+      (update :storage-metadata 
+              dissoc storage-key)))
 
 (declare unload-btree)
 
@@ -901,17 +955,17 @@
     (swap! btree-atom
            unload-btree)
 
-    (is (= {:nodes {3 {:values #{3},
-                       :child-ids [4
-                                   match/any-string]},
-                    4 {:values #{1 2}}},
-            :root-id 3,
-            :loaded-nodes 2
-            :usages {}
-            :next-node-id 5}
-           (dissoc (:btree (cursor-and-btree-for-value btree-atom
-                                                       1))
-                   :storage)))
+    (is (match/contains-map? {:nodes {3 {:values #{3},
+                                         :child-ids [4
+                                                     match/any-string]},
+                                      4 {:values #{1 2}}},
+                              :root-id 3,
+                              :loaded-nodes 2
+                              :usages {}
+                              :next-node-id 5}
+                             (dissoc (:btree (cursor-and-btree-for-value btree-atom
+                                                                         1))
+                                     :storage)))
 
     (is (= [3 4]
            (:cursor (cursor-and-btree-for-value btree-atom
@@ -974,6 +1028,8 @@
                              :usages {0 2, 2 4, 3 6, 4 8, 7 9}}))))
 
 (defn unload-excess-nodes [btree maximum-node-count]
+  #_(prn "unload" maximum-node-count
+       (:loaded-nodes btree))
   (loop [btree btree]
     (if (< maximum-node-count
            (:loaded-nodes btree))
@@ -1010,7 +1066,14 @@
                            (unload-excess-nodes (reduce add
                                                         (create (full-after-maximum-number-of-values 3))
                                                         (range 10))
-                                                3))))
+                                                3)))
+
+
+  (is (= 5
+         (count (keys (:nodes (unload-excess-nodes (reduce add
+                                                           (create (full-after-maximum-number-of-values 3))
+                                                           (range 30))
+                                                   5)))))))
 
 
 (defn add-to-atom
@@ -1228,10 +1291,17 @@
 
     (swap! btree-atom
            unload-btree)
-    
+
+    (is (= 3
+           (count (keys (:storage-metadata @btree-atom)))))
+
     (is (= [1 2 3 4 5 6]
            (inclusive-subsequence btree-atom
                                   0)))
+
+    (is (= 0
+           (count (keys (:storage-metadata  @btree-atom)))))
+
 
     (is (= [2 3 4 5 6]
            (inclusive-subsequence btree-atom
@@ -1327,7 +1397,7 @@
 
 
 
-(defn storage-keys [storage root-key]
+(defn storage-keys-from-stored-nodes [storage root-key]
   (tree-seq (fn [storage-key]
               (not (leaf-node? (get-node-content storage
                                                  storage-key))))
@@ -1336,7 +1406,7 @@
                                             storage-key)))
             root-key))
 
-(deftest test-storage-keys
+(deftest test-storage-keys-from-stored-nodes
   (is (= '("F9BB95AB72D53E649CBBF11393513766328FEC2854368CDF711BE0D9A0F7E50E"
            "FC1BA555525A5BD07E5BF7F3A2F22D8DD9CC8F513E39933390A7CD5487E8B88D"
            "796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C"
@@ -1358,9 +1428,35 @@
                                            (create (full-after-maximum-number-of-values 3))
                                            (range 20)))]
            
-           (storage-keys (:storage btree)
-                         (:root-id btree))))))
+           (storage-keys-from-stored-nodes (:storage btree)
+                                    (:root-id btree))))))
 
+
+(defspec first-element-is-min-after-sorting ;; the name of the test
+         100 ;; the number of iterations for test.check to test
+         (properties/for-all [v (generators/not-empty (generators/vector generators/int))]
+           (= (apply min v)
+              (first (sort v)))))
+
+(deftest test-garbage-collection
+  #_(let [btree-atom (atom (create (full-after-maximum-number-of-values 3)))]
+
+    (doseq [numbers (partition 3 (range 40))]
+      (doseq [number numbers]
+        (add-to-atom btree-atom number))
+      (swap! btree-atom unload-excess-nodes 5))
+
+    (unused-storage-keys @btree-atom)
+    (swap! btree-atom unload-excess-nodes 5)
+    @btree-atom
+    
+    )
+
+  #_(add (unload-btree (add (create (full-after-maximum-number-of-values 3))
+                          1))
+       2)
+  
+  )
 
 (comment
   (let [usage (-> (priority-map/priority-map [1 2] 1 [1 3] 2 [1 4] 3)

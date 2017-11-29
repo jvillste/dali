@@ -15,7 +15,7 @@
   (:use clojure.test))
 
 (defn compress [input-stream output-stream]
-  (let [buffer-size 99
+  (let [buffer-size 1001
         input-buffer (byte-array buffer-size)
         output-buffer (byte-array buffer-size)
         deflater (Deflater.)]
@@ -50,7 +50,7 @@
     (.end deflater)))
 
 (defn uncompress [input-stream output-stream]
-  (let [buffer-size 100
+  (let [buffer-size 1000
         input-buffer (byte-array buffer-size)
         output-buffer (byte-array buffer-size)
         inflater (Inflater.)]
@@ -107,7 +107,7 @@
          (into [] (uncompress-byte-array (byte-array [120 -100 75 76 74 6 0 2 77 1 39])))))
 
   
-  (let [string (apply str (repeat 100 "abc"))]
+  (let [string (apply str (repeatedly 500000 (fn [] (rand-nth  (range 10)))))]
     (is (= string
            (String. (uncompress-byte-array (compress-byte-array (.getBytes string "UTF-8")))
                     "UTF-8")))))

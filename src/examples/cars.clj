@@ -189,11 +189,12 @@
                                     (new-entity-id)
                                     eatcv-to-datom
                                     entity-map)]
+
     (index/add-to-index index
                         datom)
 
     (swap! (:index-atom index)
-           btree/unload-excess-nodes 1000)))
+             btree/unload-excess-nodes 5 #_100)))
 
 (defn log-index-state [name btree-index log-state-atom]
   (swap! log-state-atom
@@ -207,7 +208,7 @@
 
 (defn start []
   (let [crate-index (fn []
-                      (btree-index/create 1000
+                      (btree-index/create 11 #_000
                                           {}
                                           #_(directory-storage/create "data/1")))
         eatcv (crate-index)
@@ -217,10 +218,9 @@
 
     (transduce-csv-lines-as-maps source-file-name
                                  (comp (xforms/partition 100)
-                                       (take 100)
+                                       (take 1)
                                        (map-indexed (fn [transaction-number entity-maps]
                                                       (doseq [entity-map entity-maps]
-                                                        
                                                         
                                                         (add-to-index eatcv
                                                                       transaction-number
@@ -232,8 +232,12 @@
                                                                       eatcv-to-avtec-datom
                                                                       entity-map)
 
-                                                        (log-index-state "eatcv" eatcv eatcv-log-state)
-                                                        (log-index-state "avtec" avtec avtec-log-state))))))
+                                                        #_(swap! (:index-atom eatcv)
+                                                                 btree/unload-btree)
+
+                                                        #_(log-index-state "eatcv" eatcv eatcv-log-state)
+                                                        #_(log-index-state "avtec" avtec avtec-log-state))))))
+
     
     #_(process-csv-lines-as-maps source-file-name
                                  (fn [columns]
@@ -251,16 +255,21 @@
     #_(:nodes @(:index-atom eatcv))
     #_(:nodes @(:index-atom avtec))
 
-    (let [target-a :ajoneuvoluokka
-          target-v "M1"
-          latest-transaction-number 6]
-      (take 10
-            (take-while (fn [[a v t e c]]
-                          (and (= a target-a)
-                               (= v target-v)
-                               (<= t latest-transaction-number)))
-                        (index/inclusive-subsequence avtec
-                                                     [target-a target-v nil nil nil]))))
+
+    #_(swap! (:index-atom eatcv)
+           btree/unload-btree)
+    #_(:storage-metadata @(:index-atom eatcv))
+    (btree/unused-storage-keys @(:index-atom eatcv))
+    #_(let [target-a :ajoneuvoluokka
+            target-v "M1"
+            latest-transaction-number 6]
+        (take 10
+              (take-while (fn [[a v t e c]]
+                            (and (= a target-a)
+                                 (= v target-v)
+                                 (<= t latest-transaction-number)))
+                          (index/inclusive-subsequence avtec
+                                                       [target-a target-v nil nil nil]))))
     
     #_(db/unload-index eatcv)
 

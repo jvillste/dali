@@ -15,5 +15,6 @@
                  [org.clojure/algo.monads "0.1.6"]
                  [iota "1.1.3"]
                  [net.cgrand/xforms "0.15.0"]
-                 [prismatic/schema "1.1.7"]]
+                 [prismatic/schema "1.1.7"]
+                 [org.clojure/test.check "0.9.0"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
