@@ -765,7 +765,8 @@
                     btree))))
   (is (= [[13 5 1 0]
           [13 5 1 2]
-          [13 5 match/any-string]
+          [13 5 6 match/any-string]
+          [13 5 6 match/any-string]
           [13 14 9 7]
           [13 14 9 8]
           [13 14 12 10]
@@ -779,6 +780,10 @@
                          (unload-cursor [13 5 6 4]))]
            (cursors [13 5 1 0]
                     btree)))))
+
+(defn all-cursors [btree]
+  (cursors (first-cursor btree)
+           btree))
 
 (defn get-node-content [storage storage-key]
   (bytes-to-node (get-from-storage storage
@@ -887,7 +892,7 @@
                                         value)]
           (if (storage-key? the-child-id)
             (recur (set-node-content btree
-                                     (parent-id cursor)
+                                     (last cursor)
                                      the-child-id
                                      (get-node-content (:storage btree)
                                                        the-child-id))
