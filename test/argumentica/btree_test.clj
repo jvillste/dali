@@ -35,9 +35,14 @@
   (properties/for-all [size gen/pos-int]
                       (all-nodes-reachable? (btree/create-test-btree 3 size))))
 
+(defn unload-excess-nodes [btree]
+  (btree/unload-excess-nodes btree
+                             5))
 
-(def command-generator (gen/frequency [[9 (gen/tuple (gen/return #'btree/unload-least-used-node))]
-                                       [10 (gen/tuple (gen/return #'btree/add)
+(def command-generator (gen/frequency [[1 (gen/tuple (gen/return #'btree/unload-least-used-node))]
+                                       [1 (gen/tuple (gen/return #'btree/unload-btree))]
+                                       [1 (gen/tuple (gen/return #'unload-excess-nodes))]
+                                       [8 (gen/tuple (gen/return #'btree/add)
                                                       gen/pos-int)]]))
 
 (defn apply-commands-to-new-btree [commands]
@@ -48,6 +53,22 @@
           (btree/create (btree/full-after-maximum-number-of-values 3))
           commands))
 
+(defn apply-commands-to-new-sorted-set [commands]
+  (reduce (fn [sorted-set [command & arguments]]
+            (if-let [sorted-set-command (get {#'btree/add conj}
+                                             command)]
+              (apply sorted-set-command
+                     sorted-set
+                     arguments)
+              sorted-set))
+          (sorted-set)
+          commands))
+
+(deftest test-apply-commands-to-new-sorted-set
+  (is (= #{0 1}
+         (apply-commands-to-new-sorted-set [[#'argumentica.btree/add 0]
+                                            [#'argumentica.btree/unload-least-used-node]
+                                            [#'argumentica.btree/add 1]]))))
 
 (defspec property-test-reached-nodes
    (properties/for-all [commands (gen/vector command-generator)]
@@ -59,3 +80,12 @@
   (properties/for-all [commands (gen/vector command-generator)]
                       (all-nodes-reachable? (apply-commands-to-new-btree commands))))
 
+
+(defspec property-test-btree 1000
+  (properties/for-all [commands (gen/vector command-generator)
+                       smallest gen/int]
+                      (= (subseq (apply-commands-to-new-sorted-set commands)
+                                 >=
+                                 smallest)
+                         (btree/inclusive-subsequence (atom (apply-commands-to-new-btree commands))
+                                                      smallest))))

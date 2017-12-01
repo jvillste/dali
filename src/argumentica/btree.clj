@@ -7,7 +7,7 @@
                          [graph :as graph]
                          [zip :as zip])
             [clojure.test.check.clojure-test :refer [defspec]]
-            [clojure.test.check.generators :as generators]
+            [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties]
             [clojure.java.io :as io]
             [clojure.data.priority-map :as priority-map]
@@ -839,14 +839,18 @@
                                      #_(get-node-content (:storage btree)
                                                          "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))))
 
+(defn load-node [btree parent-id storage-key]
+  (set-node-content btree
+                    parent-id
+                    storage-key
+                    (get-node-content (:storage btree)
+                                      storage-key)))
 
-(defn load-node [btree-atom parent-id storage-key]
+(defn load-node-to-atom [btree-atom parent-id storage-key]
   (swap! btree-atom
-         set-node-content
+         load-node
          parent-id
-         storage-key
-         (get-node-content (:storage @btree-atom)
-                           storage-key)))
+         storage-key))
 
 
 (defn load-root-if-needed [btree]
@@ -983,12 +987,12 @@
                            (range 10)))))))
 
 
-(defn cursor-and-btree-for-value [btree-atom value]
+(defn cursor-and-btree-for-value-and-btree-atom [btree-atom value]
   (loop [btree @btree-atom
          cursor [(:root-id btree)]
          node-id (:root-id btree)]
     (if (storage-key? node-id)
-      (do (load-node btree-atom
+      (do (load-node-to-atom btree-atom
                      (parent-id cursor)
                      node-id)
           (let [btree @btree-atom]
@@ -1007,7 +1011,6 @@
                    the-child-id)
             {:btree btree
              :cursor cursor}))))))
-
 
 (deftest test-cursor-and-btree-for-value
   (let [btree-atom (atom {:nodes
@@ -1029,39 +1032,60 @@
                               :root-id 3,
                               :usages {}
                               :next-node-id 5}
-                             (dissoc (:btree (cursor-and-btree-for-value btree-atom
+                             (dissoc (:btree (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                          1))
                                      :storage)))
 
     (is (= [3 4]
-           (:cursor (cursor-and-btree-for-value btree-atom
+           (:cursor (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                 1))))
 
     (is (= [3]
-           (:cursor (cursor-and-btree-for-value btree-atom
-                                                3))))))
+           (:cursor (cursor-and-btree-for-value-and-btree-atom btree-atom
+                                                               3))))))
+
+(defn load-nodes-for-value [btree value]
+  (loop [btree (load-root-if-needed btree)
+         cursor [(:root-id btree)]
+         node-id (:root-id btree)]
+
+    (let [the-node (node btree
+                         node-id)]
+      (if (leaf-node? the-node)
+        {:btree btree
+         :cursor cursor}
+        (if-let [the-child-id (child-id the-node
+                                        value)]
+          (if (storage-key? the-child-id)
+            (recur (set-node-content btree
+                                     node-id
+                                     the-child-id
+                                     (get-node-content (:storage btree)
+                                                       the-child-id))
+                   (conj cursor
+                         (:next-node-id btree))
+                   
+                   (:next-node-id btree))
+            (recur btree
+                   (conj cursor
+                         the-child-id)
+                   the-child-id))
+          {:cursor cursor
+           :btree btree})))))
 
 
-#_(defn leaf-node-cursors-least-used-first [btree]
-  (filter (fn [cursor]
-            (leaf-node? (node btree
-                              (last cursor))))
-          (map first (:usages btree))))
+(defspec propertytest-load-nodes-for-value
+  (properties/for-all [values (gen/vector gen/int)]
+                      (if-let [value (first values)]
+                        (let [{:keys [cursor btree]} (load-nodes-for-value (unload-btree (reduce add
+                                                                                                 (create (full-after-maximum-number-of-values 3))
+                                                                                                 values))
+                                                                           value)]
+                          (contains? (:values (get (:nodes btree)
+                                                   (last cursor)))
+                                     value))
+                        true)))
 
-
-#_(deftest test-leaf-node-cursors-least-used-first
-  (is (= '((5 1 0) (5 1 2) (5 1 3) (5 1 4) [5 6 4] [5 6 7])
-         (leaf-node-cursors-least-used-first (reduce add
-                                                     (create (full-after-maximum-number-of-values 3))
-                                                     (range 10))))))
-
-(comment (map first (:usages (reduce add
-                                     (create (full-after-maximum-number-of-values 3))
-                                     (range 10))))
-         (node (reduce add
-                  (create (full-after-maximum-number-of-values 3))
-                  (range 10))
-               0))
 
 (defn least-used-cursor [btree]
   (if (empty? (:nodes btree))
@@ -1225,7 +1249,7 @@
   WARNING: Overrides any concurrent modifications to the atom."
     [btree-atom value]
     (reset! btree-atom
-            (add (:btree (cursor-and-btree-for-value btree-atom
+            (add (:btree (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                      value))
                  value)))
 
@@ -1297,8 +1321,8 @@
                  5 {:values #{0 1 2}}}))))
 
 (defn btree-and-node-id-after-splitter [btree-atom splitter]
-  (let [{:keys [cursor btree]} (cursor-and-btree-for-value btree-atom
-                                                           splitter)
+  (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
+                                                                          splitter)
 
         node-with-the-splitter (node btree
                                      (last cursor))
@@ -1319,9 +1343,9 @@
            cursor cursor
            node-id node-id-after-splitter]
       (if (storage-key? node-id)
-        (do (load-node btree-atom
-                       (parent-id cursor)
-                       node-id)
+        (do (load-node-to-atom btree-atom
+                               (parent-id cursor)
+                               node-id)
             (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-after-splitter btree-atom
                                                                                                   splitter)]
               (recur btree
@@ -1351,6 +1375,7 @@
                                      :child-ids [3 4]}},
                           :next-node-id 7,
                           :root-id 5
+                          :usages {}
                           :storage {}})]
     (swap! btree-atom
            unload-btree)
@@ -1365,7 +1390,7 @@
 
 
 (defn sequence-for-value [btree-atom value]
-  (let [{:keys [cursor btree]} (cursor-and-btree-for-value btree-atom
+  (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                            value)]
     (let [the-node (node btree
                          (last cursor))]
@@ -1385,6 +1410,7 @@
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
                           :storage {}
+                          :usages {}
                           :next-node-id 3})]
     (swap! btree-atom
            unload-btree)
@@ -1521,7 +1547,7 @@
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-cursor @btree-atom)]
     (if (not (loaded-node-id? (last cursor)))
-      (recur (first-cursor (load-node btree-atom
+      (recur (first-cursor (load-node-to-atom btree-atom
                                       (parent-id cursor)
                                       (last cursor)))))))
 
