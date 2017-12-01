@@ -14,7 +14,6 @@
             [schema.core :as schema])
   (:use [clojure.test])
   (:import [java.io DataInputStream DataOutputStream]
-           
            [java.nio.file.attribute FileAttribute]))
 
 (defn create-node []
@@ -39,7 +38,6 @@
   ([full? storage]
    {:nodes {0 (create-node)}
     :next-node-id 1
-    :loaded-nodes 1
     :root-id 0
     :full? full?
     :storage storage
@@ -48,7 +46,6 @@
   ([full? storage root-storage-key]
    {:nodes {}
     :next-node-id 0
-    :loaded-nodes 0
     :root-id root-storage-key
     :full? full?
     :storage storage
@@ -129,7 +126,7 @@
                     storage
                     (unused-storage-keys btree)))))
 
-(defn loaded? [node-id]
+(defn loaded-node-id? [node-id]
   (number? node-id))
 
 (defn storage-key? [node-id]
@@ -211,7 +208,6 @@
         new-child-id (:next-node-id btree)]
     (-> btree
         (update :next-node-id inc)
-        (update :loaded-nodes inc)
         (record-usage new-child-id)
         (assoc-in [:nodes old-child-id :values] lesser-values)
         (update-in [:nodes parent-id :values] conj median-value)
@@ -227,7 +223,6 @@
                   1 {:values #{2 3}, :child-ids '(0 3 2)},
                   2 {:values #{4 5}},
                   3 {:values #{3}}},
-          :loaded-nodes 4
           :next-node-id 4,
           :root-id 1
           :usages {3 0},
@@ -235,7 +230,6 @@
          (split-child {:nodes {0 {:values (sorted-set 1 2 3)},
                                1 {:values (sorted-set 3), :child-ids [0 2]},
                                2 {:values (sorted-set 4 5)}},
-                       :loaded-nodes 3
                        :next-node-id 3,
                        :root-id 1}
                       1
@@ -253,7 +247,6 @@
            5 {:values #{3 7}, :child-ids [1 6 9]},
            8 {:values #{10 11}}},
           :next-node-id 10,
-          :loaded-nodes 10
           :root-id 5
           :usages {9 0},
           :next-usage-number 1}
@@ -267,7 +260,6 @@
                                7 {:values (sorted-set 8)}
                                8 {:values (sorted-set 10 11)}}
                        :next-node-id 9,
-                       :loaded-nodes 9
                        :root-id 5}
                       5
                       6))))
@@ -295,9 +287,7 @@
         (assoc :root-id new-root-id)
         (assoc-in [:nodes new-root-id] {:child-ids [(:root-id btree)]
                                         :values (sorted-set)})
-        (update :loaded-nodes inc)
         (record-usage new-root-id)
-        #_(update :usages add-root-to-usages new-root-id)
         (split-child new-root-id (:root-id btree)))))
 
 (deftest test-split-root
@@ -306,12 +296,10 @@
            1 {:values #{3}, :child-ids [0 2]},
            2 {:values #{4 5}}},
           :next-node-id 3,
-          :loaded-nodes 3
           :usages {0 0, 1 1, 2 2},
           :next-usage-number 3
           :root-id 1}
          (split-root {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
-                      :loaded-nodes 1
                       :next-node-id 1
                       :next-usage-number 1
                       :usages (priority-map/priority-map 0 0)
@@ -327,7 +315,6 @@
                      :child-ids [1 6]}
                   6 {:values (sorted-set 5)
                      :child-ids [3 4]}},
-          :loaded-nodes 7
           :next-node-id 7,
           :usages {0 0, 1 0, 4 0, 3 0, 2 0, 5 0, 6 1}
           :root-id 5
@@ -342,7 +329,6 @@
                                                          2 0
                                                          3 0
                                                          4 0)
-                      :loaded-nodes 5
                       :next-node-id 5,
                       :root-id 1}))))
 
@@ -403,115 +389,11 @@
 (defn node [btree node-id]
   (get-in btree [:nodes node-id]))
 
-
-
-(defn add [btree value]
-
-  (loop [btree (if ((:full? btree) (node btree
-                                         (:root-id btree)))
-                 (split-root btree)
-                 btree)
-         node-id (:root-id btree)
-         cursor [node-id]]
-    (assert (loaded? node-id)
-            "Nodes needed for addition must be loaded. Use add-to-atom to load requried nodes and add a new value.")  
-    (let [the-node (node btree
-                         node-id)]
-      (if (leaf-node? the-node)
-        (-> btree
-            (update-in [:nodes node-id :values]
-                       conj value)
-            (record-usage node-id))
-        (if-let [the-child-id (child-id the-node
-                                        value)]
-          (let [btree (if ((:full? btree) (node btree
-                                                the-child-id))
-                        (split-child btree
-                                     node-id
-                                     the-child-id)
-                        btree)]
-            (if-let [the-child-id (child-id (node btree
-                                                  node-id)
-                                            value)]
-              (recur btree
-                     the-child-id
-                     (conj cursor
-                           the-child-id))
-              btree))
-          btree)))))
-
-(deftest test-add
-  (let [full? (fn [node]
-                (= 5 (count (:values node))))]
-
-    (testing "root is full"
-      (is (= {0 {:values #{1 2}},
-              1 {:values #{3}, :child-ids [0 2]},
-              2 {:values #{4 5 6}}}
-             (:nodes (add {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
-                           :loaded-nodes 1
-                           :next-node-id 1
-                           :root-id 0
-                           :full? full?}
-                          6)))))
-
-    (testing "no splits needed"
-      (is (= {:nodes
-              {0 {:values (sorted-set -1 1 2)},
-               1 {:values (sorted-set 3), :child-ids [0 2]},
-               2 {:values (sorted-set 4 5 6)}},
-              :next-node-id 3,
-              :root-id 1,
-              :full? full?
-              :next-usage-number 1
-              :usages {0 0}}
-             (add {:nodes
-                   {0 {:values (sorted-set 1 2)},
-                    1 {:values (sorted-set 3), :child-ids [0 2]},
-                    2 {:values (sorted-set 4 5 6)}},
-                   :next-node-id 3,
-                   :root-id 1,
-                   :full? full?}
-                  -1))))
-
-    (testing "leaf is full"
-      (is (match/contains-map? {:nodes
-                                 {0 {:values #{-3 -2}},
-                                  1 {:values #{-1 3}, :child-ids '(0 3 2)},
-                                  2 {:values #{4 5 6}},
-                                  3 {:values #{0 1 2}}},
-                                 :next-node-id 4,
-                                 :loaded-nodes 4
-                                 :root-id 1,
-                                 :usages {3 4},
-                                 :next-usage-number 5}
-                                (add {:nodes
-                                      {0 {:values (sorted-set -3 -2 -1 0 1)},
-                                       1 {:values (sorted-set 3), :child-ids [0 2]},
-                                       2 {:values (sorted-set 4 5 6)}},
-                                      :next-usage-number 3
-                                      :next-node-id 3,
-                                      :loaded-nodes 3
-                                      :root-id 1,
-                                      :full? full?}
-                                     2))))
-
-
-    (is (= {0 {:values #{0}},
-            1 {:child-ids [0 2], :values #{1}},
-            2 {:values #{2}},
-            3 {:values #{4}},
-            4 {:values #{6}},
-            5 {:child-ids [1 6], :values #{3}},
-            6 {:values #{5 7}, :child-ids [3 4 7]},
-            7 {:values #{8 9}}}
-           (:nodes (reduce add
-                           (create (full-after-maximum-number-of-values 3))
-                           (range 10)))))))
-
-
-
-
+(defn add-value-in-node [btree node-id value]
+  (-> btree
+      (update-in [:nodes node-id :values]
+                 conj value)
+      (record-usage node-id)))
 
 (defn parent-id [cursor]
   (last (drop-last cursor)))
@@ -684,17 +566,22 @@
                                 2 {:values (sorted-set 4 5 6)}}}
                               [1 2]))))
 
+(defn loaded-node-count [btree]
+  (count (keys (:nodes btree))))
+
 (defn first-cursor [btree]
-  (loop [cursor [(:root-id btree)]
-         node-id (:root-id btree)]
-    (let [the-node (node btree
-                         node-id)]
-      (if (leaf-node? the-node)
-        cursor
-        (let [first-child-id (first (:child-ids the-node))]
-          (recur (conj cursor
-                       first-child-id)
-                 first-child-id))))))
+  (if (= 0 (loaded-node-count btree))
+    nil
+    (loop [cursor [(:root-id btree)]
+           node-id (:root-id btree)]
+      (let [the-node (node btree
+                           node-id)]
+        (if (leaf-node? the-node)
+          cursor
+          (let [first-child-id (first (:child-ids the-node))]
+            (recur (conj cursor
+                         first-child-id)
+                   first-child-id)))))))
 
 (deftest test-first-cursor
   (is (= [1 0]
@@ -753,65 +640,108 @@
 
 
 (defn unload-cursor [btree cursor]
-  (loop [cursor cursor
-         btree btree]
-    (let [node-id-to-be-unloded (last cursor)
-          parent-id (last (drop-last cursor))
-          the-node (node btree
-                         node-id-to-be-unloded)
-          bytes (node-to-bytes the-node)
-          the-storage-key (storage-key bytes)
-          btree (-> btree
-                    (replace-node-id parent-id
-                                     node-id-to-be-unloded
-                                     the-storage-key)
-                    (update :nodes dissoc node-id-to-be-unloded)
-                    (update :loaded-nodes dec)
-                    (update :usages dissoc node-id-to-be-unloded)
-                    (update :storage-metadata 
-                            assoc
-                            the-storage-key
-                            (conj (select-keys the-node [:child-ids])
-                                  {:value-count (count (:values the-node))
-                                   :storage-byte-count (count bytes)}))
-                    (update :storage
-                            put-to-storage
-                            the-storage-key
-                            bytes))]
-      (if (and parent-id
-               (every? (complement loaded?)
-                       (:child-ids (node btree
-                                         parent-id))))
-        (recur (drop-last cursor)
-               btree)
-        btree))))
+  (let [node-id-to-be-unloded (last cursor)
+        the-parent-id (parent-id cursor)
+        the-node (node btree
+                       node-id-to-be-unloded)
+        bytes (node-to-bytes the-node)
+        the-storage-key (storage-key bytes)]
+    
+    (assert (or (leaf-node? the-node)
+                (empty? (filter loaded-node-id?
+                                (:child-ids the-node))))
+            "Can not unload node with loaded children")
+    (-> btree
+        (replace-node-id the-parent-id
+                         node-id-to-be-unloded
+                         the-storage-key)
+        (update :nodes dissoc node-id-to-be-unloded)
+        (update :usages dissoc node-id-to-be-unloded)
+        (update :storage-metadata 
+                assoc
+                the-storage-key
+                (conj (select-keys the-node [:child-ids])
+                      {:value-count (count (:values the-node))
+                       :storage-byte-count (count bytes)}))
+        (update :storage
+                put-to-storage
+                the-storage-key
+                bytes))))
 
 (deftest test-unload-cursor
-  (is (= {1 {:values #{3},
-             :child-ids [match/any-string
-                         2]},
-          2 {:values #{4 5 6}}}
-         (:nodes (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
-                                         1 {:values (sorted-set 3), :child-ids [0 2]},
-                                         2 {:values (sorted-set 4 5 6)}}
-                                 :loaded-nodes 3
-                                 :root-id 1
-                                 :storage {}}
-                                [1 0]))))
 
-  (is (= {:nodes {},
-          :root-id match/any-string
-          :loaded-nodes 0}
-         (-> (unload-cursor {:nodes
-                             {1 {:values #{3},
-                                 :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
-                                             2]},
-                              2 {:values #{4 5 6}}},
-                             :loaded-nodes 2
-                             :storage {}
-                             :root-id 1}
-                            [1 2])
-             (select-keys [:nodes :root-id :loaded-nodes])))))
+  (is (thrown? AssertionError
+               (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
+                                       1 {:values (sorted-set 3), :child-ids [0 2]},
+                                       2 {:values (sorted-set 4 5 6)}}
+                               :root-id 1
+                               :storage {}}
+                              [1])))
+  
+  (is (match/contains-map? {:nodes {1 {:values #{3},
+                                       :child-ids [match/any-string
+                                                   2]},
+                                    2 {:values #{4 5 6}}}}
+                           (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
+                                                   1 {:values (sorted-set 3), :child-ids [0 2]},
+                                                   2 {:values (sorted-set 4 5 6)}}
+                                           :root-id 1
+                                           :storage {}}
+                                          [1 0])))
+
+  (is (match/contains-map? {:nodes
+                            {1 {:values #{3},
+                                :child-ids [match/any-string
+                                            match/any-string]}},
+                            :root-id 1}
+                           (unload-cursor {:nodes
+                                           {1 {:values #{3},
+                                               :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
+                                                           2]},
+                                            2 {:values #{4 5 6}}},
+                                           :storage {}
+                                           :root-id 1}
+                                          [1 2])))
+
+    (is (match/contains-map? {:nodes
+                            {7 {:values #{9 8}},
+                             4 {:values #{6}},
+                             15 {:values #{7 5}, :child-ids [12 13 16]},
+                             13 {:values #{6}},
+                             6 {:values #{7 5}, :child-ids [3 4 7]},
+                             3 {:values #{4}},
+                             12 {:values #{4}},
+                             11 {:values #{2}},
+                             5 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" 6], :values #{3}},
+                             14 {:child-ids [10 15], :values #{3}},
+                             16 {:values #{9 8}},
+                             10 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04" 11], :values #{1}},
+                             8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04" "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"], :values #{1}}},
+                            :root-id 14,
+                            :usages {7 16, 4 14, 15 30, 13 31, 6 13, 3 9, 12 26, 11 23, 5 12, 14 29, 16 33, 10 20},
+                            :next-usage-number 34}
+                           (unload-cursor {:nodes
+                                           {7 {:values #{8 9}},
+                                            4 {:values #{6}},
+                                            15 {:values #{5 7}, :child-ids [12 13 16]},
+                                            13 {:values #{6}},
+                                            6 {:values #{5 7}, :child-ids [3 4 7]},
+                                            3 {:values #{4}},
+                                            12 {:values #{4}},
+                                            11 {:values #{2}},
+                                            9 {:values #{0}},
+                                            5 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" 6], :values #{3}},
+                                            14 {:child-ids [10 15], :values #{3}},
+                                            16 {:values #{8 9}},
+                                            10 {:child-ids [9 11], :values #{1}},
+                                            8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
+                                                           "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"],
+                                               :values #{1}}},
+                                           :storage {}
+                                           :root-id 14,
+                                           :usages {3 9, 5 12, 6 13, 4 14, 7 16, 9 19, 10 20, 11 23, 12 26, 14 29, 15 30, 13 31, 16 33},
+                                           :next-usage-number 34}
+                                          [14 10 9]))))
 
 (defn cursors [cursor btree]
   (if-let [the-next-cursor (next-cursor btree
@@ -821,6 +751,8 @@
                                           cursor)
                              btree)))
     [cursor]))
+
+(declare add)
 
 (deftest test-cursors
   (is (= '([1 0]
@@ -862,8 +794,6 @@
       (update :next-node-id
               inc)
 
-      (update :loaded-nodes
-              (fnil inc 0))
       (update :storage-metadata 
               dissoc storage-key)))
 
@@ -914,6 +844,139 @@
                            storage-key)))
 
 
+(defn load-root-if-needed [btree]
+  (if (storage-key? (:root-id btree))
+    (set-node-content btree
+                      nil
+                      (:root-id btree)
+                      (get-node-content (:storage btree)
+                                        (:root-id btree)))
+                                              
+    btree))
+
+(defn split-root-if-needed [btree]
+  (if ((:full? btree)
+       (node btree
+             (:root-id btree)))
+    (split-root btree)
+    btree))
+
+(defn change-last [vector new-last]
+  (conj (vec (drop-last vector))
+        new-last))
+
+(deftest test-change-last
+  (is (= [1 2 4]
+         (change-last [1 2 3] 4))))
+
+(defn add [btree value]
+  (loop [btree (-> btree
+                   (load-root-if-needed)
+                   (split-root-if-needed))
+         
+         cursor [(:root-id btree)]
+         node-id (:root-id btree)]
+
+    (let [the-node (node btree
+                         node-id)]
+      (if (leaf-node? the-node)
+        (add-value-in-node btree
+                           node-id
+                           value)
+        (if-let [the-child-id (child-id the-node
+                                        value)]
+          (if (storage-key? the-child-id)
+            (recur (set-node-content btree
+                                     (parent-id cursor)
+                                     the-child-id
+                                     (get-node-content (:storage btree)
+                                                       the-child-id))
+                   (change-last cursor
+                                (:next-node-id btree))
+                   
+                   (:next-node-id btree))
+            (let [btree (if ((:full? btree) (node btree
+                                                  the-child-id))
+                          (split-child btree
+                                       node-id
+                                       the-child-id)
+                          btree)]
+              (if-let [the-child-id (child-id (node btree
+                                                    node-id)
+                                              value)]
+                (recur btree
+                       (conj cursor
+                             the-child-id)
+                       the-child-id)
+                btree)))
+          btree)))))
+
+(deftest test-add
+  (let [full? (fn [node]
+                (= 5 (count (:values node))))]
+
+    (testing "root is full"
+      (is (= {0 {:values #{1 2}},
+              1 {:values #{3}, :child-ids [0 2]},
+              2 {:values #{4 5 6}}}
+             (:nodes (add {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
+                           :next-node-id 1
+                           :root-id 0
+                           :full? full?}
+                          6)))))
+
+    (testing "no splits needed"
+      (is (= {:nodes
+              {0 {:values (sorted-set -1 1 2)},
+               1 {:values (sorted-set 3), :child-ids [0 2]},
+               2 {:values (sorted-set 4 5 6)}},
+              :next-node-id 3,
+              :root-id 1,
+              :full? full?
+              :next-usage-number 1
+              :usages {0 0}}
+             (add {:nodes
+                   {0 {:values (sorted-set 1 2)},
+                    1 {:values (sorted-set 3), :child-ids [0 2]},
+                    2 {:values (sorted-set 4 5 6)}},
+                   :next-node-id 3,
+                   :root-id 1,
+                   :full? full?}
+                  -1))))
+
+    (testing "leaf is full"
+      (is (match/contains-map? {:nodes
+                                {0 {:values #{-3 -2}},
+                                 1 {:values #{-1 3}, :child-ids '(0 3 2)},
+                                 2 {:values #{4 5 6}},
+                                 3 {:values #{0 1 2}}},
+                                :next-node-id 4,
+                                :root-id 1,
+                                :usages {3 4},
+                                :next-usage-number 5}
+                               (add {:nodes
+                                     {0 {:values (sorted-set -3 -2 -1 0 1)},
+                                      1 {:values (sorted-set 3), :child-ids [0 2]},
+                                      2 {:values (sorted-set 4 5 6)}},
+                                     :next-usage-number 3
+                                     :next-node-id 3,
+                                     :root-id 1,
+                                     :full? full?}
+                                    2))))
+
+
+    (is (= {0 {:values #{0}},
+            1 {:child-ids [0 2], :values #{1}},
+            2 {:values #{2}},
+            3 {:values #{4}},
+            4 {:values #{6}},
+            5 {:child-ids [1 6], :values #{3}},
+            6 {:values #{5 7}, :child-ids [3 4 7]},
+            7 {:values #{8 9}}}
+           (:nodes (reduce add
+                           (create (full-after-maximum-number-of-values 3))
+                           (range 10)))))))
+
 
 (defn cursor-and-btree-for-value [btree-atom value]
   (loop [btree @btree-atom
@@ -947,7 +1010,6 @@
                            1 {:values (sorted-set 3)
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
-                          :loaded-nodes 3
                           :root-id 1
                           :storage {}
                           :usages (priority-map/priority-map)
@@ -960,7 +1022,6 @@
                                                      match/any-string]},
                                       4 {:values #{1 2}}},
                               :root-id 3,
-                              :loaded-nodes 2
                               :usages {}
                               :next-node-id 5}
                              (dissoc (:btree (cursor-and-btree-for-value btree-atom
@@ -998,20 +1059,21 @@
                0))
 
 (defn least-used-cursor [btree]
-  (loop [node-id (:root-id btree)
-         cursor [node-id]]
-    (let [the-node (node btree
-                         node-id)]
-      (if (leaf-node? the-node)
-        cursor
-        (let [least-used-child-id (first (sort-by (:usages btree)
-                                                  (filter loaded?
-                                                          (:child-ids the-node))))]
-          
-          (recur least-used-child-id
-                 (conj cursor
-                       least-used-child-id)))))))
-
+  (if (empty? (:nodes btree))
+    nil
+    (loop [node-id (:root-id btree)
+           cursor [(:root-id btree)]]
+      (let [the-node (node btree
+                           node-id)]
+        (if (leaf-node? the-node)
+          cursor
+          (if-let [least-used-child-id (first (sort-by (:usages btree)
+                                                       (filter loaded-node-id?
+                                                               (:child-ids the-node))))]
+            (recur least-used-child-id
+                   (conj cursor
+                         least-used-child-id))
+            cursor))))))
 
 (deftest test-least-used-cursor
   (is (= [5 1 0]
@@ -1025,16 +1087,86 @@
                               6 {:values #{5 7}, :child-ids [3 4 7]},
                               7 {:values #{8 9}}},
                              :root-id 5,
-                             :usages {0 2, 2 4, 3 6, 4 8, 7 9}}))))
+                             :usages {0 2, 2 4, 3 6, 4 8, 7 9}})))
+
+  (is (= [5 6]
+         (least-used-cursor {:nodes
+                             {5 {:child-ids ["abc" 6], :values #{3}},
+                              6 {:values #{5 7}}}
+                             :root-id 5,
+                             :usages {6 1 5 2}})))
+
+  (is (= [5]
+         (least-used-cursor {:nodes
+                             {5 {:child-ids ["abc" "def"], :values #{3}}}
+                             :root-id 5,
+                             :usages {5 2}})))
+
+  (is (= nil
+         (least-used-cursor {:nodes {}
+                             :root-id "abc",
+                             :usages {}})))
+
+  (is (= [14 10 9]
+         (least-used-cursor {:nodes
+                             {7 {:values #{8 9}},
+                              4 {:values #{6}},
+                              15 {:values #{5 7}, :child-ids [12 13 16]},
+                              13 {:values #{6}},
+                              6 {:values #{5 7}, :child-ids [3 4 7]},
+                              3 {:values #{4}},
+                              12 {:values #{4}},
+                              11 {:values #{2}},
+                              9 {:values #{0}},
+                              5 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" 6], :values #{3}},
+                              14 {:child-ids [10 15], :values #{3}},
+                              16 {:values #{8 9}},
+                              10 {:child-ids [9 11], :values #{1}},
+                              8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
+                                             "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"],
+                                 :values #{1}}},
+                             :root-id 14,
+                             :usages {3 9, 5 12, 6 13, 4 14, 7 16, 9 19, 10 20, 11 23, 12 26, 14 29, 15 30, 13 31, 16 33},
+                             :next-usage-number 34})))
+
+  (is (= [14]
+         (least-used-cursor {:nodes
+                             {7 {:values #{9 8}},
+                              4 {:values #{6}},
+                              6 {:values #{7 5}, :child-ids [3 4 7]},
+                              3 {:values #{4}},
+                              5 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" 6], :values #{3}},
+                              14 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" "132213E201F1B5592A2CE39DA6569D4D3E611127BDA7077A94178137CFD01E6D"], :values #{3}},
+                              8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04" "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"], :values #{1}}},
+                             :next-node-id 17,
+                             :root-id 14,
+                             :usages {3 9, 5 12, 6 13, 4 14, 7 16, 14 29},
+                             :next-usage-number 34}))))
+
+
+
+(defn create-test-btree [node-size value-count]
+  (reduce add
+          (create (full-after-maximum-number-of-values node-size))
+          (range value-count)))
+
+(deftest test-loaded-node-count
+  (is (= 3
+         (loaded-node-count {:nodes {0 {:values #{0}}
+                                     1 {:child-ids [0 2], :values #{1}}
+                                     2 {:values #{2 3 4}}}}))))
+
+(defn unload-least-used-node [btree]
+  (if-let [cursor (least-used-cursor btree)]
+    (unload-cursor btree
+                   cursor)
+    btree))
 
 (defn unload-excess-nodes [btree maximum-node-count]
-  #_(prn "unload" maximum-node-count
-       (:loaded-nodes btree))
   (loop [btree btree]
     (if (< maximum-node-count
-           (:loaded-nodes btree))
-      (recur (unload-cursor btree
-                            (least-used-cursor btree)))
+           (loaded-node-count btree))
+      (recur (unload-least-used-node btree))
       btree)))
 
 
@@ -1059,7 +1191,6 @@
                                             7]},
                              7 {:values #{8 9}}},
                             :next-node-id 8,
-                            :loaded-nodes 3,
                             :root-id 5,
                             :usages {5 12, 6 13, 7 16},
                             :next-usage-number 17}
@@ -1068,25 +1199,33 @@
                                                         (range 10))
                                                 3)))
 
-
   (is (= 5
          (count (keys (:nodes (unload-excess-nodes (reduce add
                                                            (create (full-after-maximum-number-of-values 3))
                                                            (range 30))
-                                                   5)))))))
+                                                   5))))))
+  (is (= 5
+         (count (keys (:nodes (-> (create (full-after-maximum-number-of-values 3))
+                                  (as-> btree
+                                      (reduce add btree (range 10))
+                                      (unload-excess-nodes btree 5)
+                                      (reduce add btree (range 10))
+                                      (unload-excess-nodes btree 5)))))))))
 
 
-(defn add-to-atom
-  "Adds a value to an btree atom. Loads nodes from storage as needed.
+
+
+#_(defn add-to-atom
+    "Adds a value to an btree atom. Loads nodes from storage as needed.
   WARNING: Overrides any concurrent modifications to the atom."
-  [btree-atom value]
-  (reset! btree-atom
-          (add (:btree (cursor-and-btree-for-value btree-atom
-                                                   value))
-               value)))
+    [btree-atom value]
+    (reset! btree-atom
+            (add (:btree (cursor-and-btree-for-value btree-atom
+                                                     value))
+                 value)))
 
 
-(deftest test-add-to-atom
+#_(deftest test-add-to-atom
   (let [full? (fn [node]
                 (= 5 (count (:values node))))
 
@@ -1168,7 +1307,6 @@
                    node-id-after-splitter)}))
 
 (defn sequence-after-splitter [btree-atom splitter]
-
   (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-after-splitter btree-atom
                                                                                         splitter)]
 
@@ -1206,7 +1344,6 @@
                                      :child-ids [1 6]}
                                   6 {:values (sorted-set 5)
                                      :child-ids [3 4]}},
-                          :loaded-nodes 7
                           :next-node-id 7,
                           :root-id 5
                           :storage {}})]
@@ -1242,7 +1379,6 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :loaded-nodes 3
                           :storage {}
                           :next-node-id 3})]
     (swap! btree-atom
@@ -1285,7 +1421,6 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :loaded-nodes 3
                           :next-node-id 3
                           :storage {}})]
 
@@ -1342,17 +1477,7 @@
                                               smallest))))))
 
 (defn unload-btree [btree]
-  (loop [btree btree
-         cursors (filter (fn [cursor]
-                           (loaded? (last cursor)))
-                         (cursors (first-cursor btree)
-                                  btree))]
-    (if-let [cursor (first cursors)]
-      (let [btree (unload-cursor btree
-                                 cursor)]
-        (recur btree
-               (rest cursors)))
-      btree)))
+  (unload-excess-nodes btree 0))
 
 
 (deftest test-unload-btree
@@ -1390,7 +1515,7 @@
 
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-cursor @btree-atom)]
-    (if (not (loaded? (last cursor)))
+    (if (not (loaded-node-id? (last cursor)))
       (recur (first-cursor (load-node btree-atom
                                       (parent-id cursor)
                                       (last cursor)))))))
@@ -1432,29 +1557,37 @@
                                     (:root-id btree))))))
 
 
-(defspec first-element-is-min-after-sorting ;; the name of the test
+#_(defspec first-element-is-min-after-sorting ;; the name of the test
          100 ;; the number of iterations for test.check to test
          (properties/for-all [v (generators/not-empty (generators/vector generators/int))]
            (= (apply min v)
               (first (sort v)))))
 
 (deftest test-garbage-collection
-  #_(let [btree-atom (atom (create (full-after-maximum-number-of-values 3)))]
+  #_(unused-storage-keys (reduce (fn [btree numbers]
+                                 (unload-excess-nodes (reduce add
+                                                              btree
+                                                              numbers)
+                                                      5))
+                               (create (full-after-maximum-number-of-values 3))
+                               (partition 40 (range 40))))
+  
+  #_(let [btree-atom (atom )]
 
-    (doseq [numbers (partition 3 (range 40))]
-      (doseq [number numbers]
-        (add-to-atom btree-atom number))
-      (swap! btree-atom unload-excess-nodes 5))
+      (doseq [numbers ]
+        (doseq [number numbers]
+          (add-to-atom btree-atom number))
+        (swap! btree-atom unload-excess-nodes 5))
 
-    (unused-storage-keys @btree-atom)
-    (swap! btree-atom unload-excess-nodes 5)
-    @btree-atom
+      (unused-storage-keys @btree-atom)
+      (swap! btree-atom unload-excess-nodes 5)
+      @btree-atom
     
-    )
+      )
 
   #_(add (unload-btree (add (create (full-after-maximum-number-of-values 3))
-                          1))
-       2)
+                            1))
+         2)
   
   )
 
