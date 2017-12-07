@@ -1,5 +1,8 @@
 (ns argumentica.zip
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [clojure.test.check.clojure-test :refer [defspec]]
+            [clojure.test.check.generators :as gen]
+            [clojure.test.check.properties :as properties])
   (:import [java.util Arrays]
            [java.util.zip
             ZipInputStream
@@ -184,5 +187,11 @@
      :value string})
   
   (write-zip-file-with-one-entry (string-input-stream "haa\nhoo")
-                                 (io/output-stream "/Users/jukka/Downloads/results.zip"))
-  )
+                                 (io/output-stream "/Users/jukka/Downloads/results.zip")))
+
+(defspec propertytest-compress-byte-array
+  {:num-tests 300}
+  (properties/for-all [byte-array gen/bytes]
+                      (prn (count byte-array))
+                      (= (into [] byte-array)
+                         (into [] (uncompress-byte-array (compress-byte-array byte-array))))))

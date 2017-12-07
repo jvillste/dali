@@ -13,8 +13,9 @@
 (defmethod index/add-to-index
   Index
   [this value]
-  (btree/add-to-atom (:index-atom this)
-                     value))
+  (swap! (:index-atom this)
+         btree/add 
+         value))
 
 (defmethod index/unload-index
   Index

@@ -9,6 +9,7 @@
             [clojure.set :as set]
             (argumentica [index :as index]
                          [encode :as encode]
+                         [comparator :as comparator]
                          [cryptography :as cryptography]))
   (:import [java.security MessageDigest]
            [java.util UUID])
@@ -376,7 +377,7 @@
                                                           (map (partial add-transaction-number-to-eacv
                                                                         transaction-number)
                                                                (:statements transaction))))
-                                                 (sorted-set)))
+                                                 (sorted-set-by comparator/cc-cmp)))
         (cond-> is-new-branch
           (-> (update :next-branch-number inc)
               (assoc-in [:branches (:number new-branch)] new-branch)))

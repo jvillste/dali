@@ -5,7 +5,8 @@
                          [cryptography :as cryptography]
                          [encode :as encode]
                          [graph :as graph]
-                         [zip :as zip])
+                         [zip :as zip]
+                         [comparator :as comparator])
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties]
@@ -113,11 +114,20 @@
   [storage key]
   (dissoc storage key))
 
+(defn used-storage-keys [btree]
+  (into #{}
+        (keys (:storage-metadata btree))))
+
 (defn unused-storage-keys [btree]
-  (let [used-keys (into #{}
-                        (keys (:storage-metadata btree)))]
+  (let [used-keys (used-storage-keys btree)]
     (filter (complement used-keys)
             (storage-keys (:storage btree)))))
+
+(defn stored-node-sizes [btree]
+  (map :storage-byte-count (vals (:storage-metadata btree))))
+
+(defn total-storage-size [btree]
+  (reduce + (stored-node-sizes btree)))
 
 (defn collect-storage-garbage [btree]
   (update btree :storage
@@ -341,8 +351,8 @@
       (if (= splitter-value
              value)
         nil
-        (if (neg? (compare value
-                           splitter-value))
+        (if (neg? (comparator/cc-cmp value
+                                     splitter-value))
           child-index
           (recur (rest splitter-values)
                  (inc child-index))))
@@ -589,6 +599,7 @@
                                 1 {:values (sorted-set 3), :child-ids [0 2]},
                                 2 {:values (sorted-set 4 5 6)}}
                         :root-id 1}))))
+
 
 
 (defn replace-node-id [btree parent-id old-child-id new-child-id]
@@ -1241,85 +1252,6 @@
                                       (reduce add btree (range 10))
                                       (unload-excess-nodes btree 5)))))))))
 
-
-
-
-#_(defn add-to-atom
-    "Adds a value to an btree atom. Loads nodes from storage as needed.
-  WARNING: Overrides any concurrent modifications to the atom."
-    [btree-atom value]
-    (reset! btree-atom
-            (add (:btree (cursor-and-btree-for-value-and-btree-atom btree-atom
-                                                     value))
-                 value)))
-
-
-#_(deftest test-add-to-atom
-  (let [full? (fn [node]
-                (= 5 (count (:values node))))
-
-        run-test (fn [btree value nodes-after-addition]
-                   (let [btree-atom (atom btree)]
-                     (swap! btree-atom
-                            unload-btree)
-
-                     (add-to-atom btree-atom
-                                  value)
-
-                     (is (= nodes-after-addition
-                            (:nodes @btree-atom)))))]
-
-    (testing "root is full"
-      (run-test {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
-                 :next-node-id 1
-                 :loaded-nodes 1
-                 :root-id 0
-                 :storage {}
-                 :full? full?}
-                
-                6
-                
-                {1 {:values #{1 2}},
-                 2 {:child-ids [1 3], :values #{3}},
-                 3 {:values #{4 5 6}}}))
-
-    (testing "no splits needed"
-      (run-test {:nodes {0 {:values (sorted-set 1 2)},
-                         1 {:values (sorted-set 3), :child-ids [0 2]},
-                         2 {:values (sorted-set 4 5 6)}},
-                 :loaded-nodes 3
-                 :next-node-id 3,
-                 :root-id 1,
-                 :storage {}
-                 :full? full?}
-                
-                -1
-                
-                {3 {:values #{3},
-                    :child-ids [4
-                                match/any-string]},
-                 4 {:values #{-1 1 2}}}))
-
-    (testing "leaf is full"
-      (run-test {:nodes
-                 {0 {:values (sorted-set -3 -2 -1 0 1)},
-                  1 {:values (sorted-set 3), :child-ids [0 2]},
-                  2 {:values (sorted-set 4 5 6)}},
-                 :loaded-nodes 3
-                 :next-node-id 3,
-                 :root-id 1,
-                 :storage {}
-                 :full? full?}
-
-                2
-
-                {3 {:values #{-1 3},
-                    :child-ids [4
-                                5
-                                match/any-string]},
-                 4 {:values #{-3 -2}},
-                 5 {:values #{0 1 2}}}))))
-
 (defn btree-and-node-id-after-splitter [btree-atom splitter]
   (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                           splitter)
@@ -1453,6 +1385,7 @@
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
                           :next-node-id 3
+                          :usages {}
                           :storage {}})]
 
     (swap! btree-atom
@@ -1507,9 +1440,23 @@
                                                             values))
                                               smallest))))))
 
+(defn write-metadata [btree]
+  (put-to-storage (:storage btree)
+                  "metadata.edn"
+                  (.getBytes (pr-str (select-keys btree
+                                                  [:root-id
+                                                   :storage-metadata]))
+                             "UTF-8")))
+
+(defn load-from-metadata [full? storage]
+  (let [metadata (binding [*read-eval* false]
+                   (read-string (String. (get-from-storage storage
+                                                           "metadata.edn")
+                                         "UTF-8")))])
+  (create full? storage ))
+
 (defn unload-btree [btree]
   (unload-excess-nodes btree 0))
-
 
 (deftest test-unload-btree
   (testing "unload btree when some nodes are unloaded in the middle"
