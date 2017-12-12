@@ -29,7 +29,7 @@
 
 (defn create
   ([]
-   (create (full-after-maximum-number-of-values 100)
+   (create (full-after-maximum-number-of-values 101)
            {}))
 
   ([full?]

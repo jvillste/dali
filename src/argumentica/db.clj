@@ -167,8 +167,8 @@
     :next-branch-number 0
     :branches {}}))
 
-(defn add-transaction-number-to-eacv [transaction-number [entity-id a c v]]
-  [entity-id
+(defn add-transaction-number-to-eacv [transaction-number [e a c v]]
+  [e
    a
    transaction-number
    c

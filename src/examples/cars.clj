@@ -3,6 +3,8 @@
             
             [clojure.string :as string]
             (argumentica [db :as db]
+                         [transaction-log :as transaction-log]
+                         [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [comparator :as comparator]
                          [index :as index]
                          [btree :as btree]
@@ -314,6 +316,70 @@
 
 (defonce indexes {})
 
+(defn create-db [indexes transaction-log]
+  {:next-transaction-number 0
+   :indexes indexes
+   :transaction-log transaction-log})
+
+(defn add-log-entry [db eacv-statements]
+  (-> db
+      (update :transaction-log
+              transaction-log/add
+              (:next-transaction-number db)
+              eacv-statements)
+      (update :next-transaction-number inc)))
+
+(defn update-index [index transaction-log]
+  (let [new-transactions (transaction-log/get transaction-log
+                                              (or (:last-transaction-number index)
+                                                  0))]
+    (doseq [[t statements] new-transactions]
+      (doseq [[e a c v] statements]
+        (doseq [datom ((:eatcv-to-datoms index)
+                       e
+                       a
+                       t
+                       c
+                       v)]
+          (swap! (:index-atom index)
+                 btree/add
+                 datom)))
+
+      #_(swap! (:index-atom index)
+               btree/unload-excess-nodes 5 #_100))
+    (assoc index
+           :last-transaction-number
+           (:transaction-number (last new-transactions)))))
+
+(defn update-indexes [db]
+  (update db :indexes
+          (fn [indexes]
+            (reduce (fn [indexes index-key]
+                      (update indexes
+                              index-key
+                              update-index
+                              (:transaction-log db)))
+                    indexes
+                    (keys indexes)))))
+
+(defn transact [db statements]
+  (-> db
+      (add-log-entry statements)
+      (update-indexes)))
+
+(deftest test-transact
+  (is (= '([1 :friend 0 :set 2]
+           [1 :friend 1 :set 3]
+           [2 :friend 0 :set 1])
+         (let [db (-> (create-db {:eatcv {:index-atom (atom (btree/create))
+                                          :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                                 (sorted-map-transaction-log/create))
+                      (transact [[1 :friend :set 2]
+                                 [2 :friend :set 1]])
+                      (transact [[1 :friend :set 3]]))]
+           (btree/inclusive-subsequence (-> db :indexes :eatcv :index-atom)
+                                        [1 :friend nil nil nil])))))
+
 (comment
   (def indexes (create-indexes))
 
@@ -459,6 +525,8 @@
                                                 attribute
                                                 transaction-number)
                                          not-found)))
+
+
 
 (comment
   (def indexes (create-indexes))
