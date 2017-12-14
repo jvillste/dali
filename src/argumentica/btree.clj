@@ -64,6 +64,31 @@
          dissoc
          key))
 
+(defn edn-to-byte-array [edn]
+                     (zip/compress-byte-array (.getBytes (pr-str edn)
+                                                         "UTF-8")))
+
+(defn put-edn-to-storage! [storage key edn]
+  (put-to-storage! storage
+                   (pr-str key)
+                   (edn-to-byte-array edn)))
+
+(defn safely-read-string [string]
+  (binding [*read-eval* false]
+    (read-string string)))
+
+(defn byte-array-to-edn [byte-array]
+  (try 
+    (safely-read-string (String. (zip/uncompress-byte-array byte-array)
+                                 "UTF-8"))
+    (catch Exception e
+      (prn (String. (zip/uncompress-byte-array byte-array)
+                    "UTF-8"))
+      (throw e))))
+
+(defn get-edn-from-storage! [storage key]
+  (byte-array-to-edn (get-from-storage! storage
+                                        (pr-str key))))
 
 
 (defn create-node []
@@ -122,28 +147,6 @@
 
 
 
-#_(defn used-storage-keys [btree]
-  ;; TODO: traverse nodes from the roots in :metadata-storage
-  (into #{}
-        (keys (:stored-node-metadata btree))))
-
-#_(defn unused-storage-keys [btree]
-  (let [used-keys (used-storage-keys btree)]
-    (filter (complement used-keys)
-            (storage-keys (:node-storage btree)))))
-
-(defn stored-node-sizes [btree]
-  (map :storage-byte-count (vals (:stored-node-metadata btree))))
-
-(defn total-storage-size [btree]
-  (reduce + (stored-node-sizes btree)))
-
-#_(defn collect-storage-garbage [btree]
-  (update btree :node-storage
-          (fn [storage]
-            (reduce remove-from-storage
-                    storage
-                    (unused-storage-keys btree)))))
 
 (defn loaded-node-id? [node-id]
   (number? node-id))
@@ -619,16 +622,11 @@
                         {old-child-id new-child-id}))
     (assoc btree :root-id new-child-id)))
 
-(defn node-to-bytes [node]
-  (zip/compress-byte-array (.getBytes (pr-str node)
-                                      "UTF-8"))
-  #_(let [zip-output-stream (zip/byte-array-output-stream)]
-    
-    (zip/write-zip-file-with-one-entry (zip/string-input-stream (prn-str node)
-                                                                "UTF-8")
-                                       zip-output-stream)
 
-    (.toByteArray zip-output-stream)))
+
+
+(defn node-to-bytes [node]
+  (edn-to-byte-array node))
 
 (comment
   (node-to-bytes {:a :b})
@@ -636,15 +634,10 @@
   (String. (zip/read-first-entry-from-zip (zip/byte-array-input-stream (node-to-bytes {:a :b})))
            "UTF-8"))
 
-(defn bytes-to-node [bytes]
-  (-> (binding [*read-eval* false]
-        (try 
-          (read-string (String. (zip/uncompress-byte-array bytes)
-                                "UTF-8"))
-          (catch Exception e
-            (prn (String. (zip/uncompress-byte-array bytes)
-                          "UTF-8"))
-            (throw e))))
+
+
+(defn bytes-to-node [byte-array]
+  (-> (byte-array-to-edn byte-array)
       (update :values
               (fn [values]
                 (into (sorted-set)
@@ -672,12 +665,12 @@
                                 (:child-ids the-node))))
             "Can not unload a node with loaded children")
     
-    (put-to-storage! (:metadata-storage btree)
-                     the-storage-key
-                     (conj (select-keys the-node
-                                        [:child-ids])
-                           {:value-count (count (:values the-node))
-                            :storage-byte-count (count bytes)}))
+    (put-edn-to-storage! (:metadata-storage btree)
+                         the-storage-key
+                         (conj (select-keys the-node
+                                            [:child-ids])
+                               {:value-count (count (:values the-node))
+                                :storage-byte-count (count bytes)}))
     (put-to-storage! (:node-storage btree)
                      the-storage-key
                      bytes)
@@ -1475,13 +1468,13 @@
 
 
 (defn add-stored-root [btree]
-  (put-to-storage! (:metadata-storage btree)
-                   :roots
-                   (conj (or (get-from-storage! (:metadata-storage btree)
-                                                :roots)
-                             #{})
-                         {:storage-key (:root-id btree)
-                          :stored-time (System/nanoTime)}))
+  (put-edn-to-storage! (:metadata-storage btree)
+                       :roots
+                       (conj (or (get-edn-from-storage! (:metadata-storage btree)
+                                                        :roots)
+                                 #{})
+                             {:storage-key (:root-id btree)
+                              :stored-time (System/nanoTime)}))
   btree)
 
 (defn store-root [btree]
@@ -1568,11 +1561,11 @@
 
 (defn storage-keys-from-metadata [metadata-storage root-key]
   (tree-seq (fn [storage-key]
-              (:child-ids (get-from-storage! metadata-storage
-                                             storage-key)))
+              (:child-ids (get-edn-from-storage! metadata-storage
+                                                 storage-key)))
             (fn [storage-key]
-              (:child-ids (get-from-storage! metadata-storage
-                                             storage-key)))
+              (:child-ids (get-edn-from-storage! metadata-storage
+                                                 storage-key)))
             root-key))
 
 (deftest test-storage-keys-from-metadata
@@ -1599,6 +1592,29 @@
            
            (storage-keys-from-metadata (:metadata-storage btree)
                                        (:root-id btree))))))
+
+#_(defn used-storage-keys [btree]
+  ;; TODO: traverse nodes from the roots in :metadata-storage
+  (into #{}
+        (keys (:stored-node-metadata btree))))
+
+#_(defn unused-storage-keys [btree]
+  (let [used-keys (used-storage-keys btree)]
+    (filter (complement used-keys)
+            (storage-keys (:node-storage btree)))))
+
+(defn stored-node-sizes [btree]
+  (map :storage-byte-count (vals (:stored-node-metadata btree))))
+
+(defn total-storage-size [btree]
+  (reduce + (stored-node-sizes btree)))
+
+#_(defn collect-storage-garbage [btree]
+  (update btree :node-storage
+          (fn [storage]
+            (reduce remove-from-storage
+                    storage
+                    (unused-storage-keys btree)))))
 
 
 #_(defspec first-element-is-min-after-sorting ;; the name of the test
