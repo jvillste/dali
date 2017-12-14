@@ -68,9 +68,15 @@
                      (zip/compress-byte-array (.getBytes (pr-str edn)
                                                          "UTF-8")))
 
+
+(defn key-to-storage-key [key]
+  (if (string? key)
+    key
+    (pr-str key)))
+
 (defn put-edn-to-storage! [storage key edn]
   (put-to-storage! storage
-                   (pr-str key)
+                   (key-to-storage-key key)
                    (edn-to-byte-array edn)))
 
 (defn safely-read-string [string]
@@ -87,8 +93,10 @@
       (throw e))))
 
 (defn get-edn-from-storage! [storage key]
-  (byte-array-to-edn (get-from-storage! storage
-                                        (pr-str key))))
+  (if-let [byte-array (get-from-storage! storage
+                                         (key-to-storage-key key))]
+    (byte-array-to-edn byte-array)
+    nil))
 
 
 (defn create-node []
@@ -1466,22 +1474,6 @@
 (defn unload-btree [btree]
   (unload-excess-nodes btree 0))
 
-
-(defn add-stored-root [btree]
-  (put-edn-to-storage! (:metadata-storage btree)
-                       :roots
-                       (conj (or (get-edn-from-storage! (:metadata-storage btree)
-                                                        :roots)
-                                 #{})
-                             {:storage-key (:root-id btree)
-                              :stored-time (System/nanoTime)}))
-  btree)
-
-(defn store-root [btree]
-  (-> btree
-      (unload-btree)
-      (add-stored-root)))
-
 (deftest test-unload-btree
   (testing "unload btree when some nodes are unloaded in the middle"
     (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
@@ -1504,16 +1496,22 @@
                                             (unload-btree)))
                                   0)))))
 
-(deftest test-save-to-storage
-  (let [full? (full-after-maximum-number-of-values 3)]
-    (is {:nodes {},
-         :next-node-id 8,
-         :root-id "E8E43D7CC21CEAE35F88DF61E1846070DF17B13B8E683D3D9F592A324D640B92",
-         :full? full?}
-        (unload-btree (reduce add
-                              (create full?)
-                              (range 10))))))
 
+(defn add-stored-root [btree]
+  (put-edn-to-storage! (:metadata-storage btree)
+                       :roots
+                       (conj (or (get-edn-from-storage! (:metadata-storage btree)
+                                                        :roots)
+                                 #{})
+                             {:storage-key (:root-id btree)
+                              :stored-time (System/nanoTime)}))
+  btree)
+
+(defn store-root [btree]
+  ;; TODO: allow writing nodes to storage without unloading them
+  (-> btree
+      (unload-btree)
+      (add-stored-root)))
 
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-cursor @btree-atom)]
@@ -1521,8 +1519,6 @@
       (recur (first-cursor (load-node-to-atom btree-atom
                                       (parent-id cursor)
                                       (last cursor)))))))
-
-
 
 (defn storage-keys-from-stored-nodes [storage root-key]
   (tree-seq (fn [storage-key]
@@ -1593,35 +1589,45 @@
            (storage-keys-from-metadata (:metadata-storage btree)
                                        (:root-id btree))))))
 
-#_(defn used-storage-keys [btree]
-  ;; TODO: traverse nodes from the roots in :metadata-storage
-  (into #{}
-        (keys (:stored-node-metadata btree))))
+(defn get-metadata [btree key]
+  (get-edn-from-storage! (:metadata-storage btree)
+                         key))
 
-#_(defn unused-storage-keys [btree]
-  (let [used-keys (used-storage-keys btree)]
-    (filter (complement used-keys)
-            (storage-keys (:node-storage btree)))))
+(defn used-storage-keys [btree]
+  (reduce (fn [keys root]
+            (apply conj keys
+                   (storage-keys-from-metadata (:metadata-storage btree)
+                                               (:storage-key root))))
+          #{}
+          (get-metadata btree
+                        :roots)))
+
+(defn unused-storage-keys [btree]
+  (filter (complement (used-storage-keys btree))
+          (storage-keys! (:node-storage btree))))
 
 (defn stored-node-sizes [btree]
-  (map :storage-byte-count (vals (:stored-node-metadata btree))))
+  (map (fn [storage-key]
+         (:storage-byte-count (get-metadata btree
+                                            storage-key)))
+       (used-storage-keys btree)))
+
+(deftest test-stored-node-sizes
+  (is (= '(219 138 23 23 26 139 138 23 22 138 22 138 137 23 22 22 22)
+         (stored-node-sizes (store-root (reduce add
+                                                (create-from-options :full? (full-after-maximum-number-of-values 3))
+                                                (range 20)))))))
 
 (defn total-storage-size [btree]
   (reduce + (stored-node-sizes btree)))
 
 #_(defn collect-storage-garbage [btree]
-  (update btree :node-storage
-          (fn [storage]
-            (reduce remove-from-storage
-                    storage
-                    (unused-storage-keys btree)))))
+    (update btree :node-storage
+            (fn [storage]
+              (reduce remove-from-storage
+                      storage
+                      (unused-storage-keys btree)))))
 
-
-#_(defspec first-element-is-min-after-sorting ;; the name of the test
-         100 ;; the number of iterations for test.check to test
-         (properties/for-all [v (generators/not-empty (generators/vector generators/int))]
-           (= (apply min v)
-              (first (sort v)))))
 
 (deftest test-garbage-collection
   #_(unused-storage-keys (reduce (fn [btree numbers]
