@@ -380,6 +380,10 @@
            (btree/inclusive-subsequence (-> db :indexes :eatcv :index-atom)
                                         [1 :friend nil nil nil])))))
 
+(defn write-db-to-storage [db]
+  )
+
+
 (comment
   (def indexes (create-indexes))
 

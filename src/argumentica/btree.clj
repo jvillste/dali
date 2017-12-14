@@ -17,6 +17,55 @@
   (:import [java.io DataInputStream DataOutputStream]
            [java.nio.file.attribute FileAttribute]))
 
+(defmulti put-to-storage!
+  (fn [storage key value]
+    (type storage)))
+
+(defmulti get-from-storage!
+  (fn [storage key]
+    (type storage)))
+
+(defmulti remove-from-storage!
+  (fn [storage key]
+    (type storage)))
+
+(defmulti storage-keys!
+  (fn [storage]
+    (type storage)))
+
+(defrecord HashMapStorage [hash-map-atom])
+
+(defn create-hash-map-storage []
+  (->HashMapStorage (atom {})))
+
+(defmethod get-from-storage!
+  HashMapStorage
+  [storage key]
+  (get @(:hash-map-atom storage)
+       key))
+
+(defmethod put-to-storage!
+  HashMapStorage
+  [storage key value]
+  (swap! (:hash-map-atom storage)
+         assoc
+         key
+         value))
+
+(defmethod storage-keys!
+  HashMapStorage
+  [storage]
+  (keys @(:hash-map-atom storage)))
+
+(defmethod remove-from-storage!
+  HashMapStorage
+  [storage key]
+  (swap! (:hash-map-atom storage)
+         dissoc
+         key))
+
+
+
 (defn create-node []
   {:values (sorted-set)})
 
@@ -27,110 +76,70 @@
     (= maximum
        (count (:values node)))))
 
+
+(defn create-from-options [& {:keys [full?
+                                     node-storage
+                                     root-id
+                                     metadata-storage]
+                              :or {full? (full-after-maximum-number-of-values 1001)
+                                   storage (create-hash-map-storage)
+                                   metadata-storage (create-hash-map-storage)
+                                   node-storage (create-hash-map-storage)}}]
+  (conj {:full? full?
+         :node-storage node-storage
+         :metadata-storage metadata-storage
+         :usages (priority-map/priority-map)}
+        (if root-id
+          {:nodes {}
+           :next-node-id 0
+           :root-id root-id}
+          {:nodes {0 (create-node)}
+           :next-node-id 1
+           :root-id 0})))
+
 (defn create
   ([]
-   (create (full-after-maximum-number-of-values 101)
-           {}))
+   (create (full-after-maximum-number-of-values 1001)
+           (create-hash-map-storage)))
 
   ([full?]
    (create full?
-           {}))
+           (create-hash-map-storage)))
   
   ([full? storage]
-   {:nodes {0 (create-node)}
-    :next-node-id 1
-    :root-id 0
-    :full? full?
-    :storage storage
-    :usages (priority-map/priority-map)})
+   (create-from-options :full? full?
+                        :node-storage storage))
 
   ([full? storage root-storage-key]
-   {:nodes {}
-    :next-node-id 0
-    :root-id root-storage-key
-    :full? full?
-    :storage storage
-    :usages (priority-map/priority-map)}))
+   (create-from-options :full? full?
+                        :node-storage storage
+                        :root-id root-storage-key)))
 
-(defmulti get-from-storage
-  (fn [storage key]
-    (type storage)))
 
-(defmethod get-from-storage
-  clojure.lang.PersistentHashMap
-  [storage key]
-  (get storage
-       key))
 
-(defmethod get-from-storage
-  clojure.lang.PersistentArrayMap
-  [storage key]
-  (get storage
-       key))
+(comment
+  (create-from-options :full? max))
 
-(defmulti put-to-storage
-  (fn [storage key value]
-    (type storage)))
 
-(defmethod put-to-storage
-  clojure.lang.PersistentHashMap
-  [storage key value]
-  (assoc storage
-         key
-         value))
 
-(defmethod put-to-storage
-  clojure.lang.PersistentArrayMap
-  [storage key value]
-  (assoc storage
-         key
-         value))
-
-(defmulti storage-keys
-  (fn [storage]
-    (type storage)))
-
-(defmethod storage-keys
-  clojure.lang.PersistentHashMap
-  [storage]
-  (keys storage))
-
-(defmethod storage-keys
-  clojure.lang.PersistentArrayMap
-  [storage]
-  (keys storage))
-
-(defmulti remove-from-storage
-  (fn [storage key]
-    (type storage)))
-
-(defmethod remove-from-storage
-  clojure.lang.PersistentHashMap
-  [storage key]
-  (dissoc storage key))
-
-(defmethod remove-from-storage
-  clojure.lang.PersistentArrayMap
-  [storage key]
-  (dissoc storage key))
-
-(defn used-storage-keys [btree]
+#_(defn used-storage-keys [btree]
+  ;; TODO: traverse nodes from the roots in :metadata-storage
   (into #{}
-        (keys (:storage-metadata btree))))
+        (keys (:stored-node-metadata btree))))
 
-(defn unused-storage-keys [btree]
+#_(defn unused-storage-keys [btree]
   (let [used-keys (used-storage-keys btree)]
     (filter (complement used-keys)
-            (storage-keys (:storage btree)))))
+            (storage-keys (:node-storage btree)))))
 
 (defn stored-node-sizes [btree]
-  (map :storage-byte-count (vals (:storage-metadata btree))))
+  (map :storage-byte-count (vals (:stored-node-metadata btree))))
 
 (defn total-storage-size [btree]
   (reduce + (stored-node-sizes btree)))
 
-(defn collect-storage-garbage [btree]
-  (update btree :storage
+#_(defn collect-storage-garbage [btree]
+  (update btree :node-storage
           (fn [storage]
             (reduce remove-from-storage
                     storage
@@ -661,23 +670,24 @@
     (assert (or (leaf-node? the-node)
                 (empty? (filter loaded-node-id?
                                 (:child-ids the-node))))
-            "Can not unload node with loaded children")
+            "Can not unload a node with loaded children")
+    
+    (put-to-storage! (:metadata-storage btree)
+                     the-storage-key
+                     (conj (select-keys the-node
+                                        [:child-ids])
+                           {:value-count (count (:values the-node))
+                            :storage-byte-count (count bytes)}))
+    (put-to-storage! (:node-storage btree)
+                     the-storage-key
+                     bytes)
+    
     (-> btree
         (replace-node-id the-parent-id
                          node-id-to-be-unloded
                          the-storage-key)
         (update :nodes dissoc node-id-to-be-unloded)
-        (update :usages dissoc node-id-to-be-unloded)
-        (update :storage-metadata 
-                assoc
-                the-storage-key
-                (conj (select-keys the-node [:child-ids])
-                      {:value-count (count (:values the-node))
-                       :storage-byte-count (count bytes)}))
-        (update :storage
-                put-to-storage
-                the-storage-key
-                bytes))))
+        (update :usages dissoc node-id-to-be-unloded))))
 
 (deftest test-unload-cursor
 
@@ -686,7 +696,8 @@
                                        1 {:values (sorted-set 3), :child-ids [0 2]},
                                        2 {:values (sorted-set 4 5 6)}}
                                :root-id 1
-                               :storage {}}
+                               :node-storage (create-hash-map-storage)
+                               :metadata-storage (create-hash-map-storage)}
                               [1])))
   
   (is (match/contains-map? {:nodes {1 {:values #{3},
@@ -697,7 +708,8 @@
                                                    1 {:values (sorted-set 3), :child-ids [0 2]},
                                                    2 {:values (sorted-set 4 5 6)}}
                                            :root-id 1
-                                           :storage {}}
+                                           :node-storage (create-hash-map-storage)
+                                           :metadata-storage (create-hash-map-storage)}
                                           [1 0])))
 
   (is (match/contains-map? {:nodes
@@ -710,11 +722,12 @@
                                                :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
                                                            2]},
                                             2 {:values #{4 5 6}}},
-                                           :storage {}
+                                           :node-storage (create-hash-map-storage)
+                                           :metadata-storage (create-hash-map-storage)
                                            :root-id 1}
                                           [1 2])))
 
-    (is (match/contains-map? {:nodes
+  (is (match/contains-map? {:nodes
                             {7 {:values #{9 8}},
                              4 {:values #{6}},
                              15 {:values #{7 5}, :child-ids [12 13 16]},
@@ -748,7 +761,8 @@
                                             8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
                                                            "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"],
                                                :values #{1}}},
-                                           :storage {}
+                                           :node-storage (create-hash-map-storage)
+                                           :metadata-storage (create-hash-map-storage)
                                            :root-id 14,
                                            :usages {3 9, 5 12, 6 13, 4 14, 7 16, 9 19, 10 20, 11 23, 12 26, 14 29, 15 30, 13 31, 16 33},
                                            :next-usage-number 34}
@@ -797,8 +811,8 @@
            btree))
 
 (defn get-node-content [storage storage-key]
-  (bytes-to-node (get-from-storage storage
-                                   storage-key)))
+  (bytes-to-node (get-from-storage! storage
+                                    storage-key)))
 
 (defn set-node-content [btree parent-id storage-key node-content]
   (-> btree
@@ -808,10 +822,7 @@
                        storage-key
                        (:next-node-id btree))
       (update :next-node-id
-              inc)
-
-      (update :storage-metadata 
-              dissoc storage-key)))
+              inc)))
 
 (declare unload-btree)
 
@@ -827,7 +838,7 @@
            (:nodes (set-node-content btree
                                      nil
                                      (:root-id btree)
-                                     (get-node-content (:storage btree)
+                                     (get-node-content (:node-storage btree)
                                                        (:root-id btree))))))
 
     (is (= {8 {:child-ids
@@ -843,18 +854,18 @@
                                       :next-node-id 9,
                                       :root-id 8,
                                       :full? full?
-                                      :storage (:storage btree)}
+                                      :node-storage (:node-storage btree)}
                                      8
                                      "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
                                      "abc"
-                                     #_(get-node-content (:storage btree)
+                                     #_(get-node-content (:node-storage btree)
                                                          "43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7")))))))
 
 (defn load-node [btree parent-id storage-key]
   (set-node-content btree
                     parent-id
                     storage-key
-                    (get-node-content (:storage btree)
+                    (get-node-content (:node-storage btree)
                                       storage-key)))
 
 (defn load-node-to-atom [btree-atom parent-id storage-key]
@@ -869,7 +880,7 @@
     (set-node-content btree
                       nil
                       (:root-id btree)
-                      (get-node-content (:storage btree)
+                      (get-node-content (:node-storage btree)
                                         (:root-id btree)))
                                               
     btree))
@@ -909,7 +920,7 @@
             (recur (set-node-content btree
                                      (last cursor)
                                      the-child-id
-                                     (get-node-content (:storage btree)
+                                     (get-node-content (:node-storage btree)
                                                        the-child-id))
                    (change-last cursor
                                 (:next-node-id btree))
@@ -1030,7 +1041,8 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :storage {}
+                          :node-storage (create-hash-map-storage)
+                          :metadata-storage (create-hash-map-storage)
                           :usages (priority-map/priority-map)
                           :next-node-id 3})]
     (swap! btree-atom
@@ -1045,7 +1057,7 @@
                               :next-node-id 5}
                              (dissoc (:btree (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                          1))
-                                     :storage)))
+                                     :node-storage)))
 
     (is (= [3 4]
            (:cursor (cursor-and-btree-for-value-and-btree-atom btree-atom
@@ -1071,7 +1083,7 @@
             (recur (set-node-content btree
                                      node-id
                                      the-child-id
-                                     (get-node-content (:storage btree)
+                                     (get-node-content (:node-storage btree)
                                                        the-child-id))
                    (conj cursor
                          (:next-node-id btree))
@@ -1308,7 +1320,8 @@
                           :next-node-id 7,
                           :root-id 5
                           :usages {}
-                          :storage {}})]
+                          :node-storage (create-hash-map-storage)
+                          :metadata-storage (create-hash-map-storage)})]
     (swap! btree-atom
            unload-btree)
 
@@ -1341,7 +1354,8 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :storage {}
+                          :node-storage (create-hash-map-storage)
+                          :metadata-storage (create-hash-map-storage)
                           :usages {}
                           :next-node-id 3})]
     (swap! btree-atom
@@ -1386,20 +1400,18 @@
                           :root-id 1
                           :next-node-id 3
                           :usages {}
-                          :storage {}})]
+                          :node-storage (create-hash-map-storage)
+                          :metadata-storage (create-hash-map-storage)})]
 
     (swap! btree-atom
            unload-btree)
 
     (is (= 3
-           (count (keys (:storage-metadata @btree-atom)))))
+           (count (storage-keys! (:metadata-storage @btree-atom)))))
 
     (is (= [1 2 3 4 5 6]
            (inclusive-subsequence btree-atom
                                   0)))
-
-    (is (= 0
-           (count (keys (:storage-metadata  @btree-atom)))))
 
 
     (is (= [2 3 4 5 6]
@@ -1440,23 +1452,42 @@
                                                             values))
                                               smallest))))))
 
-(defn write-metadata [btree]
-  (put-to-storage (:storage btree)
-                  "metadata.edn"
-                  (.getBytes (pr-str (select-keys btree
-                                                  [:root-id
-                                                   :storage-metadata]))
-                             "UTF-8")))
+#_(defn write-metadata [btree]
+    (put-to-storage (:node-storage btree)
+                    "metadata.edn"
+                    (.getBytes (pr-str (select-keys btree
+                                                    [:root-id
+                                                     :stored-node-metadata]))
+                               "UTF-8")))
 
-(defn load-from-metadata [full? storage]
+#_(defn load-from-metadata [full? storage]
   (let [metadata (binding [*read-eval* false]
                    (read-string (String. (get-from-storage storage
                                                            "metadata.edn")
-                                         "UTF-8")))])
-  (create full? storage ))
+                                         "UTF-8")))]
+    (assoc (create full?
+                   storage
+                   (:root-id metadata))
+           :stored-node-metadata (:stored-node-metadata metadata))))
 
 (defn unload-btree [btree]
   (unload-excess-nodes btree 0))
+
+
+(defn add-stored-root [btree]
+  (put-to-storage! (:metadata-storage btree)
+                   :roots
+                   (conj (or (get-from-storage! (:metadata-storage btree)
+                                                :roots)
+                             #{})
+                         {:storage-key (:root-id btree)
+                          :stored-time (System/nanoTime)}))
+  btree)
+
+(defn store-root [btree]
+  (-> btree
+      (unload-btree)
+      (add-stored-root)))
 
 (deftest test-unload-btree
   (testing "unload btree when some nodes are unloaded in the middle"
@@ -1531,8 +1562,43 @@
                                            (create (full-after-maximum-number-of-values 3))
                                            (range 20)))]
            
-           (storage-keys-from-stored-nodes (:storage btree)
-                                    (:root-id btree))))))
+           (storage-keys-from-stored-nodes (:node-storage btree)
+                                           (:root-id btree))))))
+
+
+(defn storage-keys-from-metadata [metadata-storage root-key]
+  (tree-seq (fn [storage-key]
+              (:child-ids (get-from-storage! metadata-storage
+                                             storage-key)))
+            (fn [storage-key]
+              (:child-ids (get-from-storage! metadata-storage
+                                             storage-key)))
+            root-key))
+
+(deftest test-storage-keys-from-metadata
+  (is (= '("F9BB95AB72D53E649CBBF11393513766328FEC2854368CDF711BE0D9A0F7E50E"
+           "FC1BA555525A5BD07E5BF7F3A2F22D8DD9CC8F513E39933390A7CD5487E8B88D"
+           "796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C"
+           "C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
+           "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"
+           "1552ED8E39B3FF5EFF43E9D33F8312274F898739862A72A46557E53EF163CA0F"
+           "3383407D43C265C4D7E89F4AAE7AFFF0A7F34FB03480991ABD3552DF30F5780C"
+           "42521C364179D339A1D113688F7BE4E72D8AC5D4E10C10987B441847E9DACE45"
+           "3BE0B4C1B1B8AC80DE2624E516AEFC08E89B274BDCD332EFE687E244454EEADC"
+           "07827984EDC3C50B0F822622D379F5910F3FBA61F876DAB141A9006DA9D5C52F"
+           "E06A1920A38B07A5AA2096886C5F0E136DDCBF1A42C38CF2E895EECB769BD410"
+           "07C6028CA1B9FD0A62A622EC3AFAF75FADB678E1873BA017F601E5C17908DFDC"
+           "186882D1FB0CA8B418C7B8B0BB1111D155ECABA205B05DCE074C6E8506B3B007"
+           "32F8379E24C819D47612AFCA7EEB6979D3DC58518BE5E818375EACCF589620FE"
+           "BF1712D67656931C4CCC1AFFB6B9198A9A54389DDDD92F9650C088EBC6249EF9"
+           "36BDF55B4AF483308E6FCB89F07844F10CF52914F667560A22BF3CDFCD877AFB"
+           "5252BDB24DC15231B0F868D3EEB70E094AC5A95E4382E3C3CC6D469CECFFBC0A")
+         (let [btree (unload-btree (reduce add
+                                           (create-from-options :full? (full-after-maximum-number-of-values 3))
+                                           (range 20)))]
+           
+           (storage-keys-from-metadata (:metadata-storage btree)
+                                       (:root-id btree))))))
 
 
 #_(defspec first-element-is-min-after-sorting ;; the name of the test
