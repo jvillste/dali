@@ -2,6 +2,8 @@
   (:require [flow-gl.tools.trace :as trace]
             [flow-gl.debug :as debug]
             (argumentica [match :as match]
+                         [storage :as storage]
+                         [hash-map-storage :as hash-map-storage]
                          [cryptography :as cryptography]
                          [encode :as encode]
                          [graph :as graph]
@@ -17,52 +19,6 @@
   (:import [java.io DataInputStream DataOutputStream]
            [java.nio.file.attribute FileAttribute]))
 
-(defmulti put-to-storage!
-  (fn [storage key value]
-    (type storage)))
-
-(defmulti get-from-storage!
-  (fn [storage key]
-    (type storage)))
-
-(defmulti remove-from-storage!
-  (fn [storage key]
-    (type storage)))
-
-(defmulti storage-keys!
-  (fn [storage]
-    (type storage)))
-
-(defrecord HashMapStorage [hash-map-atom])
-
-(defn create-hash-map-storage []
-  (->HashMapStorage (atom {})))
-
-(defmethod get-from-storage!
-  HashMapStorage
-  [storage key]
-  (get @(:hash-map-atom storage)
-       key))
-
-(defmethod put-to-storage!
-  HashMapStorage
-  [storage key value]
-  (swap! (:hash-map-atom storage)
-         assoc
-         key
-         value))
-
-(defmethod storage-keys!
-  HashMapStorage
-  [storage]
-  (keys @(:hash-map-atom storage)))
-
-(defmethod remove-from-storage!
-  HashMapStorage
-  [storage key]
-  (swap! (:hash-map-atom storage)
-         dissoc
-         key))
 
 (defn edn-to-byte-array [edn]
                      (zip/compress-byte-array (.getBytes (pr-str edn)
@@ -75,9 +31,9 @@
     (pr-str key)))
 
 (defn put-edn-to-storage! [storage key edn]
-  (put-to-storage! storage
-                   (key-to-storage-key key)
-                   (edn-to-byte-array edn)))
+  (storage/put-to-storage! storage
+                           (key-to-storage-key key)
+                           (edn-to-byte-array edn)))
 
 (defn safely-read-string [string]
   (binding [*read-eval* false]
@@ -93,8 +49,8 @@
       (throw e))))
 
 (defn get-edn-from-storage! [storage key]
-  (if-let [byte-array (get-from-storage! storage
-                                         (key-to-storage-key key))]
+  (if-let [byte-array (storage/get-from-storage! storage
+                                                 (key-to-storage-key key))]
     (byte-array-to-edn byte-array)
     nil))
 
@@ -115,9 +71,9 @@
                                      root-id
                                      metadata-storage]
                               :or {full? (full-after-maximum-number-of-values 1001)
-                                   storage (create-hash-map-storage)
-                                   metadata-storage (create-hash-map-storage)
-                                   node-storage (create-hash-map-storage)}}]
+                                   storage (hash-map-storage/create)
+                                   metadata-storage (hash-map-storage/create)
+                                   node-storage (hash-map-storage/create)}}]
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
@@ -133,11 +89,11 @@
 (defn create
   ([]
    (create (full-after-maximum-number-of-values 1001)
-           (create-hash-map-storage)))
+           (hash-map-storage/create)))
 
   ([full?]
    (create full?
-           (create-hash-map-storage)))
+           (hash-map-storage/create)))
   
   ([full? storage]
    (create-from-options :full? full?
@@ -679,7 +635,7 @@
                                             [:child-ids])
                                {:value-count (count (:values the-node))
                                 :storage-byte-count (count bytes)}))
-    (put-to-storage! (:node-storage btree)
+    (storage/put-to-storage! (:node-storage btree)
                      the-storage-key
                      bytes)
     
@@ -697,8 +653,8 @@
                                        1 {:values (sorted-set 3), :child-ids [0 2]},
                                        2 {:values (sorted-set 4 5 6)}}
                                :root-id 1
-                               :node-storage (create-hash-map-storage)
-                               :metadata-storage (create-hash-map-storage)}
+                               :node-storage (hash-map-storage/create)
+                               :metadata-storage (hash-map-storage/create)}
                               [1])))
   
   (is (match/contains-map? {:nodes {1 {:values #{3},
@@ -709,8 +665,8 @@
                                                    1 {:values (sorted-set 3), :child-ids [0 2]},
                                                    2 {:values (sorted-set 4 5 6)}}
                                            :root-id 1
-                                           :node-storage (create-hash-map-storage)
-                                           :metadata-storage (create-hash-map-storage)}
+                                           :node-storage (hash-map-storage/create)
+                                           :metadata-storage (hash-map-storage/create)}
                                           [1 0])))
 
   (is (match/contains-map? {:nodes
@@ -723,8 +679,8 @@
                                                :child-ids ["B58E78A458A49C835829351A3853B584CA01124A1A96EB782BA23513124F01A7"
                                                            2]},
                                             2 {:values #{4 5 6}}},
-                                           :node-storage (create-hash-map-storage)
-                                           :metadata-storage (create-hash-map-storage)
+                                           :node-storage (hash-map-storage/create)
+                                           :metadata-storage (hash-map-storage/create)
                                            :root-id 1}
                                           [1 2])))
 
@@ -762,8 +718,8 @@
                                             8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
                                                            "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"],
                                                :values #{1}}},
-                                           :node-storage (create-hash-map-storage)
-                                           :metadata-storage (create-hash-map-storage)
+                                           :node-storage (hash-map-storage/create)
+                                           :metadata-storage (hash-map-storage/create)
                                            :root-id 14,
                                            :usages {3 9, 5 12, 6 13, 4 14, 7 16, 9 19, 10 20, 11 23, 12 26, 14 29, 15 30, 13 31, 16 33},
                                            :next-usage-number 34}
@@ -812,7 +768,7 @@
            btree))
 
 (defn get-node-content [storage storage-key]
-  (bytes-to-node (get-from-storage! storage
+  (bytes-to-node (storage/get-from-storage! storage
                                     storage-key)))
 
 (defn set-node-content [btree parent-id storage-key node-content]
@@ -1042,8 +998,8 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :node-storage (create-hash-map-storage)
-                          :metadata-storage (create-hash-map-storage)
+                          :node-storage (hash-map-storage/create)
+                          :metadata-storage (hash-map-storage/create)
                           :usages (priority-map/priority-map)
                           :next-node-id 3})]
     (swap! btree-atom
@@ -1321,8 +1277,8 @@
                           :next-node-id 7,
                           :root-id 5
                           :usages {}
-                          :node-storage (create-hash-map-storage)
-                          :metadata-storage (create-hash-map-storage)})]
+                          :node-storage (hash-map-storage/create)
+                          :metadata-storage (hash-map-storage/create)})]
     (swap! btree-atom
            unload-btree)
 
@@ -1355,8 +1311,8 @@
                               :child-ids [0 2]},
                            2 {:values (sorted-set 4 5 6)}}
                           :root-id 1
-                          :node-storage (create-hash-map-storage)
-                          :metadata-storage (create-hash-map-storage)
+                          :node-storage (hash-map-storage/create)
+                          :metadata-storage (hash-map-storage/create)
                           :usages {}
                           :next-node-id 3})]
     (swap! btree-atom
@@ -1401,14 +1357,14 @@
                           :root-id 1
                           :next-node-id 3
                           :usages {}
-                          :node-storage (create-hash-map-storage)
-                          :metadata-storage (create-hash-map-storage)})]
+                          :node-storage (hash-map-storage/create)
+                          :metadata-storage (hash-map-storage/create)})]
 
     (swap! btree-atom
            unload-btree)
 
     (is (= 3
-           (count (storage-keys! (:metadata-storage @btree-atom)))))
+           (count (storage/storage-keys! (:metadata-storage @btree-atom)))))
 
     (is (= [1 2 3 4 5 6]
            (inclusive-subsequence btree-atom
@@ -1604,7 +1560,7 @@
 
 (defn unused-storage-keys [btree]
   (filter (complement (used-storage-keys btree))
-          (storage-keys! (:node-storage btree))))
+          (storage/storage-keys! (:node-storage btree))))
 
 (defn stored-node-sizes [btree]
   (map (fn [storage-key]
