@@ -1,15 +1,24 @@
 (ns argumentica.sorted-map-transaction-log
   (:require (argumentica [transaction-log :as transaction-log])))
 
+(defrecord SortedMapTransactionLog [sorted-map-atom])
+
 (defn create []
-  (sorted-map))
+  (->SortedMapTransactionLog (atom (sorted-map))))
 
-(defmethod transaction-log/add (type (sorted-map))
-  [log transaction-number statements]
-  (assoc log transaction-number statements))
+(defmethod transaction-log/add! SortedMapTransactionLog
+  [this transaction-number statements]
+  (swap! (:sorted-map-atom this)
+         assoc
+         transaction-number
+         statements))
 
-(defmethod transaction-log/get (type (sorted-map))
-  [log first-transaction-number]
-  (subseq log
+(defmethod transaction-log/subseq SortedMapTransactionLog
+  [this first-transaction-number]
+  (subseq @(:sorted-map-atom this)
           >=
           first-transaction-number))
+
+(defmethod transaction-log/last-transaction-number SortedMapTransactionLog
+  [this]
+  (first (last @(:sorted-map-atom this))))

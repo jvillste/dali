@@ -66,22 +66,38 @@
        (count (:values node)))))
 
 
+(defn roots-from-metadata-storage [metadata-storage]
+  (or (get-edn-from-storage! metadata-storage
+                             :roots)
+      #{}))
+
+(defn roots [btree]
+  (roots-from-metadata-storage (:metadata-storage btree)))
+
+(def descending #(compare %2 %1))
+
+(defn latest-root [roots]
+  (first (sort-by :stored-time
+                  descending
+                  roots)))
+
+
 (defn create-from-options [& {:keys [full?
                                      node-storage
-                                     root-id
                                      metadata-storage]
                               :or {full? (full-after-maximum-number-of-values 1001)
-                                   storage (hash-map-storage/create)
                                    metadata-storage (hash-map-storage/create)
                                    node-storage (hash-map-storage/create)}}]
+  
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
          :usages (priority-map/priority-map)}
-        (if root-id
-          {:nodes {}
+        (if-let [latest-root (latest-root (roots-from-metadata-storage metadata-storage))]
+          {:latest-root latest-root
+           :nodes {}
            :next-node-id 0
-           :root-id root-id}
+           :root-id (:storage-key latest-root)}
           {:nodes {0 (create-node)}
            :next-node-id 1
            :root-id 0})))
@@ -1452,22 +1468,24 @@
                                             (unload-btree)))
                                   0)))))
 
+(defn add-stored-root [btree metadata]
+  (let [new-root {:storage-key (:root-id btree)
+                  :stored-time (System/nanoTime)
+                  :metadata metadata}]
+    (put-edn-to-storage! (:metadata-storage btree)
+                         :roots
+                         (conj (roots btree)
+                               new-root))
+    (assoc btree
+           :latest-root
+           new-root)))
 
-(defn add-stored-root [btree]
-  (put-edn-to-storage! (:metadata-storage btree)
-                       :roots
-                       (conj (or (get-edn-from-storage! (:metadata-storage btree)
-                                                        :roots)
-                                 #{})
-                             {:storage-key (:root-id btree)
-                              :stored-time (System/nanoTime)}))
-  btree)
 
-(defn store-root [btree]
+(defn store-root [btree metadata]
   ;; TODO: allow writing nodes to storage without unloading them
   (-> btree
       (unload-btree)
-      (add-stored-root)))
+      (add-stored-root metadata)))
 
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-cursor @btree-atom)]
@@ -1572,7 +1590,8 @@
   (is (= '(219 138 23 23 26 139 138 23 22 138 22 138 137 23 22 22 22)
          (stored-node-sizes (store-root (reduce add
                                                 (create-from-options :full? (full-after-maximum-number-of-values 3))
-                                                (range 20)))))))
+                                                (range 20))
+                                        {})))))
 
 (defn total-storage-size [btree]
   (reduce + (stored-node-sizes btree)))

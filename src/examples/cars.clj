@@ -4,6 +4,7 @@
             [clojure.string :as string]
             (argumentica [db :as db]
                          [transaction-log :as transaction-log]
+                         [hash-map-storage :as hash-map-storage]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [comparator :as comparator]
                          [index :as index]
@@ -38,20 +39,20 @@
   (fn ([collection value]
        (conj collection
              value))
-                      
+    
     ([result]
      result)
-                      
+    
     ([]
      collection)))
 
 (defn nop-reducer
   ([a b]
    nil)
-                      
+  
   ([a]
    nil)
-                      
+  
   ([]
    nil))
 
@@ -161,7 +162,7 @@
 (comment (transduce (map inc)
                     +
                     [1 2 3])
-  
+         
          (transduce (map inc)
                     (fn
                       ([a b]
@@ -284,7 +285,7 @@
                                                                 0
                                                                 eatcv-to-eatcv-datoms
                                                                 entity-map)
-                                          
+                                                
                                                 #_(add-to-index avtec-atom
                                                                 entity-id
                                                                 0
@@ -301,7 +302,7 @@
                                                                         transaction-number
                                                                         eatcv-to-eatcv-datoms
                                                                         entity-map)
-                                 
+                                                          
                                                           (add-to-index avtec-atom
                                                                         transaction-number
                                                                         eatcv-to-avtec-datoms
@@ -316,23 +317,35 @@
 
 (defonce indexes {})
 
-(defn create-db [indexes transaction-log]
+(defn create-db [& {:keys [indexes
+                           transaction-log
+                           metadata-storage]
+                    :or {indexes {}
+                         transaction-log (sorted-map-transaction-log/create)
+                         metadata-storage (sorted-map-transaction-log/create)}}]
   {:next-transaction-number 0
    :indexes indexes
+   :metadata-storage metadata-storage
    :transaction-log transaction-log})
 
 (defn add-log-entry [db eacv-statements]
-  (-> db
-      (update :transaction-log
-              transaction-log/add
-              (:next-transaction-number db)
-              eacv-statements)
-      (update :next-transaction-number inc)))
+  (transaction-log/add! (:transaction-log db)
+                        (:next-transaction-number db)
+                        eacv-statements)
+  (update db
+          :next-transaction-number
+          inc))
 
 (defn update-index [index transaction-log]
-  (let [new-transactions (transaction-log/get transaction-log
-                                              (or (:last-transaction-number index)
-                                                  0))]
+
+  (let [new-transactions (transaction-log/subseq transaction-log
+                                                 (or (:last-transaction-number index)
+                                                     0))]
+    (println "update"
+             new-transactions
+             transaction-log
+             (:last-transaction-number index))
+    
     (doseq [[t statements] new-transactions]
       (doseq [[e a c v] statements]
         (doseq [datom ((:eatcv-to-datoms index)
@@ -351,16 +364,41 @@
            :last-transaction-number
            (:transaction-number (last new-transactions)))))
 
-(defn update-indexes [db]
+(defn apply-to-indexes [db function & arguments]
   (update db :indexes
           (fn [indexes]
             (reduce (fn [indexes index-key]
-                      (update indexes
-                              index-key
-                              update-index
-                              (:transaction-log db)))
+                      (apply update
+                             indexes
+                             index-key
+                             function
+                             arguments))
                     indexes
                     (keys indexes)))))
+
+(defn update-indexes [db]
+  (apply-to-indexes db
+                    update-index
+                    (:transaction-log db)))
+
+(defn flush-index-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
+  (when (<= maximum-number-of-transactions-after-previous-flush
+            (- last-transaction-number
+               (or (-> (btree/latest-root @(:index-atom index))
+                       :metadata
+                       :last-transaction-number)
+                   0)))
+    (swap! (:index-atom index)
+           btree/store-root
+           {:last-transaction-number last-transaction-number}))
+  index)
+
+(defn flush-indexes-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-flush]
+  (let [last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))]
+    (apply-to-indexes db
+                      flush-index-after-maximum-number-of-transactions
+                      last-transaction-number
+                      maximum-number-of-transactions-after-previous-flush)))
 
 (defn transact [db statements]
   (-> db
@@ -371,18 +409,49 @@
   (is (= '([1 :friend 0 :set 2]
            [1 :friend 1 :set 3]
            [2 :friend 0 :set 1])
-         (let [db (-> (create-db {:eatcv {:index-atom (atom (btree/create))
-                                          :eatcv-to-datoms eatcv-to-eatcv-datoms}}
-                                 (sorted-map-transaction-log/create))
+         (let [db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create))
+                                                   :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                                 :transaction-log (sorted-map-transaction-log/create))
                       (transact [[1 :friend :set 2]
                                  [2 :friend :set 1]])
                       (transact [[1 :friend :set 3]]))]
            (btree/inclusive-subsequence (-> db :indexes :eatcv :index-atom)
                                         [1 :friend nil nil nil])))))
 
-(defn write-db-to-storage [db]
-  )
+(deftest read-only-index-test
+  (let [metadata-storage (hash-map-storage/create)
+        node-storage (hash-map-storage/create)
+        transaction-log (sorted-map-transaction-log/create)
+        transactor-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                                    :node-storage node-storage))
+                                                       :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                                     :transaction-log transaction-log)
+                          (transact [[1 :friend :set 2]
+                                     [2 :friend :set 1]])
+                          (flush-indexes-after-maximum-number-of-transactions 0)
+                          (transact [[1 :friend :set 3]]))
+        
+        read-only-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                                   :node-storage node-storage))
+                                                      :eatcv-to-datoms eatcv-to-eatcv-datoms
+                                                      :last-transaction-number (or (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
+                                                                                       :metadata
+                                                                                       :last-transaction-number)
+                                                                                   0)}}
+                                    :transaction-log transaction-log)
+                         (update-indexes))]
+    
+    (is (= '([1 :friend 0 :set 2]
+             [1 :friend 1 :set 3]
+             [2 :friend 0 :set 1])
+           (btree/inclusive-subsequence (-> transactor-db :indexes :eatcv :index-atom)
+                                        [1 :friend nil nil nil])))
 
+    (is (= '([1 :friend 0 :set 2]
+             [1 :friend 1 :set 3]
+             [2 :friend 0 :set 1])
+           (btree/inclusive-subsequence (-> read-only-db :indexes :eatcv :index-atom)
+                                          [1 :friend nil nil nil])))))
 
 (comment
   (def indexes (create-indexes))
