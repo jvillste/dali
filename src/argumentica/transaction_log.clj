@@ -4,7 +4,7 @@
                  (type log)))
 
 (defmulti subseq (fn [log first-transaction-number]
-                (type log)))
+                   (type log)))
 
 (defmulti last-transaction-number (fn [log]
                                     (type log)))

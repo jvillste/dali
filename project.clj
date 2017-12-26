@@ -3,6 +3,7 @@
   :url "http://example.com/FIXME"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
+  :repositories {"oracle" "http://download.oracle.com/maven/"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
                  [com.datomic/datomic-free "0.9.5067"]
                  [flow-gl/flow-gl "1.0.0-SNAPSHOT"]
@@ -13,8 +14,10 @@
                  [spootnik/net "0.3.3-beta9"]
                  [org.clojure/core.async "0.3.443"]
                  [org.clojure/algo.monads "0.1.6"]
+                 [me.raynes/fs "1.4.6"]
                  [iota "1.1.3"]
                  [net.cgrand/xforms "0.15.0"]
                  [prismatic/schema "1.1.7"]
-                 [org.clojure/test.check "0.10.0-alpha2"]]
+                 [org.clojure/test.check "0.10.0-alpha2"]
+                 [com.sleepycat/je "7.5.11"]]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])

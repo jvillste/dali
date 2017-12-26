@@ -1,5 +1,6 @@
 (ns argumentica.directory-storage
-  (:require (argumentica [btree :as btree]))
+  (:require (argumentica [btree :as btree]
+                         [storage :as storage]))
   (:import [java.nio.file Files Paths OpenOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
@@ -12,12 +13,13 @@
   (Paths/get string
              (into-array String [])))
 
-(defmethod btree/get-from-storage
+
+(defmethod storage/get-from-storage!
   DirectoryStorage
   [this key]
   (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
 
-(defmethod btree/put-to-storage
+(defmethod storage/put-to-storage!
   DirectoryStorage
   [this key bytes]
   (Files/write (string-to-path (str (:path this) "/" key))
