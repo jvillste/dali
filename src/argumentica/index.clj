@@ -6,7 +6,8 @@
 (defmulti add-to-index (fn [index & values]
                          (type index)))
 
-(defmethod add-to-index (type (sorted-set))
+(defmethod add-to-index
+  (type (sorted-set))
   [this & values]
   (apply conj
          this

@@ -1,5 +1,6 @@
 (ns argumentica.storage
-  (:require (argumentica [zip :as zip])))
+  (:require (argumentica [zip :as zip])
+            [taoensso.nippy :as nippy]))
 
 (defmulti put-to-storage!
   (fn [storage key value]
@@ -31,12 +32,20 @@
 
 (defn put-edn-to-storage! [storage key edn]
   (put-to-storage! storage
-                           (key-to-storage-key key)
-                           (edn-to-byte-array edn)))
+                   (key-to-storage-key key)
+                   (edn-to-byte-array edn)))
 
 (defn safely-read-string [string]
   (binding [*read-eval* false]
     (read-string string)))
+
+(defn bytes-to-string [string]
+  (String. string
+           "UTF-8"))
+
+(defn string-to-bytes [string]
+  (.getBytes string
+             "UTF-8"))
 
 (defn byte-array-to-edn [byte-array]
   (try 
@@ -49,6 +58,16 @@
 
 (defn get-edn-from-storage! [storage key]
   (if-let [byte-array (get-from-storage! storage
-                                                 (key-to-storage-key key))]
+                                         (key-to-storage-key key))]
     (byte-array-to-edn byte-array)
     nil))
+
+
+(defn edn-to-bytes [edn]
+  (nippy/freeze edn))
+
+(defn bytes-to-edn [bytes]
+  (nippy/thaw bytes))
+
+(comment
+  (count (nippy/thaw (nippy/freeze [(java.util.UUID/randomUUID) :friend 120 :set (java.util.UUID/randomUUID)]))))

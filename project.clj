@@ -19,5 +19,7 @@
                  [net.cgrand/xforms "0.15.0"]
                  [prismatic/schema "1.1.7"]
                  [org.clojure/test.check "0.10.0-alpha2"]
-                 [com.sleepycat/je "7.5.11"]]
+                 [com.sleepycat/je "7.5.11"]
+                 [com.taoensso/nippy "2.13.0"]]
+  :aot [argumentica.EdnComparator]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
