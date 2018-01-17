@@ -7,14 +7,17 @@
 
 (defn create [directory-path database-name]
   (->BerkeleyDbIndex (-> (berkeley-db/create directory-path)
-                           (berkeley-db/open-database database-name))))
+                         (berkeley-db/open-database database-name))))
+
+(defn database [this]
+  (first (vals (:databases (:state this)))))
 
 (defmethod index/add-to-index
   BerkeleyDbIndex
   [this & values]
-  (berkeley-db/put-to-database (database this)
-                               (string-entry-bytes key)
-                               value-bytes))
+  (berkeley-db/put-to-database! (database this)
+                                (berkeley-db/string-entry-bytes key)
+                                value-bytes))
 
 (defmethod index/inclusive-subsequence
   BerkeleyDbIndex

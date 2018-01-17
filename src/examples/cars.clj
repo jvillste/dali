@@ -1,19 +1,16 @@
 (ns examples.cars
-  (:require [net.cgrand.xforms :as xforms]
-            
-            [clojure.string :as string]
+  (:require [clojure.string :as string]
             (argumentica [db :as db]
                          [transaction-log :as transaction-log]
                          [storage :as storage]
                          [hash-map-storage :as hash-map-storage]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
+                         [berkeley-db-transaction-log :as berkeley-db-transaction-log]
                          [comparator :as comparator]
                          [index :as index]
                          [btree :as btree]
                          [btree-index :as btree-index]
-                         [directory-storage :as directory-storage])
-
-            [iota :as iota])
+                         [directory-storage :as directory-storage]))
   (:import [java.util UUID]
            )
   (:use clojure.test))
@@ -21,9 +18,6 @@
 #_(def source-file-name "/Users/jukka/Downloads/Tieliikenne 5.0.csv")
 (def source-file-name "/Users/jukka/Downloads/vastauksetavoimenadatana1.csv")
 
-
-(comment (take 2 (iota/seq source-file-name))
-         (uuid?))
 
 (defn read-line [string]
   (clojure.string/split string  #";"))
@@ -40,20 +34,20 @@
   (fn ([collection value]
        (conj collection
              value))
-    
+
     ([result]
      result)
-    
+
     ([]
      collection)))
 
 (defn nop-reducer
   ([a b]
    nil)
-  
+
   ([a]
    nil)
-  
+
   ([]
    nil))
 
@@ -165,16 +159,16 @@
                    (map println))
              (constantly nil)
              [1 2 3])
-  
+
   (transduce (map inc)
              +
              [1 2 3])
-         
+
   (transduce (map inc)
              (fn
                ([a b]
                 (conj a b))
-                      
+
                ([a]
                 a))
              []
@@ -186,10 +180,10 @@
              (fn
                ([a b]
                 nil)
-                      
+
                ([a]
                 nil)
-                      
+
                ([]
                 nil))
              (range 10))
@@ -254,11 +248,11 @@
                                                     e
                                                     c]]
                                                   []))}
-                     
+
                      :attributes {:index-atom (atom (create-index))
                                   :eatcv-to-datoms (fn [e a t c v]
                                                      [[a]])}
-                     
+
                      :full-text {:index-atom (atom (create-index))
                                  :eatcv-to-datoms (fn [e a t c v]
                                                     (for [token (tokenize v)]
@@ -267,7 +261,7 @@
                                                        t
                                                        e
                                                        c]))}}
-                    
+
                     (map-values assoc :log-state (atom {})))]
 
     (transduce-csv-lines-as-maps source-file-name
@@ -282,17 +276,17 @@
                                                                   0
                                                                   eatcv-to-datoms
                                                                   entity-map)
-                                                    
+
                                                     (log-index-state (str index-key)
                                                                      index-atom
                                                                      log-state)))
-                                                
+
                                                 #_(add-to-index eatcv-atom
                                                                 entity-id
                                                                 0
                                                                 eatcv-to-eatcv-datoms
                                                                 entity-map)
-                                                
+
                                                 #_(add-to-index avtec-atom
                                                                 entity-id
                                                                 0
@@ -309,7 +303,7 @@
                                                                         transaction-number
                                                                         eatcv-to-eatcv-datoms
                                                                         entity-map)
-                                                          
+
                                                           (add-to-index avtec-atom
                                                                         transaction-number
                                                                         eatcv-to-avtec-datoms
@@ -348,7 +342,7 @@
                                                  (if-let [last-transaction-number (:last-transaction-number index)]
                                                    (inc last-transaction-number)
                                                    0))]
-    
+
     (doseq [[t statements] new-transactions]
       (doseq [[e a c v] statements]
         (doseq [datom ((:eatcv-to-datoms index)
@@ -433,7 +427,7 @@
                                      [2 :friend :set 1]])
                           (flush-indexes-after-maximum-number-of-transactions 0)
                           (transact [[1 :friend :set 3]]))
-        
+
         read-only-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
                                                                                                    :node-storage node-storage))
                                                       :eatcv-to-datoms eatcv-to-eatcv-datoms
@@ -443,7 +437,7 @@
                                                                                    0)}}
                                     :transaction-log transaction-log)
                          (update-indexes))]
-    
+
     (is (= '([1 :friend 0 :set 2]
              [1 :friend 1 :set 3]
              [2 :friend 0 :set 1])
@@ -469,14 +463,14 @@
                            [2 :friend :set 1]])
                 (flush-indexes-after-maximum-number-of-transactions 0)
                 (transact [[1 :friend :set 3]]))
-        
+
         db2 (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
                                                                                           :node-storage node-storage))
                                              :eatcv-to-datoms eatcv-to-eatcv-datoms
                                              :last-transaction-number (last-transaction-number metadata-storage)}}
                            :transaction-log transaction-log)
                 (transact [[1 :friend :set 4]]))]
-    
+
     (is (= '([1 :friend 0 :set 2]
              [1 :friend 1 :set 3]
              [2 :friend 0 :set 1])
@@ -495,62 +489,7 @@
 
   (btree/loaded-node-count @(-> indexes :eatcv :index-atom)))
 
-(defn start []
 
-  
-  (let [{:keys [eatcv-atom avtec-atom]} indexes]
-    #_(:nodes @(:index-atom eatcv))
-    #_(:nodes @(:index-atom avtec))
-
-
-    #_(swap! (:index-atom eatcv)
-             btree/unload-btree)
-    #_(swap! (:index-atom eatcv)
-             btree/collect-storage-garbage)
-    #_(prn (:storage-metadata @(:index-atom eatcv)))
-    
-    #_(prn {:total-stoarge-size (float (/ (btree/total-storage-size @(:eatcv-atom indexes))
-                                          1024))
-            :max-node-size (float (/ (apply max (btree/stored-node-sizes @(:eatcv-atom indexes)))
-                                     1024))
-            :average-node-size (float (/ (btree/total-storage-size @(:eatcv-atom indexes))
-                                         (count (btree/used-storage-keys @(:eatcv-atom indexes)))
-                                         1024))
-            :unused-stored-nodes (count (btree/unused-storage-keys @(:eatcv-atom indexes)))
-            :used-stored-nodes (count (btree/used-storage-keys @(:eatcv-atom indexes)))})
-
-    #_(let [target-a :sukunimi
-            target-v "a"
-            latest-transaction-number 6]
-        (take 10
-              (take-while (fn [[a v t e c]]
-                            (and (= a target-a)
-                                 (#{0 1} (compare v target-v))
-                                 (<= t latest-transaction-number)))
-                          (index/inclusive-subsequence avtec
-                                                       [target-a target-v nil nil nil]))))
-
-    #_(let [target-a :ajoneuvoluokka
-            target-v "M1"
-            latest-transaction-number 6]
-        (take 10
-              (take-while (fn [[a v t e c]]
-                            (and (= a target-a)
-                                 (= v target-v)
-                                 (<= t latest-transaction-number)))
-                          (index/inclusive-subsequence avtec
-                                                       [target-a target-v nil nil nil]))))
-    
-    #_(db/unload-index eatcv)
-
-    #_(db/eatcv-statements eatcv
-                           [-4480628169839524227 -4844517864935213435]))
-
-  #_(let [eatcv (btree-index/create 100
-                                    (directory-storage/create "data/1")
-                                    "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
-      (db/eatcv-statements eatcv
-                           [-4480628169839524227 -4844517864935213435])))
 
 (defn storage-statistics [btree]
   {:loaded-node-count (btree/loaded-node-count btree)
@@ -560,7 +499,7 @@
                     (if (empty? stored-node-sizes)
                       0
                       (float (/ (apply max stored-node-sizes)
-                                1024)))) 
+                                1024))))
    :average-node-size (if (< 0 (count (btree/used-storage-keys btree)))
                         (float (/ (btree/total-storage-size btree)
                                   (count (btree/used-storage-keys btree))
@@ -588,6 +527,33 @@
                                  (<= t latest-transaction-number)))
                           (btree/inclusive-subsequence eatcv-atom
                                                        [entity-id attribute nil nil nil])))))
+
+(defn create-disk-db [base-path]
+  (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
+                                                                                           :node-storage (directory-storage/create (str base-path "/nodes"))))
+                                              :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                            :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log"))))
+
+(defn close-disk-db! [disk-db]
+  (berkeley-db-transaction-log/close! (:transaction-log disk-db)))
+
+(defn read-disk-db []
+  (let [db (create-disk-db "data/db")]
+    (try
+      (btree/inclusive-subsequence (-> db :indexes :eatcv :index-atom)
+                                   [1 :friend nil nil nil])
+      (finally
+        (close-disk-db! db)))))
+
+(defn write-disk-db []
+  (let [db (create-disk-db "data/db")]
+    (try
+      (-> db
+          (transact [[1 :friend :set 2]
+                     [2 :friend :set 1]])
+          (transact [[1 :friend :set 3]]))
+      (finally
+        (close-disk-db! db)))))
 
 (deftype Entity [indexes entity-id transaction-number]
   Object
@@ -649,12 +615,12 @@
   (storage-statistics @(-> indexes :avtec :index-atom))
 
   (:nodes @(-> indexes :eatcv :index-atom))
-  
+
   (:etunimi (->Entity indexes
                       #uuid "83abeff7-44ab-4223-bd70-80c634ef8644"
                       0))
-  
-  
+
+
   (for [entity (map (fn [entity-id]
                       (->Entity indexes
                                 entity-id
@@ -676,18 +642,18 @@
      (storage-statistics @(-> indexes :full-text :index-atom))])
 
   (keys @(-> indexes :eatcv :index-atom))
-  
+
   (let [btree-atom (-> indexes :attributes :index-atom)]
     (btree/inclusive-subsequence btree-atom
                                  (first (btree/sequence-for-cursor @btree-atom
                                                                    (btree/first-cursor @btree-atom)))))
 
-  
-  
+
+
   (#uuid "ce04e20f-5940-451d-a8a0-8da68968dea5"
    #uuid "28d29033-db8c-4e3f-98eb-dca5da323b41"
    #uuid "84f2e907-4449-4bd4-821a-4e7e819eca11")
-  
+
   (let [target-a :sukunimi
         target-v "Kauppinen"
         latest-transaction-number 0]
@@ -699,7 +665,7 @@
                       (btree/inclusive-subsequence (:avtec-atom indexes)
                                                    [target-a target-v nil nil nil]))))
 
-  
+
   (take 10
         (btree/inclusive-subsequence (-> indexes :avtec :index-atom)
                                      [:sukunimi "Kauppinen" nil nil nil]))
@@ -711,8 +677,65 @@
 
   (compare [#uuid "882c884a-cb0a-48e0-b6cb-e54ed7134300" "b"]
            [#uuid "882c884a-cb0a-48e0-b6cb-e54ed7134300" 1])
-  
+
   (sort-by identity comparator/cc-cmp  [[#uuid "882c884a-cb0a-48e0-b6cb-e54ed7134300" "a"]
                                         [#uuid "882c884a-cb0a-48e0-b6cb-e54ed7134300" "b"]
                                         [#uuid "88495aa6-2854-4a4c-a140-1bf7acb1abb7" 1]
                                         [#uuid "88495aa6-2854-4a4c-a140-1bf7acb1abb7" "c"]]))
+
+(defn start []
+  (test-disk-db)
+
+  #_(let [{:keys [eatcv-atom avtec-atom]} indexes]
+    #_(:nodes @(:index-atom eatcv))
+    #_(:nodes @(:index-atom avtec))
+
+
+    #_(swap! (:index-atom eatcv)
+             btree/unload-btree)
+    #_(swap! (:index-atom eatcv)
+             btree/collect-storage-garbage)
+    #_(prn (:storage-metadata @(:index-atom eatcv)))
+
+    #_(prn {:total-stoarge-size (float (/ (btree/total-storage-size @(:eatcv-atom indexes))
+                                          1024))
+            :max-node-size (float (/ (apply max (btree/stored-node-sizes @(:eatcv-atom indexes)))
+                                     1024))
+            :average-node-size (float (/ (btree/total-storage-size @(:eatcv-atom indexes))
+                                         (count (btree/used-storage-keys @(:eatcv-atom indexes)))
+                                         1024))
+            :unused-stored-nodes (count (btree/unused-storage-keys @(:eatcv-atom indexes)))
+            :used-stored-nodes (count (btree/used-storage-keys @(:eatcv-atom indexes)))})
+
+    #_(let [target-a :sukunimi
+            target-v "a"
+            latest-transaction-number 6]
+        (take 10
+              (take-while (fn [[a v t e c]]
+                            (and (= a target-a)
+                                 (#{0 1} (compare v target-v))
+                                 (<= t latest-transaction-number)))
+                          (index/inclusive-subsequence avtec
+                                                       [target-a target-v nil nil nil]))))
+
+    #_(let [target-a :ajoneuvoluokka
+            target-v "M1"
+            latest-transaction-number 6]
+        (take 10
+              (take-while (fn [[a v t e c]]
+                            (and (= a target-a)
+                                 (= v target-v)
+                                 (<= t latest-transaction-number)))
+                          (index/inclusive-subsequence avtec
+                                                       [target-a target-v nil nil nil]))))
+
+    #_(db/unload-index eatcv)
+
+    #_(db/eatcv-statements eatcv
+                           [-4480628169839524227 -4844517864935213435]))
+
+  #_(let [eatcv (btree-index/create 100
+                                    (directory-storage/create "data/1")
+                                    "C7FA8B4622763597C3AA9B547297C443A79BBFB9A7B9688206E5B6D3DC21A477")]
+      (db/eatcv-statements eatcv
+                           [-4480628169839524227 -4844517864935213435])))

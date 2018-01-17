@@ -13,8 +13,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties]
             [clojure.java.io :as io]
-            [clojure.data.priority-map :as priority-map]
-            [schema.core :as schema])
+            [clojure.data.priority-map :as priority-map])
   (:use [clojure.test])
   (:import [java.io DataInputStream DataOutputStream]
            [java.nio.file.attribute FileAttribute]))
@@ -35,7 +34,7 @@
 
 (defn roots-from-metadata-storage [metadata-storage]
   (or (storage/get-edn-from-storage! metadata-storage
-                                     :roots)
+                                     "roots")
       #{}))
 
 (defn roots [btree]
@@ -55,7 +54,7 @@
                               :or {full? (full-after-maximum-number-of-values 1001)
                                    metadata-storage (hash-map-storage/create)
                                    node-storage (hash-map-storage/create)}}]
-  
+
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
@@ -77,7 +76,7 @@
   ([full?]
    (create full?
            (hash-map-storage/create)))
-  
+
   ([full? storage]
    (create-from-options :full? full?
                         :node-storage storage))
@@ -165,7 +164,7 @@
                        4))))
 
 (defn record-usage [btree node-id]
-  (-> btree 
+  (-> btree
       (update :usages
               assoc node-id (or (:next-usage-number btree)
                                 0))
@@ -234,7 +233,7 @@
                       6))))
 
 (defn add-root-to-usages [usages root-id]
-  (apply priority-map/priority-map 
+  (apply priority-map/priority-map
          (mapcat (fn [[cursor priority]]
                    [(concat [root-id]
                             cursor)
@@ -382,7 +381,7 @@
               cursor
               (recur (conj cursor
                            (first (:child-ids next-node-downwards)))))))
-        
+
         (recur (drop-last cursor)))
       nil)))
 
@@ -606,12 +605,12 @@
                        node-id-to-be-unloded)
         bytes (node-to-bytes the-node)
         the-storage-key (storage-key bytes)]
-    
+
     (assert (or (leaf-node? the-node)
                 (empty? (filter loaded-node-id?
                                 (:child-ids the-node))))
             "Can not unload a node with loaded children")
-    
+
     (storage/put-edn-to-storage! (:metadata-storage btree)
                                  the-storage-key
                                  (conj (select-keys the-node
@@ -621,7 +620,7 @@
     (storage/put-to-storage! (:node-storage btree)
                              the-storage-key
                              bytes)
-    
+
     (-> btree
         (replace-node-id the-parent-id
                          node-id-to-be-unloded
@@ -639,7 +638,7 @@
                                :node-storage (hash-map-storage/create)
                                :metadata-storage (hash-map-storage/create)}
                               [1])))
-  
+
   (is (match/contains-map? {:nodes {1 {:values #{3},
                                        :child-ids [match/any-string
                                                    2]},
@@ -785,7 +784,7 @@
                [9 "E33374D7B0AEF7964CBA2A2A4B48BF1DFFB7B3F2F38782959C5D3C1D3EA8D444"],
                :values #{3}},
             9 "abc"}
-           
+
            (:nodes (set-node-content {:nodes {8
                                               {:child-ids
                                                ["43B0199869DFD7D8B392D4F217CFB9E57D0CB52ABB4246EB60304E81AA7999B7"
@@ -822,7 +821,7 @@
                       (:root-id btree)
                       (get-node-content (:node-storage btree)
                                         (:root-id btree)))
-    
+
     btree))
 
 (defn split-root-if-needed [btree]
@@ -844,7 +843,7 @@
   (loop [btree (-> btree
                    (load-root-if-needed)
                    (split-root-if-needed))
-         
+
          cursor [(:root-id btree)]
          node-id (:root-id btree)]
 
@@ -864,7 +863,7 @@
                                                        the-child-id))
                    (change-last cursor
                                 (:next-node-id btree))
-                   
+
                    (:next-node-id btree))
             (let [btree (if ((:full? btree) (node btree
                                                   the-child-id))
@@ -1027,7 +1026,7 @@
                                                        the-child-id))
                    (conj cursor
                          (:next-node-id btree))
-                   
+
                    (:next-node-id btree))
             (recur btree
                    (conj cursor
@@ -1213,7 +1212,7 @@
         node-id-after-splitter (get (:child-ids node-with-the-splitter)
                                     (inc (find-index (:values node-with-the-splitter)
                                                      splitter)))]
-    
+
     {:node-id-after-splitter node-id-after-splitter
      :btree btree
      :cursor (conj cursor
@@ -1378,7 +1377,7 @@
                                     (first values)))))))
 
 (deftest test-btree
-  (repeatedly 100 
+  (repeatedly 100
               (let [maximum 1000
                     values (take 200
                                  (repeatedly (fn [] (rand-int maximum))))
@@ -1429,7 +1428,7 @@
            (inclusive-subsequence (atom (-> (reduce add
                                                     (create (full-after-maximum-number-of-values 3))
                                                     (range 20))
-                                            
+
                                             (unload-cursor [13 5 1 0])
                                             (unload-cursor [13 5 1 2])
                                             (unload-btree)))
@@ -1440,7 +1439,7 @@
                   :stored-time (System/nanoTime)
                   :metadata metadata}]
     (storage/put-edn-to-storage! (:metadata-storage btree)
-                                 :roots
+                                 "roots"
                                  (conj (roots btree)
                                        new-root))
     (assoc btree
@@ -1491,7 +1490,7 @@
          (let [btree (unload-btree (reduce add
                                            (create (full-after-maximum-number-of-values 3))
                                            (range 20)))]
-           
+
            (storage-keys-from-stored-nodes (:node-storage btree)
                                            (:root-id btree))))))
 
@@ -1526,7 +1525,7 @@
          (let [btree (unload-btree (reduce add
                                            (create-from-options :full? (full-after-maximum-number-of-values 3))
                                            (range 20)))]
-           
+
            (storage-keys-from-metadata (:metadata-storage btree)
                                        (:root-id btree))))))
 
@@ -1541,7 +1540,7 @@
                                                (:storage-key root))))
           #{}
           (get-metadata btree
-                        :roots)))
+                        "roots")))
 
 (defn unused-storage-keys [btree]
   (filter (complement (used-storage-keys btree))
@@ -1579,7 +1578,7 @@
                                                         5))
                                  (create (full-after-maximum-number-of-values 3))
                                  (partition 40 (range 40))))
-  
+
   #_(let [btree-atom (atom )]
 
       (doseq [numbers ]
@@ -1590,19 +1589,19 @@
       (unused-storage-keys @btree-atom)
       (swap! btree-atom unload-excess-nodes 5)
       @btree-atom
-      
+
       )
 
   #_(add (unload-btree (add (create (full-after-maximum-number-of-values 3))
                             1))
          2)
-  
+
   )
 
 (comment
   (let [usage (-> (priority-map/priority-map [1 2] 1 [1 3] 2 [1 4] 3)
                   (assoc [1 2] 4))]
-    
+
     (drop 1 usage)))
 
 #_(defn start []
@@ -1620,6 +1619,3 @@
                       (:storage-key (node btree
                                           (:root-id btree))))
                  "UTF-8")))
-
-
-

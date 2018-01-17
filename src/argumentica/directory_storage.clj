@@ -1,7 +1,7 @@
 (ns argumentica.directory-storage
   (:require (argumentica [btree :as btree]
                          [storage :as storage]))
-  (:import [java.nio.file Files Paths OpenOption]
+  (:import [java.nio.file Files Paths OpenOption LinkOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
 
@@ -17,7 +17,12 @@
 (defmethod storage/get-from-storage!
   DirectoryStorage
   [this key]
-  (Files/readAllBytes (string-to-path (str (:path this) "/" key))))
+  (let [path (string-to-path (str (:path this) "/" key))]
+    (if (Files/exists path
+                      (into-array LinkOption
+                                  [LinkOption/NOFOLLOW_LINKS]))
+      (Files/readAllBytes (string-to-path (str (:path this) "/" key)))
+      nil)))
 
 (defmethod storage/put-to-storage!
   DirectoryStorage

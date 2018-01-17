@@ -3,43 +3,72 @@
                          [berkeley-db :as berkeley-db]
                          [storage :as storage])
             [me.raynes.fs :as fs])
-  (:import [com.sleepycat.bind.tuple BigIntegerBinding]
-           [com.sleepycat.je DatabaseEntry]))
+  (:import [com.sleepycat.je DatabaseEntry]))
 
-(defrecord BerkeleyDbTransactionLog [environment-atom])
+(defrecord BerkeleyDbTransactionLog [state-atom])
 
 (def database-name "log")
 
 (defn create [directory-path]
   (fs/mkdir directory-path)
-  (->BerkeleyDbTransactionLog (atom (-> (berkeley-db/open-environment directory-path)
+  (->BerkeleyDbTransactionLog (atom (-> (berkeley-db/create directory-path)
                                         (berkeley-db/open-database database-name)))))
 
 (defn close! [berkeley-db-transaction-log]
-  (berkeley-db/close @(:environment-atom berkeley-db-transaction-log)))
+  (berkeley-db/close @(:state-atom berkeley-db-transaction-log)))
 
 (defmethod transaction-log/add! BerkeleyDbTransactionLog
-    [this transaction-number statements]
-    (let [key-database-entry (DatabaseEntry.)]
-      (BigIntegerBinding/bigIntegerToEntry transaction-number
-                                           key-database-entry)
-      (swap! (:environment-atom this)
-             berkeley-db/put
-             database-name
-             key-database-entry
-             (storage/edn-to-byte-array statements))
-      nil))
+  [this transaction-number statements]
+  (berkeley-db/put! @(:state-atom this)
+                    database-name
+                    (berkeley-db/big-integer-entry-bytes (BigInteger/valueOf transaction-number))
+                    (storage/edn-to-bytes statements)))
 
-(comment 
-  
+(defmethod transaction-log/subseq BerkeleyDbTransactionLog
+  [this first-transaction-number]
 
-  (defmethod transaction-log/subseq SortedMapTransactionLog
-    [this first-transaction-number]
-    (berkeley-db/)
-    (subseq @(:sorted-map-atom this)
-            >=
-            first-transaction-number))
+  ;; TODO: return a lazy sequence that opens a new cursor each time more values need to be generated
 
-  (defmethod transaction-log/last-transaction-number SortedMapTransactionLog
-    [this]
-    (first (last @(:sorted-map-atom this)))))
+  (berkeley-db/transduce-keyvalues @(:state-atom this)
+                                   database-name
+                                   :key-bytes (berkeley-db/big-integer-entry-bytes (BigInteger/valueOf first-transaction-number))
+                                   :get-type :gte
+                                   :transducer (map (fn [[key-bytes value-bytes]]
+                                                      [(berkeley-db/entry-bytes-to-big-integer key-bytes)
+                                                       (storage/bytes-to-edn value-bytes)]))
+                                   :reducer conj))
+
+(defmethod transaction-log/last-transaction-number BerkeleyDbTransactionLog
+  [this]
+  (first (berkeley-db/transduce-keyvalues @(:state-atom this)
+                                    database-name
+                                    :get-type :last
+                                    :transducer (map (fn [[key-bytes value-bytes]]
+                                                       (berkeley-db/entry-bytes-to-big-integer key-bytes)))
+                                    :reducer conj)))
+
+(comment
+
+  (fs/delete-dir "data/log")
+  (fs/mkdir "data/log")
+
+)
+
+(defn start []
+
+
+  (let [state (-> (create "data/log"))]
+    (try
+      #_(transaction-log/subseq state
+                              1)
+      (transaction-log/last-transaction-number state)
+
+      #_(transaction-log/add! state
+                              1
+                              [[1 :friend 1 :add 2]])
+
+      #_(transaction-log/add! state
+                              2
+                              [[2 :friend 1 :add 2]])
+
+      (finally (close! state)))))

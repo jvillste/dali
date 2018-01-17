@@ -14,15 +14,7 @@
 (defn close! [this]
   (berkeley-db/close (:state this)))
 
-(defn string-entry-bytes [string]
-  (let [database-entry (DatabaseEntry.)]
-    
-    (StringBinding/stringToEntry string
-                                 database-entry)
-    (.getData database-entry)))
 
-(defn entry-bytes-to-string [entry-bytes]
-  (StringBinding/entryToString (DatabaseEntry. entry-bytes)))
 
 (defn database [this]
   (first (vals (:databases (:state this)))))

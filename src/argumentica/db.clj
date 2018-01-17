@@ -1,7 +1,5 @@
 (ns argumentica.db
-  (:require [datascript.core :as d]
-            [datascript.db :as db]
-            [clojure.uuid :as uuid]
+  (:require [clojure.uuid :as uuid]
             [loom.alg :as alg]
             loom.graph
             argumentica.graph
@@ -16,18 +14,8 @@
   (:use clojure.test))
 
 
-(comment 
-  (-> (d/empty-db)
-      (d/conn-from-db)
-      (d/transact! [{:db/id 1, :age 19}
-                    {:db/id 2, :age "a"}
-                    {:db/id 3, :age "b"}
-                    {:db/id 4, :age 2}])))
-
 (defn uuid []
   (.toString (UUID/randomUUID)))
-
-
 
 (defn transaction-hash [transaction]
   (encode/base-16-encode (cryptography/sha-256 (.getBytes (pr-str (select-keys transaction [:statements :parents]))
@@ -60,7 +48,7 @@
 (defn eatcv-statements
   ([eatcv entity-id]
    (eatcv-statements eatcv entity-id nil 0))
-  
+
   ([eatcv entity-id a]
    (eatcv-statements eatcv entity-id a 0))
 
@@ -90,7 +78,7 @@
                                         [3 :friend 2 :add "2 frend 2"])
                             2
                             :friend)))
-  
+
   (is (= '([2 :friend 1 :add "2 frend 1"]
            [2 :friend 2 :add "2 frend 2"]
            [2 :name 2 :add "2 frend 2"])
@@ -139,7 +127,7 @@
                            :friend))
       "get multivalue")
 
-  
+
   (is (= #{"1 frend 2"}
          (get-eatcv-values (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [1 :friend 2 :add  "1 frend 2"]
@@ -159,7 +147,7 @@
 (defn create
   ([]
    (create sorted-set))
-  
+
   ([create-index]
    {:eatcvs {}
     :create-index create-index
@@ -190,8 +178,8 @@
           m))
 
 (defn update-keys [m f & args]
-  (into {} 
-        (for [[k v] m] 
+  (into {}
+        (for [[k v] m]
           [(apply f k args) v])))
 
 (defn transaction-map-to-graph [transaction-map]
@@ -337,9 +325,9 @@
   (doseq [parent-hash (:parents transaction)]
     (assert (get-in db [:transactions parent-hash])
             (str "unknown parent " parent-hash)))
-  
+
   (let [hash (transaction-hash transaction)
-        
+
         is-new-branch (new-branch? db
                                    transaction)
 
@@ -355,8 +343,8 @@
                                                                     :transaction-number])
                                 :parent-branch-number (get-in db [:transactions first-parent-transaction-hash :branch-number]))
                          new-branch)))
-        
-        
+
+
         branch-number (if is-new-branch
                         (:next-branch-number db)
                         (:branch-number ((:transactions db) (first (:parents transaction)))))
@@ -364,7 +352,7 @@
         transaction-number (if is-new-branch
                              0
                              (:next-transaction-number (get (:branches db) branch-number)))
-        
+
         transaction-metadata (assoc (select-keys transaction [:parents])
                                     :branch-number branch-number
                                     :transaction-number transaction-number
@@ -381,7 +369,7 @@
         (cond-> is-new-branch
           (-> (update :next-branch-number inc)
               (assoc-in [:branches (:number new-branch)] new-branch)))
-        
+
         (cond-> (not is-new-branch)
           (-> (update-in [:branches branch-number :next-transaction-number] inc)))
 
@@ -391,7 +379,7 @@
         (update :transactions assoc hash transaction-metadata)
 
         #_(update :transaction-log (fnil conj []) transaction)
-        
+
         (cond-> (first (:parents transaction))
           (add-child (first (:parents transaction))
                      hash)))))
@@ -532,7 +520,7 @@
   (let [transactions (apply create-test-transactions
                             transaction-graph-edges)
         {:keys [hashes]} (transactions-to-graph-and-hashes transactions)
-        
+
         db (reduce transact (create)
                    (temporal-ids-to-hashes transactions))]
 
@@ -651,7 +639,7 @@
            (map part-label
                 (partition-transaction-hashes-into-parts db
                                                          (parent-transactions db (hashes 4))))))
-    
+
     (is (= '("0:0-1" "1:0-0" "0:2-2" "2:0-0" "0:3-3")
            (map part-label
                 (partition-transaction-hashes-into-parts db
@@ -704,7 +692,7 @@
                              1 {:next-transaction-number 5
                                 :parent-transaction-number 2
                                 :parent-branch-number 0}
-                             
+
                              2 {:next-transaction-number 5
                                 :parent-transaction-number 1
                                 :parent-branch-number 1}}))))
@@ -826,7 +814,7 @@
                (transact transaction-3)
                #_(transact (transaction [(transaction-hash transaction-2)
                                          (transaction-hash transaction-3)])))]
-    
+
     (is (= #{"1 frend 2"}
            (get-value db
                       (transaction-hash transaction-2)
@@ -868,7 +856,7 @@
                   (get-reference db
                                  reference-to-be-merged))
             (str "unknown reference to be merged:" reference-to-be-merged)))
-  
+
   (apply create-transaction
          (->> (map (partial get-reference db)
                    parent-references)
@@ -892,17 +880,17 @@
   (let [db (-> (create)
                (transact-statements-over [:master] [[1] :friend :add "friend 1"])
                (transact-statements-over [:master] [[1] :friend :add "friend 2"]))]
-    
+
     (is (= #{"friend 2" "friend 1"}
            (get-value db
                       (get-reference db
                                      :master)
                       [1]
                       :friend)))
-    
+
     (let [db (-> db
                  (transact-statements-over [:master] [[1] :friend :retract "friend 1"]))]
-      
+
       (is (= #{"friend 2"}
              (get-value db
                         (get-reference db
@@ -911,7 +899,7 @@
                         :friend)))
       (let [db (-> db
                    (transact-statements-over [:master] [[1] :friend :set "only friend"]))]
-        
+
         (is (= #{"only friend"}
                (get-value db
                           (get-reference db
@@ -964,7 +952,7 @@
                                                                          (= (value statement)
                                                                             (value result-statement))))
                                                                   result-statements)]
-                               
+
                                (if (empty? removed-statements)
                                  (conj result-statements
                                        statement)

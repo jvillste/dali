@@ -1,13 +1,14 @@
 (ns argumentica.berkeley-db
   (:require [me.raynes.fs :as fs])
-  (:import [com.sleepycat.je Cursor
+  (:import [com.sleepycat.bind.tuple StringBinding BigIntegerBinding]
+           [com.sleepycat.je Cursor
             Database
             DatabaseConfig
-            DatabaseEntry 
+            DatabaseEntry
             DatabaseException
-            Environment      
+            Environment
             EnvironmentConfig
-            LockMode         
+            LockMode
             OperationStatus
             Transaction
             Get]
@@ -23,7 +24,7 @@
 (defn open-database
   ([state database-name]
    (open-database state database-name nil))
-  
+
   ([state database-name key-comparator]
    (assoc-in state
              [:databases database-name]
@@ -43,16 +44,16 @@
     (.close databse))
   (.close (:environment state)))
 
-(defn put-to-database [database key-bytes value-bytes]
+(defn put-to-database! [database key-bytes value-bytes]
   (.put database
         nil
         (DatabaseEntry. key-bytes)
         (DatabaseEntry. value-bytes)))
 
-(defn put [state database-name key-bytes value-bytes]
-  (put-to-database (get-in state [:databases database-name])
-                   key-bytes
-                   value-bytes))
+(defn put! [state database-name key-bytes value-bytes]
+  (put-to-database! (get-in state [:databases database-name])
+                    key-bytes
+                    value-bytes))
 
 
 (defn get-from-database [database key-bytes]
@@ -62,7 +63,7 @@
           (DatabaseEntry. key-bytes)
           value-database-entry
           nil)
-    
+
     (.getData value-database-entry)))
 
 (defn get [state database-name key-bytes]
@@ -72,10 +73,10 @@
 (defn transduce-cursor
   ([cursor transducer]
    (transduce-cursor cursor transducer (constantly nil) nil))
-  
+
   ([cursor transducer reducer]
    (transduce-cursor cursor transducer reducer (reducer)))
-  
+
   ([cursor transducer reducer initial-value]
    (let [key-database-entry (DatabaseEntry.)
          value-database-entry (DatabaseEntry.)
@@ -94,16 +95,14 @@
                                          [(.getData key-database-entry)
                                           (.getData value-database-entry)])]
            (if (reduced? result)
-             (do (.close cursor)
-                 (reducing-function @result))
+             (reducing-function @result)
              (recur (.get cursor
                           key-database-entry
                           value-database-entry
                           Get/NEXT
                           nil)
                     result)))
-         (do (.close cursor)
-             (reducing-function value)))))))
+         (reducing-function value))))))
 
 (defn open-cursor-for-database [database]
   (.openCursor database
@@ -131,49 +130,39 @@
                Get/FIRST
                nil))
 
-(defn transduce-keyvalues
-  ([state database-name key-bytes transducer]
-   (transduce-keyvalues state database-name key-bytes transducer (constantly nil) nil))
-  
-  ([state database-name key-bytes transducer reducer]
-   (transduce-keyvalues state database-name key-bytes transducer reducer (reducer)))
-  
-  ([state database-name key-bytes transducer reducer initial-value]
+(defn transduce-keyvalues [state database-name & {:keys [transducer
+                                                         reducer
+                                                         initial-value
+                                                         get-type
+                                                         key-bytes]
+                                                  :or {transducer identity
+                                                       reducer (constantly nil)
+                                                       initial-value nil
+                                                       get-type :gte
+                                                       key-bytes (byte-array 0)}}]
 
-   (let [cursor (.openCursor (get-in state [:databases database-name])
-                             nil
-                             nil)
-         key-database-entry (DatabaseEntry. key-bytes)
-         value-database-entry (DatabaseEntry.)
-         reducing-function (transducer reducer)]
+  (let [cursor (open-cursor-for-database (get-in state [:databases database-name]))]
+    (try
 
+      (if (move-cursor cursor
+                       (case get-type
+                         :first Get/FIRST
+                         :last Get/LAST
+                         :gte Get/SEARCH_GTE
+                         Get/SEARCH_GTE)
+                       key-bytes)
 
-     (transduce-cursor cursor
-                       )
+        (transduce-cursor cursor
+                          transducer
+                          reducer
+                          (or initial-value
+                              (reducer)))
+        ((transducer reducer)
+         (or initial-value
+             (reducer))))
 
-
-     (loop [operation-result (.get cursor
-                                   key-database-entry
-                                   value-database-entry
-                                   Get/SEARCH_GTE
-                                   nil)
-            value initial-value]
-
-       (if operation-result
-         (let [result (reducing-function value
-                                         [(.getData key-database-entry)
-                                          (.getData value-database-entry)])]
-           (if (reduced? result)
-             (do (.close cursor)
-                 (reducing-function @result))
-             (recur (.get cursor
-                          key-database-entry
-                          value-database-entry
-                          Get/NEXT
-                          nil)
-                    result)))
-         (do (.close cursor)
-             (reducing-function value)))))))
+      (finally
+        (.close cursor)))))
 
 (defn delete-from-database [database key-bytes]
   (.delete database
@@ -181,32 +170,71 @@
            (DatabaseEntry. key-bytes)))
 
 
+(defn value-to-entry-bytes [bind-entry]
+  (let [database-entry (DatabaseEntry.)]
+    (bind-entry database-entry)
+    (.getData database-entry)))
+
+
+(defn string-entry-bytes [string]
+  (value-to-entry-bytes (fn [database-entry]
+                          (StringBinding/stringToEntry string
+                                                       database-entry))))
+
+(defn entry-bytes-to-string [entry-bytes]
+  (StringBinding/entryToString (DatabaseEntry. entry-bytes)))
+
+(defn big-integer-entry-bytes [big-integer]
+  (value-to-entry-bytes (fn [database-entry]
+                          (BigIntegerBinding/bigIntegerToEntry big-integer
+                                                               database-entry))))
+
+(defn entry-bytes-to-big-integer [entry-bytes]
+  (BigIntegerBinding/entryToBigInteger (DatabaseEntry. entry-bytes)))
+
+
 (defn start []
   #_(transduce (comp (map inc))
                conj
                []
                [1 2 3])
-  
-  (let [state (-> (create "data/berkeley2")
-                  (open-database "db"))
-        cursor (open-cursor-for-database (get-in state [:databases "db"]))
-        ;; _ (move-cursor cursor Get/FIRST nil)
-        _ (move-cursor-gte cursor
-                           (.getBytes "fo"
-                                      "UTF-8"))
-        values (transduce-cursor cursor
-                                 (comp #_(take 1)
-                                       #_(take-while (fn [[key value]]
-                                                       (.startsWith (String. key "UTF-8") "fo")))
-                                       (map (fn [[key value]]
-                                              [(String. key "UTF-8")
-                                               (String. value "UTF-8")]))
-                                       (map println)))]
-    (close state)
-    values))
+
+  (let [state (-> (create "data/log")
+                  (open-database "log"))]
+    (try
+      (transduce-keyvalues state
+                           "log"
+
+                           :transducer (comp (map first)
+                                             #_(map type)
+                                             (map argumentica.storage/bytes-to-edn))
+                           :reducer conj
+                           :get-type :first
+                           )
+
+      (finally (close state))))
+
+  #_(let [state (-> (create "data/log")
+                    (open-database "log"))
+          cursor (open-cursor-for-database (get-in state [:databases "log"]))
+          _ (move-cursor cursor Get/FIRST nil)
+          #__ #_(move-cursor-gte cursor
+                                 (.getBytes "fo"
+                                            "UTF-8"))
+          values (transduce-cursor cursor
+                                   (comp #_(take 1)
+                                         #_(take-while (fn [[key value]]
+                                                         (.startsWith (String. key "UTF-8") "fo")))
+                                         (map (fn [[key value]]
+                                                [(String. key "UTF-8")
+                                                 (String. value "UTF-8")]))
+                                         (map println)))]
+      (.close cursor)
+      (close state)
+      values))
 
 (comment
-  
+
   (fs/mkdir "data/berkeley2")
   (fs/delete-dir "data/berkeley")
 
@@ -230,12 +258,12 @@
          "db"
          (.getBytes "foo2"
                     "UTF-8")
-         
+
          (.getBytes "bar"
                     "UTF-8"))
-    
+
     (close state))
-  
+
   (let [db-directory (File. "data/berkeley")
         env (Environment. db-directory
                           (doto (EnvironmentConfig.)
