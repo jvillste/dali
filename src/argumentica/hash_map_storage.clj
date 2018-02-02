@@ -32,6 +32,9 @@
          dissoc
          key))
 
-
+(defmethod storage/storage-contains?
+  HashMapStorage
+  [this key]
+  (contains? @(:hash-map-atom this) key))
 
 

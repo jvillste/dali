@@ -13,24 +13,33 @@
   (Paths/get string
              (into-array String [])))
 
+(defn file-exists? [path]
+  (Files/exists path
+                (into-array LinkOption
+                            [LinkOption/NOFOLLOW_LINKS])))
+
+(defn key-path [directory-storage key]
+  (string-to-path (str (:path directory-storage) "/" key)))
 
 (defmethod storage/get-from-storage!
   DirectoryStorage
   [this key]
-  (let [path (string-to-path (str (:path this) "/" key))]
-    (if (Files/exists path
-                      (into-array LinkOption
-                                  [LinkOption/NOFOLLOW_LINKS]))
-      (Files/readAllBytes (string-to-path (str (:path this) "/" key)))
-      nil)))
+  (if (file-exists? (key-path this key))
+    (Files/readAllBytes (string-to-path (str (:path this) "/" key)))
+    nil))
 
 (defmethod storage/put-to-storage!
   DirectoryStorage
   [this key bytes]
-  (Files/write (string-to-path (str (:path this) "/" key))
+  (Files/write (key-path this key)
                bytes
                (into-array OpenOption []))
   this)
+
+(defmethod storage/storage-contains?
+  DirectoryStorage
+  [this key]
+  (file-exists? (key-path this key)))
 
 (defn create-directories [path]
   (Files/createDirectories (string-to-path path)

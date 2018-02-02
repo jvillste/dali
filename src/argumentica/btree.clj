@@ -50,15 +50,18 @@
 
 (defn create-from-options [& {:keys [full?
                                      node-storage
-                                     metadata-storage]
+                                     metadata-storage
+                                     read-only?]
                               :or {full? (full-after-maximum-number-of-values 1001)
                                    metadata-storage (hash-map-storage/create)
-                                   node-storage (hash-map-storage/create)}}]
+                                   node-storage (hash-map-storage/create)
+                                   read-only? false}}]
 
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
-         :usages (priority-map/priority-map)}
+         :usages (priority-map/priority-map)
+         :read-only? read-only?}
         (if-let [latest-root (latest-root (roots-from-metadata-storage metadata-storage))]
           {:latest-root latest-root
            :nodes {}
@@ -611,15 +614,19 @@
                                 (:child-ids the-node))))
             "Can not unload a node with loaded children")
 
-    (storage/put-edn-to-storage! (:metadata-storage btree)
-                                 the-storage-key
-                                 (conj (select-keys the-node
-                                                    [:child-ids])
-                                       {:value-count (count (:values the-node))
-                                        :storage-byte-count (count bytes)}))
-    (storage/put-to-storage! (:node-storage btree)
-                             the-storage-key
-                             bytes)
+    (when (not (storage/storage-contains? (:metadata-storage btree)
+                                          the-storage-key))
+      
+      (storage/put-edn-to-storage! (:metadata-storage btree)
+                                   the-storage-key
+                                   (conj (select-keys the-node
+                                                      [:child-ids])
+                                         {:value-count (count (:values the-node))
+                                          :storage-byte-count (count bytes)}))
+      
+      (storage/put-to-storage! (:node-storage btree)
+                               the-storage-key
+                               bytes))
 
     (-> btree
         (replace-node-id the-parent-id
@@ -840,6 +847,8 @@
          (change-last [1 2 3] 4))))
 
 (defn add [btree value]
+  (assert (not (:read-only? btree)))
+  
   (loop [btree (-> btree
                    (load-root-if-needed)
                    (split-root-if-needed))
@@ -1435,6 +1444,8 @@
                                   0)))))
 
 (defn add-stored-root [btree metadata]
+  (assert (not (:read-only? btree)))
+  
   (let [new-root {:storage-key (:root-id btree)
                   :stored-time (System/nanoTime)
                   :metadata metadata}]

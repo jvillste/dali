@@ -18,6 +18,9 @@
   (fn [storage]
     (type storage)))
 
+(defmulti storage-contains?
+  (fn [storage key]
+    (type storage)))
 
 
 (defn edn-to-byte-array [edn]
