@@ -529,10 +529,10 @@
                                                        [entity-id attribute nil nil nil])))))
 
 (defn create-disk-db [base-path]
-  (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
-                                                                                           :node-storage (directory-storage/create (str base-path "/nodes"))))
-                                              :eatcv-to-datoms eatcv-to-eatcv-datoms}}
-                            :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log"))))
+  (update-indexes (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
+                                                                                            :node-storage (directory-storage/create (str base-path "/nodes"))))
+                                               :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                             :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log")))))
 
 (defn close-disk-db! [disk-db]
   (berkeley-db-transaction-log/close! (:transaction-log disk-db)))
@@ -552,6 +552,13 @@
           (transact [[1 :friend :set 2]
                      [2 :friend :set 1]])
           (transact [[1 :friend :set 3]]))
+      (finally
+        (close-disk-db! db)))))
+
+(defn flush-disk-db []
+  (let [db (create-disk-db "data/db")]
+    (try
+      (flush-indexes-after-maximum-number-of-transactions db 0)
       (finally
         (close-disk-db! db)))))
 
@@ -684,7 +691,9 @@
                                         [#uuid "88495aa6-2854-4a4c-a140-1bf7acb1abb7" "c"]]))
 
 (defn start []
-  (test-disk-db)
+  #_(read-disk-db)
+  #_(flush-disk-db)
+  #_(write-disk-db)
 
   #_(let [{:keys [eatcv-atom avtec-atom]} indexes]
     #_(:nodes @(:index-atom eatcv))

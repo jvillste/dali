@@ -42,14 +42,12 @@
 
 
 ;; show-free-chords-mode
+(defn show-free-chords [state rows]
+  (update state :show-free-chords not))
 
-(def show-free-chords-mode-bindings
-  (chord-commands #{:left-2 :left-3} [#'show-free-chords]))
 
-(def show-free-chords-mode
-  {:id :show-free-chords
-   :bindings show-free-chords-mode-bindings
-   :commands #{#'show-free-chords}})
+
+
 
 ;; commands end
 
@@ -72,6 +70,14 @@
        (apply concat)
        (apply hash-map)))
 
+
+(def show-free-chords-mode-bindings
+  (chord-commands #{:left-2 :left-3} [#'show-free-chords]))
+
+(def show-free-chords-mode
+  {:id :show-free-chords
+   :bindings show-free-chords-mode-bindings
+   :commands #{#'show-free-chords}})
 
 (def text-edit-mode-chord-bindings
   (-> {
@@ -178,9 +184,10 @@
    (text value [255 255 255 255]))
 
   ([value color]
-   (visuals/text color
-                 (font/create "LiberationSans-Regular.ttf" 15)
-                 (str value))))
+   (visuals/text (str value)
+                 color
+                 15
+                 "LiberationSans-Regular.ttf")))
 
 #_(def key-codes-to-fingers {70 :left-2
                              68 :left-3
@@ -291,10 +298,7 @@
                         (for [line (:lines state)]
                           (text line))))
 
-(defn filter-chords-to-commands [predicate finger-chord-to-commands]
-  (select-keys finger-chord-to-commands
-               (->> (keys finger-chord-to-commands)
-                    (filter predicate))))
+
 
 (defn command-to-string [[command & arguments]]
   (if (= command
@@ -326,6 +330,11 @@
                      (- 255
                         value)))]
     [value value value 255]))
+
+(defn filter-chords-to-commands [predicate finger-chord-to-commands]
+  (select-keys finger-chord-to-commands
+               (->> (keys finger-chord-to-commands)
+                    (filter predicate))))
 
 (defn finger-guide [chords-to-commands finger current-chord]
   (let [pressed ((apply hash-set current-chord) finger)]
@@ -391,6 +400,42 @@
   (swap! state-atom assoc :rows rows))
 
 (defn text-editor-view [state-atom])
+
+
+(def finger-chords-to-commands
+  (-> {
+       
+       #{:left-2 :left-3}
+       [#'text-area/backward]
+       
+       #{:right-2 :right-3}
+       [#'text-area/forward]
+       
+       }
+      
+      (conj (chord-commands #{} "a" "s" "e" "t" nil " " "n" "i" "o" "p")
+            (chord-commands #{:left-5} "w" "x" "f" nil nil "q" "!" "(" "?")
+            (chord-commands #{:left-4} "w" "d" "c" nil nil "j" "z" "(" "?")
+            (chord-commands #{:left-3} "x" "d" "r" nil nil "y" "," "-" "'")
+            (chord-commands #{:left-2} "f" "c" "r" nil nil "b" "v" "g" [#'text-area/delete-backward])
+            (chord-commands #{:right-2} "q" "j" "y" "b" nil nil "h" "u" "m")
+            (chord-commands #{:right-3} "!" "z" "," "v" nil nil "h" "l" "k")
+            (chord-commands #{:right-4} "(" "." "-" "g" nil nil "u" "l" ";")
+            (chord-commands #{:right-5} "?" ")" "'" [#'text-area/delete-backward] nil nil "m" "k" ";")
+            
+            (chord-commands #{:left-1} "A" "S" "E" "T"  nil "N" "I" "O" "P")
+            (chord-commands #{:left-1 :left-5} "W" "X" "F" nil  nil "Q" nil nil nil)
+            (chord-commands #{:left-1 :left-4} "W" "D" "C" nil nil "J" "Z" nil nil)
+            (chord-commands #{:left-1 :left-3} "X" "D" "R" nil nil "Y" nil nil nil)
+            (chord-commands #{:left-1 :left-2} "F" "C" "R" nil nil "B" "V" "G" nil)
+            (chord-commands #{:left-1 :right-2} "Q" "J" "Y" "B" nil, "H" "U" "M" nil)
+            (chord-commands #{:left-1 :right-3} nil "Z" nil "V" nil nil "H" "L" "K")
+            (chord-commands #{:left-1 :right-4} nil nil nil "G" nil "U" "L" nil nil)
+            (chord-commands #{:left-1 :right-5} nil nil nil nil nil "M" "K" nil nil)
+
+            (chord-commands #{:left-2 :left-3} nil nil nil nil  [#'text-area/backward] [#'text-area/previous-row] [#'text-area/next-row] [#'text-area/forward])
+
+            )))
 
 (defn root-view [state-atom]
   (let [state (atom-registry/deref! state-atom)]
@@ -517,6 +562,7 @@
 
 (def commands {#{:left-2} [enter-text "a"]
                #{:right-2} backspace})
+
 
 
 (defn map-chord-to-command [state chord]

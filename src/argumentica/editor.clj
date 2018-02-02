@@ -1,22 +1,13 @@
 (ns argumentica.editor
-  (:require (flow-gl.gui [drawable :as drawable]
-                         [layout :as layout]
-                         [layouts :as layouts]
-                         [layout-dsl :as l]
-                         [controls :as controls]
-                         [gui :as gui]
-                         [events :as events]
-                         [layoutable :as layoutable]
-                         [transformer :as transformer])
-            [flow-gl.gui.components.autocompleter :as autocompleter]
-            [datomic.api :as d]
-            (flow-gl.opengl.jogl [quad :as quad]
-                                 [render-target :as render-target]
-                                 [opengl :as opengl])
-            (flow-gl.tools [profiler :as profiler]
-                           [trace :as trace])
-            (flow-gl.graphics [font :as font]))
-  (:import [javax.media.opengl GL2])
+  (:require [fungl.application :as application]
+            [clojure.java.io :as io]
+            (fungl [layouts :as l])
+            (flow-gl.gui
+             [keyboard :as keyboard]
+             [visuals :as visuals]
+             [animation :as animation])
+
+            [datomic.api :as d])
   (:use flow-gl.utils
         clojure.test))
 
@@ -52,7 +43,7 @@
                    :db.type/string
                    :db.cardinality/one
                    :identity true)
-        
+
         (attribute :argumentica.argument/premises
                    :db.type/ref
                    :db.cardinality/many)
@@ -127,7 +118,7 @@
                          premise-data)
         premise-transactions (mapcat second
                                      premise-data)]
-    
+
     (concat main-conclusion-transaction
             premise-transactions
             [{:db/id (d/tempid :db.part/user)
@@ -182,7 +173,7 @@
     (println (ids-to-tempids (:db-after result)
                              (:tempids result)
                              (tempids transaction)))
-    
+
     #_(println "foo:" (let [db (d/db conn)
                             entity-id (first (main-conclusions db))]
                         (value db entity-id :argumentica.sentence/text)))
@@ -198,26 +189,16 @@
 
 
 
-(defn text
-  ([value]
-   (text value [255 255 255 255]))
-
-  ([value color]
-   (text value color 12))
-  
-  ([value color size]
-   (drawable/->Text (str value)
-                    (font/create "LiberationSans-Regular.ttf" size)
-                    color)))
-
 (defn argument-view [argument]
   (l/vertically (for [premise (:argumentica.argument/premises argument)]
-                  (text (str "text: "(:argumentica.sentence/text premise))))
-                (l/margin 10 0 10 0
-                          (drawable/->Rectangle 10 2 [255 255 255 255]))
-                (text (-> argument
-                          :argumentica.argument/main-conclusion
-                          :argumentica.sentence/text))))
+                  (visuals/text (str "text: "(:argumentica.sentence/text premise))))
+                (l/with-margins 10 0 10 0
+                  (visuals/rectangle [255 255 255 255]
+                                     10 10
+                                     10 2))
+                (visuals/text (-> argument
+                                  :argumentica.argument/main-conclusion
+                                  :argumentica.sentence/text))))
 
 (defn set-changes [state changes]
   (let [result (d/with (:db state)
@@ -311,7 +292,7 @@
                        :conn conn
                        :db (d/db conn)}
                       (set-changes []))
-     
+
      :view #'argumentica-root-view}))
 
 (def connection (let [connection (create-database)]
@@ -333,12 +314,12 @@
   (gui/start-control (argumentica-root connection))
   #_(gui/start-control (argumentica-root connection))
 
-  
+
   #_(.start (Thread. (fn []
                        (let [conn (create-database)]
                          (d/transact conn
                                      (add-argument (d/db conn) "argument 1" "conclusion 1" "premise 1" "premise 2"))
-                         
+
                          (d/transact conn
                                      (add-argument (d/db conn) "argument 2" "conclusion 1" "premise 1" "premise 3"))
 
@@ -349,4 +330,3 @@
   #_(profiler/with-profiler (gui/start-control argumentica-root)))
 
 ;; TODO
-

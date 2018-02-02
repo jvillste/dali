@@ -168,4 +168,31 @@ Values can be one of:
 * Entity registers itself to an atom when it's created
 * Entity keeps track of the last transaction that changed one of entitys properties
 * 
-* Affected entity id's are 
+* Affected entity id's are
+
+# How to manage client changes before committing them to the server
+
+## Pull
+
+* Use a pull pattern to pull a graph to a local db.
+* Transact a copy of the original local db.
+* Create a diff of the original and changed local db and send that as a transaction to the server.
+* The local copy can be refreshed by pulling again.
+
+### Cons
+
+* The pull pattern must be manually defined so that it pulls all of the needed data
+
+## Fork
+
+* Refer a server db version, read the transaction log since the last indexed version and build local indexes from it. Fetch datasegments on demand as the ui components need more data.
+* Create a Datomic style reference to the whole server db and use that to fill the UI with data.
+* Add transactions to the db reference and thus essentially fork the server db.
+* Send the local transactions as a one transaction to the server when the user wants to commit.
+* The db reference can be updated to the latest and then the local transactions must be replayed on it.
+
+### Cons
+
+* 
+
+

@@ -4,9 +4,9 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
-                 #_[com.datomic/datomic-free "0.9.5067"]
+                 [com.datomic/datomic-free "0.9.5661"]
                  [flow-gl/flow-gl "1.0.0-SNAPSHOT"]
-                 #_[org.clojure/math.combinatorics "0.1.4"]
+                 [org.clojure/math.combinatorics "0.1.4"]
                  #_[datascript "0.15.5"]
                  #_[com.google.guava/guava "21.0"]
                  [aysylu/loom "1.0.0"]

@@ -14,7 +14,7 @@
 
 (defmethod index/add-to-index
   BerkeleyDbIndex
-  [this & values]
+  [this value]
   (berkeley-db/put-to-database! (database this)
                                 (berkeley-db/string-entry-bytes key)
                                 value-bytes))

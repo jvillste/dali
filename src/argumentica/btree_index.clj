@@ -1,34 +1,39 @@
 (ns argumentica.btree-index
   (:require (argumentica [index :as index]
-                         [btree :as btree])))
+                         [btree :as btree]
+                         [directory-storage :as directory-storage]
+                         [hash-map-storage :as hash-map-storage])))
 
-(defrecord Index [index-atom])
+(defrecord BtreeIndex [btree-index-atom])
 
 (defmethod index/inclusive-subsequence
-  Index
+  BtreeIndex
   [this value]
-  (btree/inclusive-subsequence (:index-atom this)
+  (btree/inclusive-subsequence (:btree-index-atom this)
                                value))
 
-(defmethod index/add-to-index
-  Index
+
+(defn swap-btree! [btree-index function & arguments]
+  (apply swap!
+         (:btree-index-atom btree-index)
+         function
+         arguments))
+
+(defmethod index/add!
+  BtreeIndex
   [this value]
-  (swap! (:index-atom this)
-         btree/add 
-         value))
+  (swap-btree! this
+               btree/add 
+               value))
 
-(defmethod index/unload-index
-  Index
-  [this]
-  (swap! (:index-atom this)
-         btree/unload-btree))
+(defn create-directory-btree-index [base-path]
+  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
+                                                 :node-storage (directory-storage/create (str base-path "/nodes"))))))
 
-(defn create
-  ([node-size storage]
-   (->Index (atom (btree/create (btree/full-after-maximum-number-of-values node-size)
-                                storage))))
-  
-  ([node-size storage root-id]
-   (->Index (atom (btree/create (btree/full-after-maximum-number-of-values node-size)
-                                storage
-                                root-id)))))
+(defn create-memory-btree-index []
+  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (hash-map-storage/create)
+                                                 :node-storage (hash-map-storage/create)))))
+
+(defn create-memory-btree-index-from-reference [btree-reference]
+  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (:metadata-storage btree-reference)
+                                                 :node-storage (:node-storage btree-reference)))))
