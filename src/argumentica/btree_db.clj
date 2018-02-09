@@ -29,12 +29,11 @@
                              {:last-transaction-number last-transaction-number}))
   index)
 
-(defn store-index-roots-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-flush]
-  (let [last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))]
-    (common/apply-to-indexes db
-                             store-index-root-after-maximum-number-of-transactions
-                             last-transaction-number
-                             maximum-number-of-transactions-after-previous-flush)))
+(defn store-index-roots-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-root]
+  (common/apply-to-indexes db
+                           store-index-root-after-maximum-number-of-transactions
+                           (transaction-log/last-transaction-number (:transaction-log db))
+                           maximum-number-of-transactions-after-previous-root))
 
 (defn store-index-roots [db]
   (store-index-roots-after-maximum-number-of-transactions db 0))
@@ -51,15 +50,10 @@
 
 
 (defn value [db entity-id attribute]
-  (common/value (-> db :indexes :eatcv :index)
+  (common/value db
                 entity-id
                 attribute
                 (common/last-transaction-number db)))
-
-(defn last-transaction-number [metadata-storage]
-  (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
-      :metadata
-      :last-transaction-number))
 
 (defn create-directory-btree-db [base-path]
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index base-path)
@@ -70,6 +64,21 @@
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
                                         :transaction-log  (sorted-map-transaction-log/create))))
+
+(defn create-memory-btree-db-from-reference [db-reference]
+  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index-from-btree-index (-> db-reference
+                                                                                                                             :indexes
+                                                                                                                             :eatcv
+                                                                                                                             :index))
+                                                          :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
+                                        :transaction-log  (:transaction-log db-reference))))
+
+(deftest test-create-memory-btree-db-from-reference
+  (is (= "Foo"
+         (-> (create-memory-btree-db)
+             (set :entity-1 :name "Foo")
+             (create-memory-btree-db-from-reference)
+             (value :entity-1 :name)))))
 
 (defn close! [disk-db]
   (berkeley-db-transaction-log/close! (:transaction-log disk-db)))

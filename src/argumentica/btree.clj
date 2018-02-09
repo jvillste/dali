@@ -47,21 +47,22 @@
                   descending
                   roots)))
 
+(defn last-transaction-number [btree]
+  (-> (latest-root (roots-from-metadata-storage (:metadata-storage btree)))
+      :metadata
+      :last-transaction-number))
 
 (defn create-from-options [& {:keys [full?
                                      node-storage
-                                     metadata-storage
-                                     read-only?]
+                                     metadata-storage]
                               :or {full? (full-after-maximum-number-of-values 1001)
                                    metadata-storage (hash-map-storage/create)
-                                   node-storage (hash-map-storage/create)
-                                   read-only? false}}]
+                                   node-storage (hash-map-storage/create)}}]
 
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
-         :usages (priority-map/priority-map)
-         :read-only? read-only?}
+         :usages (priority-map/priority-map)}
         (if-let [latest-root (latest-root (roots-from-metadata-storage metadata-storage))]
           {:latest-root latest-root
            :nodes {}
@@ -424,28 +425,39 @@
 
 
 
-(defn splitter-after-child [node child-id]
+(defn splitter-besides-child [node child-id before]
   ;; TODO: This is linear time. Could we find the last value in
   ;; the child node and then find the splitter both in logarithmic time?
   (nth (seq (:values node))
-       (find-index (:child-ids node)
-                   child-id)
+       (let [index (find-index (:child-ids node)
+                               child-id)]
+         (if before
+           (dec index)
+           index)) 
        nil))
 
-(deftest test-splitter-after-child
+(deftest test-splitter-besides-child
   (is (= 3
-         (splitter-after-child {:values (sorted-set 3)
-                                :child-ids [0 2]}
-                               0)))
+         (splitter-besides-child {:values (sorted-set 3)
+                                  :child-ids [0 2]}
+                                 0
+                                 false)))
   (is (= nil
-         (splitter-after-child {:values (sorted-set 3)
-                                :child-ids [0 2]}
-                               2)))
+         (splitter-besides-child {:values (sorted-set 3)
+                                  :child-ids [0 2]}
+                                 2
+                                 false)))
 
   (is (= nil
-         (splitter-after-child {:values (sorted-set 3)
-                                :child-ids [0 2]}
-                               2))))
+         (splitter-besides-child {:values (sorted-set 3)
+                                  :child-ids [0 2]}
+                                 0
+                                 true)))
+  (is (= 3
+         (splitter-besides-child {:values (sorted-set 3)
+                                  :child-ids [0 2]}
+                                 2
+                                 true))))
 
 
 
@@ -465,8 +477,9 @@
       (if (empty? (children-after parent
                                   (last cursor)))
         (recur (drop-last cursor))
-        (splitter-after-child parent
-                              (last cursor)))
+        (splitter-besides-child parent
+                                (last cursor)
+                                false))
       nil)))
 
 
@@ -847,8 +860,6 @@
          (change-last [1 2 3] 4))))
 
 (defn add [btree value]
-  (assert (not (:read-only? btree)))
-  
   (loop [btree (-> btree
                    (load-root-if-needed)
                    (split-root-if-needed))
@@ -1212,15 +1223,18 @@
                                     (reduce add btree (range 10))
                                     (unload-excess-nodes btree 5)))))))))
 
-(defn btree-and-node-id-after-splitter [btree-atom splitter]
+(defn btree-and-node-id-besides-splitter [btree-atom splitter direction]
   (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                           splitter)
 
         node-with-the-splitter (node btree
                                      (last cursor))
         node-id-after-splitter (get (:child-ids node-with-the-splitter)
-                                    (inc (find-index (:values node-with-the-splitter)
-                                                     splitter)))]
+                                    ((if (= :after direction)
+                                       inc
+                                       dec)
+                                     (find-index (:values node-with-the-splitter)
+                                                       splitter)))]
 
     {:node-id-after-splitter node-id-after-splitter
      :btree btree
@@ -1228,8 +1242,9 @@
                    node-id-after-splitter)}))
 
 (defn sequence-after-splitter [btree-atom splitter]
-  (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-after-splitter btree-atom
-                                                                                        splitter)]
+  (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-besides-splitter btree-atom
+                                                                                          splitter
+                                                                                          :after)]
 
     (loop [btree btree
            cursor cursor
@@ -1238,8 +1253,9 @@
         (do (load-node-to-atom btree-atom
                                (parent-id cursor)
                                node-id)
-            (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-after-splitter btree-atom
-                                                                                                  splitter)]
+            (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-besides-splitter btree-atom
+                                                                                                    splitter
+                                                                                                    :after)]
               (recur btree
                      cursor
                      node-id-after-splitter)))
@@ -1444,8 +1460,6 @@
                                   0)))))
 
 (defn add-stored-root [btree metadata]
-  (assert (not (:read-only? btree)))
-  
   (let [new-root {:storage-key (:root-id btree)
                   :stored-time (System/nanoTime)
                   :metadata metadata}]

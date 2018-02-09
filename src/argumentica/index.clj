@@ -10,3 +10,7 @@
 (defmulti inclusive-subsequence
   (fn [index key]
     (type index)))
+
+(defmulti inclusive-reverse-subsequence
+  (fn [index key]
+    (type index)))

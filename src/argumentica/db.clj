@@ -113,7 +113,8 @@
 
 
 (defn get-eatcv-values [eatcv entity-id a]
-  (reduce accumulate-values #{}
+  (reduce accumulate-values
+          #{}
           (eatcv-statements eatcv entity-id a)))
 
 (deftest get-eatcv-values-test
@@ -360,7 +361,7 @@
                                     )]
     (-> db
         (update-in [:eatcvs branch-number] (fnil (fn [eatcv]
-                                                   (apply index/add-to-index
+                                                   (apply index/add!
                                                           eatcv
                                                           (map (partial add-transaction-number-to-eacv
                                                                         transaction-number)

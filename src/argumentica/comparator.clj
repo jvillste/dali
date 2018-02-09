@@ -1,4 +1,5 @@
-(ns argumentica.comparator)
+(ns argumentica.comparator
+  (:use clojure.test))
 
 ;; from https://clojure.org/guides/comparators
 
@@ -121,4 +122,24 @@
 
           :else (compare x y))))
 
+(defn complement-comparator-result [comparator-result])
 
+(defn eatcv-comparator [[e1 a1 t1 c1 v1] [e2 a2 t2 c2 v2]]
+  )
+
+(defn datom-comparator [transaction-number-index]
+  (fn [x y]
+    (cc-cmp x y)))
+
+(map-indexed vector
+             [1 2 3])
+
+(deftest test-datom-comparator
+  (is (> 0
+         ((datom-comparator 2)
+          [:entity-1 :name 1 :set "Foo"]
+          [:entity-1 :name 2 :set "Foo"]))))
+
+(comment
+  (- 1)
+  (compare 1 2))

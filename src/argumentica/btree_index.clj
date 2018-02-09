@@ -34,6 +34,6 @@
   (->BtreeIndex (atom (btree/create-from-options :metadata-storage (hash-map-storage/create)
                                                  :node-storage (hash-map-storage/create)))))
 
-(defn create-memory-btree-index-from-reference [btree-reference]
-  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (:metadata-storage btree-reference)
-                                                 :node-storage (:node-storage btree-reference)))))
+(defn create-memory-btree-index-from-btree-index [btree-index]
+  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (-> btree-index :btree-index-atom deref :metadata-storage)
+                                                 :node-storage (-> btree-index :btree-index-atom deref :node-storage)))))

@@ -22,6 +22,13 @@
           >=
           key))
 
+(defmethod index/inclusive-reverse-subsequence
+  SortedSetIndex
+  [this key]
+  (rsubseq @(:sorted-set-atom this)
+           <=
+           key))
+
 
 (deftest test-sorted-set-index
   (let [sorted-set-index (create)]

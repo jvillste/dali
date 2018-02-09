@@ -5,6 +5,17 @@
                          [index :as index]))
   (:use clojure.test))
 
+(defn eatcv-attribute [statement]
+  (get statement 1))
+
+(defn eatcv-transaction-number [statement]
+  (get statement 2))
+
+(defn eatcv-command [statement]
+  (get statement 3))
+
+(defn eatcv-value [statement]
+  (get statement 4))
 
 (defn eatcv-to-eatcv-datoms [e a t c v]
   [[e a t c v]])
@@ -66,7 +77,7 @@
         (doseq [datom ((:eatcv-to-datoms index)
                        e
                        a
-                       t
+                       (- t)
                        c
                        v)]
           (index/add! (:index index)
@@ -115,16 +126,93 @@
                    (index/inclusive-subsequence avtec
                                                 [attribute pattern nil nil nil]))))
 
-(defn value [eatcv entity-id attribute latest-transaction-number]
-  (last (last (take-while (fn [[e a t c v]]
-                            (and (= a attribute)
-                                 (= e entity-id)
-                                 (<= t latest-transaction-number)))
-                          (index/inclusive-subsequence eatcv
-                                                       [entity-id attribute nil nil nil])))))
+(defn accumulate-values [values statement]
+  (case (eatcv-command statement)
+    :add (conj values (eatcv-value statement))
+    :retract (disj values (eatcv-value statement))
+    :set  #{(eatcv-value statement)}
+    values))
+
+(defn values-from-eatcv-statements [statements]
+  (reduce accumulate-values
+          #{}
+          statements))
+
+(defn take-while-and-n-more [pred n coll]
+    (let [[head tail] (split-with pred coll)]
+      (concat head (take n tail))))
+
+(defn value-from-eatcv-statements-in-reverse [statements-in-reverse]
+  (let [first-statement (first statements-in-reverse)]
+    (if (= (eatcv-command first-statement)
+           :set)
+      (eatcv-value first-statement)
+      nil)))
+
+(deftest test-value-from-eatcv-statements-in-reverse
+  (is (= "foo"
+         (value-from-eatcv-statements-in-reverse [[:x :name 1 :set "foo"]])))
+
+  (is (= "bar"
+         (value-from-eatcv-statements-in-reverse [[:x :name 1 :set "bar"]
+                                                  [:x :name 0 :set "foo"]]))))
+
+
+(defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
+  (fn [[e a t c v]]
+    (and (= e entity-id)
+         (= a attribute)
+         (transaction-comparator t latest-transaction-number))))
+
+(defn eat-datoms-from-eatcv [eatcv entity-id attribute latest-transaction-number]
+  (take-while (eat-matches entity-id
+                           attribute
+                           <=
+                           latest-transaction-number) 
+              (index/inclusive-subsequence eatcv
+                                           [entity-id attribute 0 nil nil])))
+
+(defn eat-datoms [db entity-id attribute latest-transaction-number]
+  (eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
+                         entity-id
+                         attribute
+                         latest-transaction-number))
+
+(defn eat-datoms-in-reverse-from-eatcv [eatcv entity-id attribute latest-transaction-number]
+  (take-while (eat-matches entity-id
+                           attribute
+                           >=
+                           latest-transaction-number) 
+              (index/inclusive-reverse-subsequence eatcv
+                                                   [entity-id attribute latest-transaction-number nil nil])))
+
+(defn eat-datoms-in-reverse [db entity-id attribute latest-transaction-number]
+  (eat-datoms-in-reverse-from-eatcv (-> db :indexes :eatcv :index)
+                                    entity-id
+                                    attribute
+                                    latest-transaction-number))
+
+(defn value-from-eatcv [eatcv entity-id attribute latest-transaction-number]
+  (last (first (eat-datoms-from-eatcv eatcv
+                                      entity-id
+                                      attribute
+                                      latest-transaction-number))))
 
 (defn last-transaction-number [db]
   (transaction-log/last-transaction-number (:transaction-log db)))
+
+(defn value
+  ([db entity-id attribute]
+   (value db
+          entity-id
+          attribute
+          (last-transaction-number db)))
+  
+  ([db entity-id attribute transaction-number]
+   (value-from-eatcv (-> db :indexes :eatcv :index)
+                     entity-id
+                     attribute
+                     transaction-number)))
 
 (deftype Entity [indexes entity-id transaction-number]
   Object
