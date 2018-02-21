@@ -1,9 +1,13 @@
 (ns argumentica.db.common
   (:require [clojure.string :as string]
+            [clojure.set :as set]
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [index :as index]))
   (:use clojure.test))
+
+(defn eatcv-entity [statement]
+  (get statement 0))
 
 (defn eatcv-attribute [statement]
   (get statement 1))
@@ -77,7 +81,7 @@
         (doseq [datom ((:eatcv-to-datoms index)
                        e
                        a
-                       (- t)
+                       t
                        c
                        v)]
           (index/add! (:index index)
@@ -158,6 +162,10 @@
                                                   [:x :name 0 :set "foo"]]))))
 
 
+(defn datoms [db]
+  (index/inclusive-subsequence (-> db :indexes :eatcv :index)
+                               [nil nil nil nil nil]))
+
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
     (and (= e entity-id)
@@ -172,12 +180,6 @@
               (index/inclusive-subsequence eatcv
                                            [entity-id attribute 0 nil nil])))
 
-(defn eat-datoms [db entity-id attribute latest-transaction-number]
-  (eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
-                         entity-id
-                         attribute
-                         latest-transaction-number))
-
 (defn eat-datoms-in-reverse-from-eatcv [eatcv entity-id attribute latest-transaction-number]
   (take-while (eat-matches entity-id
                            attribute
@@ -186,17 +188,21 @@
               (index/inclusive-reverse-subsequence eatcv
                                                    [entity-id attribute latest-transaction-number nil nil])))
 
-(defn eat-datoms-in-reverse [db entity-id attribute latest-transaction-number]
-  (eat-datoms-in-reverse-from-eatcv (-> db :indexes :eatcv :index)
-                                    entity-id
-                                    attribute
-                                    latest-transaction-number))
+
+(defn eat-datoms [db entity-id attribute latest-transaction-number reverse?]
+  (let [eat-datoms-from-eatcv (if reverse?
+                                eat-datoms-in-reverse-from-eatcv
+                                eat-datoms-from-eatcv)]
+    (eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
+                           entity-id
+                           attribute
+                           latest-transaction-number)))
 
 (defn value-from-eatcv [eatcv entity-id attribute latest-transaction-number]
-  (last (first (eat-datoms-from-eatcv eatcv
-                                      entity-id
-                                      attribute
-                                      latest-transaction-number))))
+  (first (values-from-eatcv-statements (eat-datoms-from-eatcv eatcv
+                                                              entity-id
+                                                              attribute
+                                                              latest-transaction-number))))
 
 (defn last-transaction-number [db]
   (transaction-log/last-transaction-number (:transaction-log db)))
@@ -213,6 +219,80 @@
                      entity-id
                      attribute
                      transaction-number)))
+
+(defn datom-to-eacv-statemnt [[e a t c v]]
+  [e a c v])
+
+(defn squash-datoms [statements]
+  (sort (reduce (fn [result-statements statement]
+                  (case (eatcv-command statement)
+                    :add (conj (set/select (fn [result-statement]
+                                             (not (and (= (eatcv-entity statement)
+                                                          (eatcv-entity result-statement))
+                                                       (= (eatcv-attribute statement)
+                                                          (eatcv-attribute result-statement))
+                                                       (= (eatcv-value statement)
+                                                          (eatcv-value result-statement))
+                                                       (= :retract
+                                                          (eatcv-command result-statement)))))
+                                           result-statements)
+                               statement)
+                    :retract (let [removed-statements (set/select (fn [result-statement]
+                                                                    (and (= (eatcv-entity statement)
+                                                                            (eatcv-entity result-statement))
+                                                                         (= (eatcv-attribute statement)
+                                                                            (eatcv-attribute result-statement))
+                                                                         (= (eatcv-value statement)
+                                                                            (eatcv-value result-statement))))
+                                                                  result-statements)]
+
+                               (if (empty? removed-statements)
+                                 (conj result-statements
+                                       statement)
+                                 (set/difference result-statements
+                                                 removed-statements)))
+                    :set  (conj (set/select (fn [result-statement]
+                                              (not (and (= (eatcv-entity statement)
+                                                           (eatcv-entity result-statement))
+                                                        (= (eatcv-attribute statement)
+                                                           (eatcv-attribute result-statement)))))
+                                            result-statements)
+                                statement)))
+                #{}
+                statements)))
+
+
+(deftest test-squash-statements
+  (is (= [[1 :friend 1 :add 1]]
+         (squash-datoms [[1 :friend 1 :add 1]])))
+
+  (is (= []
+         (squash-datoms [[1 :friend 1 :add 1]
+                             [1 :friend 2 :retract 1]])))
+
+  (is (= [[1 :friend 2 :add 1]]
+         (squash-datoms [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]])))
+
+  (is (= []
+         (squash-datoms [[1 :friend 1 :set 1]
+                             [1 :friend 2 :retract 1]])))
+
+  (is (= [[1 :friend 1 :retract 1]]
+         (squash-datoms [[1 :friend 1 :retract 1]])))
+
+
+  (is (= [[1 :friend 4 :set 2]]
+         (squash-datoms [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]
+                             [1 :friend 3 :add 2]
+                             [1 :friend 4 :set 2]])))
+
+  (is (= [[1 :friend 2 :add 1]]
+         (squash-datoms [[1 :friend 1 :retract 1]
+                             [1 :friend 2 :add 1]
+                             [1 :friend 3 :add 2]
+                             [1 :friend 1 :retract 2]]))))
 
 (deftype Entity [indexes entity-id transaction-number]
   Object

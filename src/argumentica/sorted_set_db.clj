@@ -18,6 +18,9 @@
 
 (def transact common/transact)
 
+
+
+
 (deftest test-memory-db
   (is (= [[1 :friend -1 :set 3]
           [1 :friend 0 :set 2]

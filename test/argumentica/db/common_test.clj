@@ -1,6 +1,7 @@
 (ns argumentica.db.common-test
   (:require [argumentica.db.common :as common]
             (argumentica [hash-map-storage :as hash-map-storage]
+                         [sorted-set-db :as sorted-set-db]
                          [btree :as btree]
                          [index :as index]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]))
@@ -11,16 +12,33 @@
   (is (= '([1 :friend 0 :set 2]
            [1 :friend 1 :set 3]
            [2 :friend 0 :set 1])
-         (let [db (-> (common/create :indexes {:eatcv {:index-atom (atom (btree/create))
-                                                          :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
-                                        :transaction-log (sorted-map-transaction-log/create))
+         (let [db (-> (sorted-set-db/create)
                       (common/transact [[1 :friend :set 2]
                                         [2 :friend :set 1]])
                       (common/transact [[1 :friend :set 3]]))]
            (index/inclusive-subsequence (-> db :indexes :eatcv :index)
                                         [1 :friend nil nil nil])))))
 
-(deftest read-only-index-test
+(deftest test-eat-datoms-from-eatcv
+  (let [db (-> (sorted-set-db/create)
+               (sorted-set-db/transact [[1 :friend :set 2]
+                                        [2 :friend :set 1]])
+               (sorted-set-db/transact [[1 :friend :set 3]]))]
+    
+    (is (= [[1 :friend 0 :set 2]]
+           (common/eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
+                                         1
+                                         :friend
+                                         0)))
+
+    (is (= [[1 :friend 0 :set 2]
+            [1 :friend 1 :set 3]]
+           (common/eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
+                                         1
+                                         :friend
+                                         1)))))
+
+#_(deftest read-only-index-test
   (let [metadata-storage (hash-map-storage/create)
         node-storage (hash-map-storage/create)
         transaction-log (sorted-map-transaction-log/create)
@@ -51,7 +69,7 @@
            (btree/inclusive-subsequence (-> read-only-db :indexes :eatcv :index-atom)
                                         [1 :friend nil nil nil])))))
 
-(deftest test-db-reload
+#_(deftest test-db-reload
   (let [metadata-storage (hash-map-storage/create)
         node-storage (hash-map-storage/create)
         transaction-log (sorted-map-transaction-log/create)

@@ -931,76 +931,7 @@
                          (transaction-number statement))))
               eatcv))
 
-(defn squash-statements [statements]
-  (sort (reduce (fn [result-statements statement]
-                  (case (command statement)
-                    :add (conj (set/select (fn [result-statement]
-                                             (not (and (= (entity statement)
-                                                          (entity result-statement))
-                                                       (= (attribute statement)
-                                                          (attribute result-statement))
-                                                       (= (value statement)
-                                                          (value result-statement))
-                                                       (= :retract
-                                                          (command result-statement)))))
-                                           result-statements)
-                               statement)
-                    :retract (let [removed-statements (set/select (fn [result-statement]
-                                                                    (and (= (entity statement)
-                                                                            (entity result-statement))
-                                                                         (= (attribute statement)
-                                                                            (attribute result-statement))
-                                                                         (= (value statement)
-                                                                            (value result-statement))))
-                                                                  result-statements)]
 
-                               (if (empty? removed-statements)
-                                 (conj result-statements
-                                       statement)
-                                 (set/difference result-statements
-                                                 removed-statements)))
-                    :set  (conj (set/select (fn [result-statement]
-                                              (not (and (= (entity statement)
-                                                           (entity result-statement))
-                                                        (= (attribute statement)
-                                                           (attribute result-statement)))))
-                                            result-statements)
-                                statement)))
-                #{}
-                statements)))
-
-
-(deftest test-squash-statements
-  (is (= [[1 :friend 1 :add 1]]
-         (squash-statements [[1 :friend 1 :add 1]])))
-
-  (is (= []
-         (squash-statements [[1 :friend 1 :add 1]
-                             [1 :friend 2 :retract 1]])))
-
-  (is (= [[1 :friend 2 :add 1]]
-         (squash-statements [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]])))
-
-  (is (= []
-         (squash-statements [[1 :friend 1 :set 1]
-                             [1 :friend 2 :retract 1]])))
-
-  (is (= [[1 :friend 1 :retract 1]]
-         (squash-statements [[1 :friend 1 :retract 1]])))
-
-
-  (is (= [[1 :friend 4 :set 2]]
-         (squash-statements [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]
-                             [1 :friend 3 :add 2]
-                             [1 :friend 4 :set 2]])))
-
-  (is (= [[1 :friend 2 :add 1]]
-         (squash-statements [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]
-                             [1 :friend 3 :add 2]
-                             [1 :friend 1 :retract 2]]))))
 
 (defn statements-for-transaction-hashes [db transaction-hashes]
   (loop [statements []
