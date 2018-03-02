@@ -66,21 +66,22 @@
          stop)
   (.sync (stop)))
 
-(def stop (server/start-server 1337
-                               (let [state-atom (atom {:db (db/create)
-                                                       :channel-group (channel/channel-group "clients")})]
-                                 (reify
-                                   pipeline/HandlerAdapter
-                                   (channel-read [this channel-handler-context message-string]
-                                     (handle-message channel-handler-context
-                                                     state-atom
-                                                     message-string))
+(def stop
+  (server/start-server 1337
+                       (let [state-atom (atom {:db (db/create)
+                                               :channel-group (channel/channel-group "clients")})]
+                         (reify
+                           pipeline/HandlerAdapter
+                           (channel-read [this channel-handler-context message-string]
+                             (handle-message channel-handler-context
+                                             state-atom
+                                             message-string))
 
-                                   pipeline/ChannelActive
-                                   (channel-active [this channel-handler-context]
-                                     (log/write "server got new connection")
-                                     (channel/add-to-group (:channel-group @state-atom)
-                                                           (channel/channel channel-handler-context)))))))
+                           pipeline/ChannelActive
+                           (channel-active [this channel-handler-context]
+                             (log/write "server got new connection")
+                             (channel/add-to-group (:channel-group @state-atom)
+                                                   (channel/channel channel-handler-context)))))))
 
 (comment
   (stop))

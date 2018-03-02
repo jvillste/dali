@@ -2,8 +2,7 @@
   (:require [net.tcp         :as tcp]
             [net.ty.channel  :as channel]
             [net.ty.pipeline :as pipeline]
-            [argumentica.log :as log]
-            [clojure.algo.monads :as monads]))
+            [argumentica.log :as log]))
 
 (defn create-pipeline
   [handler-adapter]

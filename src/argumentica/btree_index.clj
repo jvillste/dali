@@ -19,6 +19,9 @@
          function
          arguments))
 
+(defn btree [btree-index]
+  @(:btree-index-atom btree-index))
+
 (defmethod index/add!
   BtreeIndex
   [this value]

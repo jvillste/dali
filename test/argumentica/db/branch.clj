@@ -30,8 +30,6 @@
                              (common/last-transaction-number (:branch-sorted-set-db branch))
                              false)))
 
-
-
 (defn transaction [branch]
   (map common/datom-to-eacv-statemnt
        (common/squash-datoms (common/datoms (:branch-sorted-set-db branch)))))

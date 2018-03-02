@@ -5,6 +5,10 @@
   (.encode (BaseEncoding/base64)
            bytes))
 
+(defn base-64-decode [string]
+  (.decode (BaseEncoding/base64)
+           string))
+
 (defn base-16-encode [bytes]
   (.encode (BaseEncoding/base16)
            bytes))
