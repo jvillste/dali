@@ -1,7 +1,7 @@
 (ns argumentica.btree-db
   (:require [me.raynes.fs :as fs]
             [clojure.string :as string]
-            [argumentica.db.common :as common]
+            (argumentica.db [common :as common])
             (argumentica [transaction-log :as transaction-log]
                          [entity :as entity]
                          [storage :as storage]
@@ -20,7 +20,7 @@
 (defn store-index-root-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
             (- last-transaction-number
-               (or (-> (btree/latest-root (:index index))
+               (or (-> (btree/get-latest-root (:index index))
                        :metadata
                        :last-transaction-number)
                    0)))

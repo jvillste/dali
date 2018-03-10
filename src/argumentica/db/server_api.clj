@@ -20,6 +20,9 @@
   (transaction-log/subseq (-> @state-atom :db :transaction-log)
                           first-transaction-number))
 
+(defn ^:cor/api last-transaction-number [state-atom]
+  (transaction-log/last-transaction-number (-> @state-atom :db :transaction-log)))
+
 (defn btree [state-atom index-key]
   (-> @state-atom
       :db
@@ -31,7 +34,7 @@
 (defn ^:cor/api latest-root [state-atom index-key]
   (-> (btree state-atom index-key)
       btree/roots
-      btree/latest-root))
+      btree/get-latest-root))
 
 (defn ^:cor/api get-from-node-storage [state-atom index-key storage-key]
   (-> (btree state-atom
@@ -39,4 +42,3 @@
       :node-storage
       (storage/get-from-storage! storage-key)
       (encode/base-64-encode)))
-

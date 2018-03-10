@@ -42,28 +42,36 @@
 
 (def descending #(compare %2 %1))
 
-(defn latest-root [roots]
+(defn latest-of-roots [roots]
   (first (sort-by :stored-time
                   descending
                   roots)))
 
+(defn get-latest-root [btree]
+  (latest-of-roots (roots-from-metadata-storage (:metadata-storage btree))))
+
 (defn last-transaction-number [btree]
-  (-> (latest-root (roots-from-metadata-storage (:metadata-storage btree)))
+  (-> (get-latest-root btree)
       :metadata
       :last-transaction-number))
 
 (defn create-from-options [& {:keys [full?
                                      node-storage
-                                     metadata-storage]
+                                     metadata-storage
+                                     latest-root]
                               :or {full? (full-after-maximum-number-of-values 1001)
                                    metadata-storage (hash-map-storage/create)
-                                   node-storage (hash-map-storage/create)}}]
+                                   node-storage (hash-map-storage/create)
+                                   latest-root :no-latest-root-given}}]
 
   (conj {:full? full?
          :node-storage node-storage
          :metadata-storage metadata-storage
          :usages (priority-map/priority-map)}
-        (if-let [latest-root (latest-root (roots-from-metadata-storage metadata-storage))]
+        (if-let [latest-root (if (= latest-root
+                                    :no-latest-root-given)
+                               (latest-of-roots (roots-from-metadata-storage metadata-storage))
+                               latest-root)]
           {:latest-root latest-root
            :nodes {}
            :next-node-id 0
