@@ -8,9 +8,7 @@
                          [storage :as storage]
                          [encode :as encode])
             (argumentica.db [common :as common]
-                            [server-api :as server-api]
-                            [in-process-client :as in-process-client]
-                            [client :as client])
+                            [server-api :as server-api])
             (cor [server :as server]
                  [api :as api]))
   (:use clojure.test))
@@ -44,5 +42,5 @@
            (->> (server-api/latest-root state-atom :eatcv)
                 :storage-key
                 (server-api/get-from-node-storage state-atom :eatcv)
-                (encode/base-64-decode)
+                #_(encode/base-64-decode)
                 (btree/bytes-to-node))))))
