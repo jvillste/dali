@@ -170,7 +170,9 @@
   (fn [[e a t c v]]
     (and (= e entity-id)
          (= a attribute)
-         (transaction-comparator t latest-transaction-number))))
+         (if latest-transaction-number
+           (transaction-comparator t latest-transaction-number)
+           true))))
 
 (defn eat-datoms-from-eatcv [eatcv entity-id attribute latest-transaction-number]
   (take-while (eat-matches entity-id
@@ -205,7 +207,9 @@
                                                               latest-transaction-number))))
 
 (defn last-transaction-number [db]
-  (transaction-log/last-transaction-number (:transaction-log db)))
+  (if-let [transaction-log (:transaction-log db)]
+    (transaction-log/last-transaction-number transaction-log)
+    nil))
 
 (defn value
   ([db entity-id attribute]
