@@ -32,7 +32,13 @@ Each branch is indexed as a sorted set of datoms. To query the database state as
 
 <img src="https://raw.github.com/jvillste/argumentica/master/doc/querying.png" />
 
+## Building indexes
+
+* The roots of each index may have different transaction numbers because the index sizes may grow at different rate.
+
 ## TODO
+
+* make sure each index is updated up to the same transaction number
 
 * It should be possible to calculate transactions parent parts based on (:brances db) and the branch and transaciton number of the desired db version. There should not be a need to know every transactions parents.
 

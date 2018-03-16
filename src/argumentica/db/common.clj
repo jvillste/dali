@@ -71,10 +71,9 @@
           inc))
 
 (defn update-index [index transaction-log]
-
   (let [new-transactions (transaction-log/subseq transaction-log
-                                                 (if-let [last-transaction-number (:last-transaction-number index)]
-                                                   (inc last-transaction-number)
+                                                 (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
+                                                   (inc last-indexed-transaction-number)
                                                    0))]
     (doseq [[t statements] new-transactions]
       (doseq [[e a c v] statements]
@@ -88,8 +87,8 @@
                       datom))))
     
     (assoc index
-           :last-transaction-number
-           (:transaction-number (last new-transactions)))))
+           :last-indexed-transaction-number
+           (first (last new-transactions)))))
 
 (defn apply-to-indexes [db function & arguments]
   (update db :indexes
