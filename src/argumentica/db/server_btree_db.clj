@@ -6,15 +6,6 @@
                             [server-btree-index :as server-btree-index]
                             [server-transaction-log :as server-transaction-log])))
 
-#_(defn create [client]
-  (assoc (common/create :indexes {:eatcv {:index (server-btree-index/create client
-                                                                            :eatcv
-                                                                            (client/latest-root client
-                                                                                                :eatcv))}})
-         :last-indexed-transaction-number (-> (client/latest-root client :eatcv)
-                                              :metadata
-                                              :last-transaction-number)))
-
 (defn create-new-local-index [latest-root client]
   (common/update-index {:index (sorted-set-index/create)
                         :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)
