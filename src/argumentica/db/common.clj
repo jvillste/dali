@@ -21,6 +21,20 @@
 (defn eatcv-value [statement]
   (get statement 4))
 
+
+(defn statement-entity [statement]
+  (get statement 0))
+
+(defn statement-attribute [statement]
+  (get statement 1))
+
+(defn statement-command [statement]
+  (get statement 2))
+
+(defn statement-value [statement]
+  (get statement 3))
+
+
 (defn eatcv-to-eatcv-datoms [e a t c v]
   [[e a t c v]])
 
@@ -226,27 +240,27 @@
 (defn datom-to-eacv-statemnt [[e a t c v]]
   [e a c v])
 
-(defn squash-datoms [statements]
+(defn squash-statements [statements]
   (sort (reduce (fn [result-statements statement]
-                  (case (eatcv-command statement)
+                  (case (statement-command statement)
                     :add (conj (set/select (fn [result-statement]
-                                             (not (and (= (eatcv-entity statement)
-                                                          (eatcv-entity result-statement))
-                                                       (= (eatcv-attribute statement)
-                                                          (eatcv-attribute result-statement))
-                                                       (= (eatcv-value statement)
-                                                          (eatcv-value result-statement))
+                                             (not (and (= (statement-entity statement)
+                                                          (statement-entity result-statement))
+                                                       (= (statement-attribute statement)
+                                                          (statement-attribute result-statement))
+                                                       (= (statement-value statement)
+                                                          (statement-value result-statement))
                                                        (= :retract
-                                                          (eatcv-command result-statement)))))
+                                                          (statement-command result-statement)))))
                                            result-statements)
                                statement)
                     :retract (let [removed-statements (set/select (fn [result-statement]
-                                                                    (and (= (eatcv-entity statement)
-                                                                            (eatcv-entity result-statement))
-                                                                         (= (eatcv-attribute statement)
-                                                                            (eatcv-attribute result-statement))
-                                                                         (= (eatcv-value statement)
-                                                                            (eatcv-value result-statement))))
+                                                                    (and (= (statement-entity statement)
+                                                                            (statement-entity result-statement))
+                                                                         (= (statement-attribute statement)
+                                                                            (statement-attribute result-statement))
+                                                                         (= (statement-value statement)
+                                                                            (statement-value result-statement))))
                                                                   result-statements)]
 
                                (if (empty? removed-statements)
@@ -255,10 +269,10 @@
                                  (set/difference result-statements
                                                  removed-statements)))
                     :set  (conj (set/select (fn [result-statement]
-                                              (not (and (= (eatcv-entity statement)
-                                                           (eatcv-entity result-statement))
-                                                        (= (eatcv-attribute statement)
-                                                           (eatcv-attribute result-statement)))))
+                                              (not (and (= (statement-entity statement)
+                                                           (statement-entity result-statement))
+                                                        (= (statement-attribute statement)
+                                                           (statement-attribute result-statement)))))
                                             result-statements)
                                 statement)))
                 #{}
@@ -266,36 +280,55 @@
 
 
 (deftest test-squash-statements
-  (is (= [[1 :friend 1 :add 1]]
-         (squash-datoms [[1 :friend 1 :add 1]])))
+  (is (= [[1 :friend :add 1]]
+         (squash-statements [[1 :friend :add 1]])))
 
   (is (= []
-         (squash-datoms [[1 :friend 1 :add 1]
-                             [1 :friend 2 :retract 1]])))
+         (squash-statements [[1 :friend :add 1]
+                         [1 :friend :retract 1]])))
 
-  (is (= [[1 :friend 2 :add 1]]
-         (squash-datoms [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]])))
+  (is (= [[1 :friend :add 1]]
+         (squash-statements [[1 :friend :retract 1]
+                         [1 :friend :add 1]])))
 
   (is (= []
-         (squash-datoms [[1 :friend 1 :set 1]
-                             [1 :friend 2 :retract 1]])))
+         (squash-statements [[1 :friend :set 1]
+                         [1 :friend :retract 1]])))
 
-  (is (= [[1 :friend 1 :retract 1]]
-         (squash-datoms [[1 :friend 1 :retract 1]])))
+  (is (= [[1 :friend :retract 1]]
+         (squash-statements [[1 :friend :retract 1]])))
 
 
-  (is (= [[1 :friend 4 :set 2]]
-         (squash-datoms [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]
-                             [1 :friend 3 :add 2]
-                             [1 :friend 4 :set 2]])))
+  (is (= [[1 :friend :set 2]]
+         (squash-statements [[1 :friend :retract 1]
+                         [1 :friend :add 1]
+                         [1 :friend :add 2]
+                         [1 :friend :set 2]])))
 
-  (is (= [[1 :friend 2 :add 1]]
-         (squash-datoms [[1 :friend 1 :retract 1]
-                             [1 :friend 2 :add 1]
-                             [1 :friend 3 :add 2]
-                             [1 :friend 1 :retract 2]]))))
+  (is (= [[1 :friend :add 1]]
+         (squash-statements [[1 :friend :retract 1]
+                         [1 :friend :add 1]
+                         [1 :friend :add 2]
+                         [1 :friend :retract 2]])))
+
+  (is (= '([1 :friend :add 1]
+           [2 :friend :add 1])
+         (squash-statements [[1 :friend :add 1]
+                         [2 :friend :add 1]]))))
+
+
+(defn squash-transactions [transactions]
+  (squash-statements (apply concat
+                            transactions)))
+
+(deftest test-squash-transactions
+  (is (= '([1 :friend :set 2]
+           [2 :friend :add 1])
+         (squash-transactions [[[1 :friend :add 1]
+                                [2 :friend :add 1]]
+
+                               [[1 :friend :set 2]]]))))
+
 
 (deftype Entity [indexes entity-id transaction-number]
   Object
