@@ -18,13 +18,10 @@
 
 (def transact common/transact)
 
-
-
-
 (deftest test-memory-db
-  (is (= [[1 :friend -1 :set 3]
-          [1 :friend 0 :set 2]
-          [2 :friend 0 :set 1]]
+  (is (= '([1 :friend 0 :set 2]
+           [1 :friend 1 :set 3]
+           [2 :friend 0 :set 1])
          (let [db (-> (create)
                       (transact [[1 :friend :set 2]
                                  [2 :friend :set 1]])
