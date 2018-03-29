@@ -330,7 +330,7 @@
                                [[1 :friend :set 2]]]))))
 
 
-(deftype Entity [indexes entity-id transaction-number]
+#_(deftype Entity [indexes entity-id transaction-number]
   Object
   (toString [this]   (pr-str entity-id))
   (hashCode [this]   (hash this))
@@ -375,4 +375,34 @@
                                                 entity-id
                                                 attribute
                                                 transaction-number)
+                                         not-found)))
+
+
+(deftype Entity [get-value]
+  Object
+  (toString [this]   "Entity")
+  (hashCode [this]   (hash this))
+
+  clojure.lang.Seqable
+  (seq [this] (seq []))
+
+  clojure.lang.Associative
+  (equiv [this other-object] (= this other-object))
+  (containsKey [this attribute] (get-value attribute))
+  (entryAt [this attribute]     (some->> (get-value attribute)
+                                         (clojure.lang.MapEntry. attribute)))
+
+  (empty [this]         (throw (UnsupportedOperationException.)))
+  (assoc [this k v]     (throw (UnsupportedOperationException.)))
+  (cons  [this [k v]]   (throw (UnsupportedOperationException.)))
+  (count [this]         (throw (UnsupportedOperationException.)))
+
+  clojure.lang.ILookup
+  (valAt [this attribute] (get-value attribute))
+  (valAt [this attribute not-found] (or (get-value attribute)
+                                        not-found))
+
+  clojure.lang.IFn
+  (invoke [this attribute] (get-value attribute))
+  (invoke [this attribute not-found] (or (get-value attribute)
                                          not-found)))

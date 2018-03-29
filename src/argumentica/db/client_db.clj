@@ -85,3 +85,17 @@
                  (server-api/transaction-log-subseq server-state-atom
                                                     0))))))))
 
+
+(defn create-get-value [entity-id client-db]
+  (fn [attribute]
+    (if (= attribute :entity/id)
+      entity-id
+      (let [the-value (value client-db
+                             entity-id
+                             attribute)]
+        (if (uuid? the-value)
+          (common/->Entity (create-get-value the-value client-db))
+          the-value)))))
+
+(defn entity [client-db entity-id]
+  (common/->Entity (create-get-value entity-id client-db)))
