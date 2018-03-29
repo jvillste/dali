@@ -18,13 +18,13 @@
   (let [state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))
         entity-id  #uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb"]
     (server-api/transact state-atom
-              [[entity-id :name :set "Foo"]])
+                         [[entity-id :name :set "Foo"]])
     (is (= '([0 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb"
                   :name
                   :set
                   "Foo"]]])
            (server-api/transaction-log-subseq state-atom
-                         0)))
+                                              0)))
     
     (btree-db/store-index-roots (-> @state-atom :db))
     
