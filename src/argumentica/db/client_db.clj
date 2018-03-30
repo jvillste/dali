@@ -36,6 +36,19 @@
 (defn value [client-db entity-id attribute]
   (first (common/values-from-eatcv-statements (datoms client-db entity-id attribute))))
 
+
+(defn avtec-datoms [client-db attribute value]
+  (concat (server-btree-db/avtec-datoms (:server-btree-db client-db)
+                                        attribute
+                                        value)
+          (common/avtec-datoms-from-avtec (get-in (:local-db client-db) [:indexes :avtec :index])
+                                          attribute
+                                          value
+                                          nil)))
+
+(defn entities [client-db attribute value]
+  (common/entities-from-avtec-datoms (avtec-datoms client-db attribute value)))
+
 (defn transaction [client-db]
   (common/squash-transactions (map second (transaction-log/subseq (-> client-db :local-db :transaction-log)
                                                                   0))))

@@ -381,7 +381,7 @@
 (defn flush-index-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
             (- last-transaction-number
-               (or (-> (btree/latest-root @(:index-atom index))
+               (or (-> (btree/latest-of-roots (btree/roots @(:index-atom index)))
                        :metadata
                        :last-transaction-number)
                    0)))
@@ -431,7 +431,7 @@
         read-only-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
                                                                                                    :node-storage node-storage))
                                                       :eatcv-to-datoms eatcv-to-eatcv-datoms
-                                                      :last-transaction-number (or (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
+                                                      :last-transaction-number (or (-> (btree/latest-of-roots (btree/roots-from-metadata-storage metadata-storage))
                                                                                        :metadata
                                                                                        :last-transaction-number)
                                                                                    0)}}
@@ -447,7 +447,7 @@
                                         [1 :friend nil nil nil])))))
 
 (defn last-transaction-number [metadata-storage]
-  (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
+  (-> (btree/latest-of-roots (btree/roots-from-metadata-storage metadata-storage))
       :metadata
       :last-transaction-number))
 

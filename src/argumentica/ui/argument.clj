@@ -2,7 +2,8 @@
   (:require [fungl.application :as application]
             (flow-gl.graphics [font :as font])
             (fungl [cache :as cache]
-                   [layouts :as layouts])
+                   [layouts :as layouts]
+                   [atom-registry :as atom-registry])
             (flow-gl.gui [layout :as layout]
                          [visuals :as visuals]
                          [animation :as animation])
@@ -14,17 +15,23 @@
                             [server-api :as server-api]
                             [server-btree-db :as server-btree-db]
                             [client-db :as client-db])
-            (argumentica [btree-db :as btree-db])))
+            (argumentica [btree-db :as btree-db]))
+  (:import [java.util UUID]))
 
 (def entity-id  #uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb")
 (def entity-id-2  #uuid "04776425-6078-41bf-af59-b9a113441368")
 
 (defonce server-state-atom (let [server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))]
                              (server-api/transact server-state-atom
-                                                  [[entity-id :name :set "Foo"]])
+                                                  [[entity-id :type :set :question]
+                                                   [entity-id :text :set "What should we do to global warming?"]])
                              server-state-atom))
 
+(comment
+  (:db @server-state-atom))
+
 (def font (font/create "LiberationSans-Regular.ttf" #_20 38))
+(def symbol-font (font/create "LiberationSans-Regular.ttf" #_20 58))
 
 (defn button [message handler & arguments]
   (button/button (layouts/box 10
@@ -36,6 +43,11 @@
 (defn commit-button-handler [client-db-atom]
   (swap! client-db-atom client-db/commit))
 
+(defn create-button-handler [node-type state-atom client-db-atom]
+  (let [new-entity-id (UUID/randomUUID)]
+    (swap! client-db-atom client-db/transact [[new-entity-id :type :set node-type]
+                                              [new-entity-id :text :set (:prompt-value @state-atom)]]))
+  (swap! state-atom assoc :prompt-value ""))
 
 (defn refresh-button-handler [client-db-atom]
   (swap! client-db-atom client-db/refresh))
@@ -59,13 +71,13 @@
                                                                       (:text new-state))))
                          new-state)))
 
-(defn text-editor [text handle-text-change]
+(defn text-editor [id text handle-text-change]
   (layouts/box 10
                (visuals/rectangle (if (:has-focus @(text-area/get-state-atom :area-1))
                                     [255 255 255 255]
                                     [200 200 200 255])
                                   30 30)
-               (text-area/text-area :area-1
+               (text-area/text-area id
                                     {:color [0 0 0 255]
                                      :font  font}
                                     text
@@ -76,7 +88,8 @@
                                       new-state))))
 
 (defn property-editor [client-db-atom entity-id attribute]
-  (text-editor (str (client-db/value @client-db-atom
+  (text-editor [client-db-atom entity-id attribute]
+               (str (client-db/value @client-db-atom
                                      entity-id
                                      attribute))
                (fn [old-text new-text]
@@ -93,62 +106,98 @@
              font))
 
 (defn node-view [node-id node-type node-text]
-  (layouts/box 10
-               (visuals/rectangle [239 239 239 255]
-                                  30 30)
-               (layouts/horizontally-centered {:margin 10}
-                                              (layouts/with-margins 5 5 5 5
-                                                (layouts/box 20
-                                                             (visuals/rectangle (-> node-styles node-type :color)
-                                                                                30 30)
-                                                             (text (-> node-styles node-type :symbol))))
+  (layouts/box 15
+               (visuals/rectangle [229 229 229 255]
+                                  60 60)
+               (layouts/horizontally-2 {:margin 10
+                                        :centered true}
+                                       (layouts/with-margins 5 5 5 5
+                                         (layouts/box 10
+                                                      (visuals/rectangle (-> node-styles node-type :color)
+                                                                         60 60)
+                                                      (layouts/with-maximum-size 70 70
+                                                        (layouts/center (text/text (-> node-styles node-type :symbol)
+                                                                                   [0 0 0 255]
+                                                                                   symbol-font)))))
 
-                                              (layouts/with-maximum-size 300 nil
-                                                (bare-text-editor [:node-text node-id]
-                                                                  node-text
-                                                                  (fn [old-text new-text]
-                                                                    new-text))))))
+                                       (layouts/with-maximum-size 500 nil
+                                         (bare-text-editor [:node-text node-id]
+                                                           node-text
+                                                           (fn [old-text new-text]
+                                                             new-text))))))
+
+(defn prompt [prompt-value handle-prompt-change]
+  (text-editor :prompt
+               (or prompt-value
+                   "")
+               (fn [old-text new-text]
+                 (handle-prompt-change new-text)
+                 new-text)))
 
 (defn create-scene-graph [client-db-atom]
-  (animation/swap-state! animation/set-wake-up 1000)
-  
-  (layouts/superimpose  (visuals/rectangle [255 255 255 255]
-                                           0 0)
-                        (layouts/vertically (property-editor client-db-atom
-                                                               entity-id
-                                                               :name)
+  (let [state-atom (atom-registry/get! [:state client-db-atom] {:create (fn [] {})})]
+    (animation/swap-state! animation/set-wake-up 1000)
+    
+    (layouts/superimpose  (visuals/rectangle [255 255 255 255]
+                                             0 0)
+                          (layouts/with-margins 20 20 20 20
+                            (layouts/vertically-with-margin 30
+                                                            #_(property-editor client-db-atom
+                                                                               entity-id
+                                                                               :name)
 
-                                              (node-view :id :question "What should we do?")
+                                                            (prompt (:prompt-value @state-atom) (fn [new-prompt-value]
+                                                                                                  (swap! state-atom assoc :prompt-value new-prompt-value)))
 
-                                              #_(layouts/box 10
-                                                             (visuals/rectangle (if (:has-focus @(text-area/get-state-atom :area-1))
-                                                                                  [255 255 0 255]
-                                                                                  [205 205 0 255])
-                                                                                30 30)
-                                                             (text-area/text-area :area-1
-                                                                                  {:color [0 0 0 255]
-                                                                                   :font  font}
-                                                                                  (str (client-db/value @client-db-atom
-                                                                                                        entity-id
-                                                                                                        :name))
-                                                                                  (fn [old-state new-state]
-                                                                                    (when (not= (:text new-state) (:text old-state))
-                                                                                      (swap! client-db-atom client-db/transact [[entity-id :name :set (:text new-state)]]))
-                                                                                    new-state)))
+                                                            (cache/call! button "Create question" create-button-handler :question state-atom client-db-atom)
+                                                            (cache/call! button "Create answer" create-button-handler :answer state-atom client-db-atom)
 
-                                              (paragraph :client "Uncommitted transaction")
-                                              (for [[index line] (map-indexed vector (client-db/transaction @client-db-atom))]
-                                                (paragraph [:client index] (pr-str line)))
+                                                            
+                                                            (for [entity (map (fn [entity-id]
+                                                                                (client-db/entity @client-db-atom
+                                                                                                  entity-id))
+                                                                              (concat (client-db/entities @client-db-atom
+                                                                                                          :type
+                                                                                                          :question)
+                                                                                      (client-db/entities @client-db-atom
+                                                                                                          :type
+                                                                                                          :answer)))]
+                                                              (node-view (:entity/id entity) (:type entity) (:text entity)))
+                                                            
+                                                            #_(node-view :id :question "What should we do to prevent global warming?")
+                                                            
+                                                            #_(node-view :id2 :answer "Reduce coal burning")
 
-                                              (paragraph :server "Server")
+                                                            #_(layouts/box 10
+                                                                           (visuals/rectangle (if (:has-focus @(text-area/get-state-atom :area-1))
+                                                                                                [255 255 0 255]
+                                                                                                [205 205 0 255])
+                                                                                              30 30)
+                                                                           (text-area/text-area :area-1
+                                                                                                {:color [0 0 0 255]
+                                                                                                 :font  font}
+                                                                                                (str (client-db/value @client-db-atom
+                                                                                                                      entity-id
+                                                                                                                      :name))
+                                                                                                (fn [old-state new-state]
+                                                                                                  (when (not= (:text new-state) (:text old-state))
+                                                                                                    (swap! client-db-atom client-db/transact [[entity-id :name :set (:text new-state)]]))
+                                                                                                  new-state)))
 
-                                              (for [[index line] (map-indexed vector (server-api/transaction-log-subseq server-state-atom
-                                                                                                                        0))]
-                                                (paragraph [:client index] (pr-str line)))
-                      
-                                              (cache/call! button "Commit" commit-button-handler client-db-atom)
+                                                            #_(paragraph :client "Uncommitted transaction")
+                                                            #_(for [[index line] (map-indexed vector (client-db/transaction @client-db-atom))]
+                                                                (paragraph [:client index] (pr-str line)))
 
-                                              (cache/call! button "Refresh" refresh-button-handler client-db-atom)))
+                                                            (paragraph :server "Server")
+
+                                                            (for [[index line] (map-indexed vector (server-api/transaction-log-subseq server-state-atom
+                                                                                                                                      0))]
+                                                              (paragraph [:client index] (pr-str line)))
+
+                                                            
+                                                            (cache/call! button "Commit" commit-button-handler client-db-atom)
+
+                                                            #_(cache/call! button "Refresh" refresh-button-handler client-db-atom)))))
   
   #_(animation/swap-state! animation/start-if-not-running :animation)
   #_(let [x (animation/ping-pong 10 (animation/phase! :animation))]

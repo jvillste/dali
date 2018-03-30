@@ -35,6 +35,22 @@
   (get statement 3))
 
 
+(defn avtec-attribute [statement]
+  (get statement 0))
+
+(defn avtec-value [statement]
+  (get statement 1))
+
+(defn avtec-transaction-number [statement]
+  (get statement 2))
+
+(defn avtec-entity [statement]
+  (get statement 3))
+
+(defn avtec-command [statement]
+  (get statement 4))
+
+
 (defn eatcv-to-eatcv-datoms [e a t c v]
   [[e a t c v]])
 
@@ -155,6 +171,18 @@
           #{}
           statements))
 
+(defn accumulate-entities [entities avtec-datom]
+  (case (avtec-command avtec-datom)
+    :add (conj entities (avtec-entity avtec-datom))
+    :retract (disj entities (avtec-entity avtec-datom))
+    :set  (conj entities (avtec-entity avtec-datom))
+    entities))
+
+(defn entities-from-avtec-datoms [datoms]
+  (reduce accumulate-entities
+          #{}
+          datoms))
+
 (defn take-while-and-n-more [pred n coll]
     (let [[head tail] (split-with pred coll)]
       (concat head (take n tail))))
@@ -194,6 +222,22 @@
                            latest-transaction-number) 
               (index/inclusive-subsequence eatcv
                                            [entity-id attribute 0 nil nil])))
+
+(defn avt-matches [attribute value transaction-comparator latest-transaction-number]
+  (fn [[a v t e c]]
+    (and (= a attribute)
+         (= v value)
+         (if latest-transaction-number
+           (transaction-comparator t latest-transaction-number)
+           true))))
+
+(defn avtec-datoms-from-avtec [avtec attribute value latest-transaction-number]
+  (take-while (avt-matches attribute
+                           value
+                           <=
+                           latest-transaction-number) 
+              (index/inclusive-subsequence avtec
+                                           [attribute value 0 nil nil])))
 
 (defn eat-datoms-in-reverse-from-eatcv [eatcv entity-id attribute latest-transaction-number]
   (take-while (eat-matches entity-id

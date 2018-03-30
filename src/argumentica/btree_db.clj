@@ -62,7 +62,9 @@
 
 (defn create-memory-btree-db []
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index)
-                                                          :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
+                                                          :eatcv-to-datoms common/eatcv-to-eatcv-datoms}
+                                                  :avtec {:index (btree-index/create-memory-btree-index)
+                                                          :eatcv-to-datoms common/eatcv-to-avtec-datoms}}
                                         :transaction-log  (sorted-map-transaction-log/create))))
 
 (defn create-memory-btree-db-from-transaction-log [transaction-log first-transaction-number]
