@@ -120,16 +120,24 @@
     (keyboard/set-focused-node! node))
   event)
 
-(defn node-keyboard-event-handler [event node-id]
-  (prn node-id event))
+(defn node-keyboard-event-handler [node-id on-node-selected event]
+  (when (keyboard/key-pressed? event :enter)
+    (do (prn event)
+        (on-node-selected))))
 
-(defn node-view [node-id node-type node-text on-text-change]
+(defn node-view [node-id node-type node-text is-selected on-text-change on-node-selected]
+  (prn is-selected)
   (layouts/box 15
-               (visuals/rectangle (if (= (:focused-node-id @keyboard/state-atom)
-                                         [:node-view node-id])
-                                    [189 189 189 255]
-                                    [229 229 229 255])
-                                  60 60)
+               (visuals/rectangle-2 :corner-arc-width 60
+                                    :corner-arc-height 60
+                                    :fill-color (if (= (:focused-node-id @keyboard/state-atom)
+                                                       [:node-view node-id])
+                                                  [189 189 189 255]
+                                                  [229 229 229 255])
+                                    :line-width (if is-selected
+                                                  7
+                                                  0)
+                                    :draw-color [40 40 255 255])
                (layouts/horizontally-2 {:margin 10
                                         :centered true}
                                        (layouts/with-margins 5 5 5 5
@@ -137,7 +145,7 @@
                                                       (assoc (visuals/rectangle (-> node-styles node-type :color)
                                                                                 60 60)
                                                              :id [:node-view node-id]
-                                                             :keyboard-event-handler [node-keyboard-event-handler node-id]
+                                                             :keyboard-event-handler [node-keyboard-event-handler node-id on-node-selected]
                                                              :mouse-event-handler [gain-focus-on-click])
                                                       
                                                       (layouts/with-maximum-size 70 70
@@ -176,40 +184,24 @@
                                                            (cache/call! button "Create question" create-button-handler :question state-atom client-db-atom)
                                                            (cache/call! button "Create answer" create-button-handler :answer state-atom client-db-atom)
                                                             
-                                                           (for [entity (map (fn [entity-id]
+                                                           (for [node-entity (map (fn [entity-id]
                                                                                (client-db/entity @client-db-atom
                                                                                                  entity-id))
-                                                                             (concat (client-db/entities @client-db-atom
-                                                                                                         :type
-                                                                                                         :question)
-                                                                                     (client-db/entities @client-db-atom
-                                                                                                         :type
-                                                                                                         :answer)))]
-                                                             (node-view (:entity/id entity) (:type entity) (:text entity)
+                                                                             (client-db/entities @client-db-atom
+                                                                                                 :type
+                                                                                                 :question))]
+                                                             (node-view (:entity/id node-entity)
+                                                                        (:type node-entity)
+                                                                        (:text node-entity)
+                                                                        (= (:selected-node @state-atom)
+                                                                           (:entity/id node-entity))
                                                                         (fn [old-text new-text]
-                                                                          (swap! client-db-atom client-db/transact [[(:entity/id entity) :text :set new-text]])
-                                                                          new-text))
-                                                             )
+                                                                          (swap! client-db-atom client-db/transact [[(:entity/id node-entity) :text :set new-text]])
+                                                                          new-text)
+                                                                        (fn []
+                                                                          (println "selecting")
+                                                                          (swap! state-atom assoc :selected-node (:entity/id node-entity)))))
                                                             
-                                                           #_(node-view :id :question "What should we do to prevent global warming?")
-                                                            
-                                                           #_(node-view :id2 :answer "Reduce coal burning")
-
-                                                           #_(layouts/box 10
-                                                                          (visuals/rectangle (if (:has-focus @(text-area/get-state-atom :area-1))
-                                                                                               [255 255 0 255]
-                                                                                               [205 205 0 255])
-                                                                                             30 30)
-                                                                          (text-area/text-area :area-1
-                                                                                               {:color [0 0 0 255]
-                                                                                                :font  font}
-                                                                                               (str (client-db/value @client-db-atom
-                                                                                                                     entity-id
-                                                                                                                     :name))
-                                                                                               (fn [old-state new-state]
-                                                                                                 (when (not= (:text new-state) (:text old-state))
-                                                                                                   (swap! client-db-atom client-db/transact [[entity-id :name :set (:text new-state)]]))
-                                                                                                 new-state)))
 
                                                            #_(paragraph :client "Uncommitted transaction")
                                                            #_(for [[index line] (map-indexed vector (client-db/transaction @client-db-atom))]
@@ -224,27 +216,7 @@
                                                             
                                                            (cache/call! button "Commit" commit-button-handler client-db-atom)
 
-                                                           #_(cache/call! button "Refresh" refresh-button-handler client-db-atom)))))
-  
-  #_(animation/swap-state! animation/start-if-not-running :animation)
-  #_(let [x (animation/ping-pong 10 (animation/phase! :animation))]
-      (-> (layouts/vertically (layouts/horizontally (assoc (visuals/rectangle [255 0 0 255]
-                                                                              80 80 (* x 200) (* x 200))
-                                                           :mouse-event-handler (fn [node event]
-                                                                                  (when (= :mouse-clicked
-                                                                                           (:type event))
-                                                                                    (swap! clicks inc))
-                                                                                  event))
-                                                    (visuals/rectangle [0 255 255 255]
-                                                                       80 80 200 200))
-                              (layouts/horizontally (visuals/rectangle [0 0 255 255]
-                                                                       80 80 200 200)
-                                                    (visuals/rectangle [255 255 0 255]
-                                                                       80 80 200 200))
-                              (visuals/text (str (float x)))
-                              (visuals/text (str "clicks:" @clicks)))
-        
-          (application/do-layout width height))))
+                                                           #_(cache/call! button "Refresh" refresh-button-handler client-db-atom))))))
 
 (comment
   (with-bindings (application/create-event-handling-state)
