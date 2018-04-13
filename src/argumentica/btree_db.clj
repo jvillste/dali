@@ -55,6 +55,8 @@
                 attribute
                 (common/last-transaction-number db)))
 
+
+
 (defn create-directory-btree-db [base-path]
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index base-path)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}

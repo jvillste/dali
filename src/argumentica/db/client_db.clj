@@ -1,4 +1,5 @@
 (ns argumentica.db.client-db
+  "Client-db holds local uncommited transactions and a server-btree-db."
   (:require (argumentica [btree-db :as btree-db]
                          [index :as index]
                          [sorted-set-db :as sorted-set-db]
@@ -33,8 +34,11 @@
                                         attribute
                                         nil)))
 
+(defn values [client-db entity-id attribute]
+  (common/values-from-eatcv-statements (datoms client-db entity-id attribute)))
+
 (defn value [client-db entity-id attribute]
-  (first (common/values-from-eatcv-statements (datoms client-db entity-id attribute))))
+  (first (values client-db entity-id attribute)))
 
 
 (defn avtec-datoms [client-db attribute value]
@@ -76,6 +80,8 @@
     (let [client-db (refresh client-db)]
       (is (= "Bar"
              (value client-db entity-id :name)))
+      (is (= #{entity-id}
+             (entities client-db :name "Bar")))
       (let [client-db (-> client-db
                           (transact [[entity-id :name :set "Baz"]])
                           (transact [[entity-id :name :set "Baz2"]]))]

@@ -17,5 +17,3 @@
   (tcp/server {:handler (create-pipeline handler-adapter)}
               "localhost"
               port))
-
-

@@ -11,5 +11,3 @@
 (comment
   (let [client (->HttpClient "http://localhost:9999/api")]
     (transaction-log-subseq client 0)))
-
-

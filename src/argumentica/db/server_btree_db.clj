@@ -1,4 +1,6 @@
 (ns argumentica.db.server-btree-db
+  "server-btree-db holds server-btree-index and corresponding sorted-set-index for transactions that are not yet flushed to
+  the server-btree-index."
   (:require (argumentica [btree-db :as btree-db]
                          [sorted-set-index :as sorted-set-index])
             (argumentica.db [common :as common]
@@ -9,17 +11,15 @@
 (defn create-new-local-index [latest-root client eatcv-to-datoms]
   (common/update-index {:index (sorted-set-index/create)
                         :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)
-                        :eatcv-to-datoms eatcv-to-datoms} 
+                        :eatcv-to-datoms eatcv-to-datoms}
                        (server-transaction-log/->ServerTransactionLog client)))
 
 (defn create-index [client index-key eatcv-to-datoms]
   (let [latest-root (client/latest-root client
                                         index-key)]
-                        
     {:remote-index {:index (server-btree-index/create client
                                                       index-key
-                                                      latest-root)} 
-                         
+                                                      latest-root)}
      :local-index (create-new-local-index latest-root
                                           client
                                           eatcv-to-datoms)}))
@@ -63,7 +63,7 @@
                                         entity-id
                                         attribute
                                         (:last-indexed-transaction-number server-btree-db))
-          
+
           (common/eat-datoms-from-eatcv (get-in server-btree-db [:indexes :eatcv :local-index :index])
                                         entity-id
                                         attribute
@@ -78,7 +78,7 @@
                                           attribute
                                           value
                                           (:last-indexed-transaction-number server-btree-db))
-          
+
           (common/avtec-datoms-from-avtec (get-in server-btree-db [:indexes :avtec :local-index :index])
                                           attribute
                                           value

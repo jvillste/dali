@@ -115,7 +115,7 @@
                        v)]
           (index/add! (:index index)
                       datom))))
-    
+
     (assoc index
            :last-indexed-transaction-number
            (first (last new-transactions)))))
@@ -219,7 +219,7 @@
   (take-while (eat-matches entity-id
                            attribute
                            <=
-                           latest-transaction-number) 
+                           latest-transaction-number)
               (index/inclusive-subsequence eatcv
                                            [entity-id attribute 0 nil nil])))
 
@@ -235,7 +235,7 @@
   (take-while (avt-matches attribute
                            value
                            <=
-                           latest-transaction-number) 
+                           latest-transaction-number)
               (index/inclusive-subsequence avtec
                                            [attribute value 0 nil nil])))
 
@@ -243,7 +243,7 @@
   (take-while (eat-matches entity-id
                            attribute
                            >=
-                           latest-transaction-number) 
+                           latest-transaction-number)
               (index/inclusive-reverse-subsequence eatcv
                                                    [entity-id attribute latest-transaction-number nil nil])))
 
@@ -274,7 +274,7 @@
           entity-id
           attribute
           (last-transaction-number db)))
-  
+
   ([db entity-id attribute transaction-number]
    (value-from-eatcv (-> db :indexes :eatcv :index)
                      entity-id

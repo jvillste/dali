@@ -22,4 +22,5 @@
                  [com.sleepycat/je "7.5.11"]
                  [com.taoensso/nippy "2.13.0"]]
   :aot [argumentica.EdnComparator]
-  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
+  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
+  :resource-paths ["resources"])
