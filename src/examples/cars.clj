@@ -65,10 +65,12 @@
                              (map prn))
                        nop-reducer)
 
-  (transduce-csv-lines source-file-name
-                       (comp (drop 1)
-                             (take 5))
-                       (conj-reducer #{}))
+
+  (transduce-csv-lines  "/Users/jukka/Downloads/title.basics.tsv"
+                       (comp #_(drop 1)
+                             (take 5)
+                             (map (fn [line] (string/split))))
+                       conj)
 
   (transduce-csv-lines source-file-name
                        (comp (drop 1)
@@ -98,6 +100,7 @@
     nil))
 
 (defn transduce-csv-lines-as-maps [file-name transducer]
+  (prn file-name)
   (let [csv-columns (map (fn [key]
                            (keyword (-> key
                                         (string/replace " " "_")
@@ -116,10 +119,10 @@
     nil))
 
 (comment
-  (transduce-csv-lines-as-maps source-file-name
+  (transduce-csv-lines-as-maps "/Users/jukka/Downloads/title.basics.tsv"
                                (comp #_(xforms/partition 2)
                                      (take 1)
-                                     (map-indexed (fn [index foo]
+                                     #_(map-indexed (fn [index foo]
                                                     (prn index (keys foo)))))))
 
 
