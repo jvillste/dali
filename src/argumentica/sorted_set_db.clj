@@ -44,4 +44,3 @@
 
     (is (= 2
            (value db 1 :friend 0)))))
-

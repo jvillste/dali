@@ -1,18 +1,20 @@
 (ns crud-server
-  (:require [cor.server :as server]
-            [cor.api :as cor-api]
-            (argumentica.db [client :as client]
-                            [common :as db-common]
-                            [server-api :as server-api]
-                            [server-btree-db :as server-btree-db]
-                            [client-db :as client-db])
-            (argumentica [btree-db :as btree-db]
-                         [berkeley-db-transaction-log :as berkeley-db-transaction-log]
-                         [btree-index :as btree-index]
-                         [csv :as csv])
-            [clojure.string :as string]
-            [clojure.test :as t])
-  (:gen-class))
+  (:gen-class)
+  (:require [argumentica
+             [berkeley-db-transaction-log :as berkeley-db-transaction-log]
+             [btree-index :as btree-index]
+             [csv :as csv]
+             [sorted-map-transaction-log :as sorted-map-transaction-log]
+             [sorted-set-index :as sorted-set-index]]
+            [argumentica.db
+             [common :as db-common]
+             [server-api :as server-api]]
+            [clojure
+             [string :as string]
+             [test :as t]]
+            [cor
+             [api :as cor-api]
+             [server :as server]]))
 
 (defn create-directory-btree-db [base-path]
   (db-common/update-indexes (db-common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index base-path)
@@ -45,7 +47,10 @@
 (def imdb-schema
   {:genres {:multivalued? true}
    :directors {:multivalued? true
-               :reference true}})
+               :reference? true}
+   :knownForTitles {:multivalued? true
+                    :reference? true}
+   :primaryProfession {:multivalued? true}})
 
 (defn entity-map-to-transaction [entity-map schema id-key]
   (let [id (get entity-map
@@ -66,13 +71,52 @@
                                        :tconst "tt0000001"}
                                       {:genres {:multivalued? true}}
                                       :tconst))))
+(defn imbdb-file-to-transaction [file-name id-key transducer]
+  (csv/transduce-maps file-name
+                      {:separator #"\t"}
+                      (comp transducer
+                            (mapcat (fn [entity-map]
+                                      (entity-map-to-transaction entity-map
+                                                                 imdb-schema
+                                                                 id-key))))
+                      conj
+                      []))
 
-(mapcat (fn [[a b]]
-          [a b])
-        (dissoc {:a :b :c :d}
-                :a))
+(defn titles-as-transaction [transducer]
+  (imbdb-file-to-transaction "data/imdb/title.basics.tsv"
+                             :tconst
+                             (comp (map (fn [title]
+                                          (assoc title :type :title)))
+                                   transducer)))
+
+(defn crew-as-transaction [transducer]
+  (imbdb-file-to-transaction "data/imdb/title.crew.tsv"
+                             :tconst
+                             transducer))
+
 
 (comment
+
+  (imbdb-file-to-transaction "data/imdb/name.basics.tsv"
+                             :nconst
+                             (comp (take 10)
+                                   (map (fn [title]
+                                          (assoc title :type :person)))))
+
+  (let [db (-> (db-common/create :indexes {:eatcv {:index (sorted-set-index/create)
+                                                   :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
+                                           :avtec {:index (sorted-set-index/create)
+                                                   :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}}
+                                 :transaction-log (sorted-map-transaction-log/create))
+               (db-common/transact (titles-as-transaction (take 10)))
+               (db-common/transact (crew-as-transaction (take 10))))]
+    (->> (db-common/entities db :type :title)
+         (map (fn [entity-id]
+                (db-common/->Entity db imdb-schema entity-id)))
+         (map :directors)))
+
+  (into {} (seq {:a :b}))
+  (keys (type (first (seq {:a :b}))))
   (csv/transduce-maps "data/imdb/title.basics.tsv"
                       {:separator #"\t"}
                       (comp (take 2)
@@ -91,10 +135,10 @@
 
   (csv/transduce-maps "data/imdb/name.basics.tsv"
                       {:separator #"\t"}
-                      (comp (filter (fn [value]
-                                      (= "nm0005690"
-                                         (:nconst value))))
-                            (take 1))
+                      (comp #_(filter (fn [value]
+                                        (= "nm0005690"
+                                           (:nconst value))))
+                            (take 10))
                       conj
                       [])
 

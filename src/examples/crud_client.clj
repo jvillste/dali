@@ -25,7 +25,7 @@
   (:gen-class))
 
 
-(def #_defonce server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db))))
+(#_def defonce server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db))))
 
 (comment
   (:db @server-state-atom))
@@ -129,8 +129,8 @@
                                                    (entity-editor (conj id entity-id) client-db-atom entity-id)))))))
 
 (defn crud-client []
-  (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
-                                               #_(client/->InProcessClient server-state-atom)))]
+  (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")
+                                               (client/->InProcessClient server-state-atom)))]
     (fn [width height]
       (-> (#'entity-list [:entity-list-1] client-db-atom)
           (application/do-layout width height)))))

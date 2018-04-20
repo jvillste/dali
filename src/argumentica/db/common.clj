@@ -4,7 +4,8 @@
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [index :as index]))
-  (:use clojure.test))
+  (:use clojure.test)
+  (:import clojure.lang.MapEntry))
 
 (defn eatcv-entity [statement]
   (get statement 0))
@@ -183,6 +184,12 @@
           #{}
           datoms))
 
+(defn entities [db attribute value]
+  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
+                                                       attribute
+                                                       value
+                                                       nil)))
+
 (defn take-while-and-n-more [pred n coll]
     (let [[head tail] (split-with pred coll)]
       (concat head (take n tail))))
@@ -223,6 +230,8 @@
               (index/inclusive-subsequence eatcv
                                            [entity-id attribute 0 nil nil])))
 
+
+
 (defn avt-matches [attribute value transaction-comparator latest-transaction-number]
   (fn [[a v t e c]]
     (and (= a attribute)
@@ -257,29 +266,44 @@
                            attribute
                            latest-transaction-number)))
 
-(defn value-from-eatcv [eatcv entity-id attribute latest-transaction-number]
-  (first (values-from-eatcv-statements (eat-datoms-from-eatcv eatcv
-                                                              entity-id
-                                                              attribute
-                                                              latest-transaction-number))))
+(defn values-from-eatcv [eatcv entity-id attribute latest-transaction-number]
+  (values-from-eatcv-statements (eat-datoms-from-eatcv eatcv
+                                                       entity-id
+                                                       attribute
+                                                       latest-transaction-number)))
+
 
 (defn last-transaction-number [db]
   (if-let [transaction-log (:transaction-log db)]
     (transaction-log/last-transaction-number transaction-log)
     nil))
 
-(defn value
+(defn values
   ([db entity-id attribute]
-   (value db
-          entity-id
-          attribute
-          (last-transaction-number db)))
+   (values db
+           entity-id
+           attribute
+           (last-transaction-number db)))
 
   ([db entity-id attribute transaction-number]
-   (value-from-eatcv (-> db :indexes :eatcv :index)
-                     entity-id
-                     attribute
-                     transaction-number)))
+   (values-from-eatcv (-> db :indexes :eatcv :index)
+                      entity-id
+                      attribute
+                      transaction-number)))
+
+(defn value
+  ([db entity-id attribute]
+   (first (values db
+                  entity-id
+                  attribute)))
+
+  ([db entity-id attribute transaction-number]
+   (first (values db
+                  entity-id
+                  attribute
+                  transaction-number))))
+
+
 
 (defn datom-to-eacv-statemnt [[e a t c v]]
   [e a c v])
@@ -420,20 +444,72 @@
                                                 attribute
                                                 transaction-number)
                                          not-found)))
+(declare ->Entity)
 
+(defn entity-value-from-values [db schema attribute values]
+  (cond (and (-> schema attribute :multivalued?)
+             (-> schema attribute :reference?))
+        (map (fn [value]
+               (->Entity db schema value))
+             values)
 
-(deftype Entity [get-value]
+        (and (not (-> schema attribute :multivalued?))
+             (-> schema attribute :reference?))
+        (->Entity db schema (first values))
+
+        (and (-> schema attribute :multivalued?)
+             (not (-> schema attribute :reference?)))
+        values
+
+        (and (not (-> schema attribute :multivalued?))
+             (not (-> schema attribute :reference?)))
+        (first values)))
+
+(deftest test-entity-value-from-values
+  (is (= "Foo"
+       (entity-value-from-values nil {} :name ["Foo"]))))
+
+(defn entity-value [db schema entity-id attribute]
+  (if (= attribute :entity/id)
+    entity-id
+    (entity-value-from-values db
+                              schema
+                              attribute
+                              (values db
+                                      entity-id
+                                      attribute))))
+
+(defn entity-datoms-from-eatcv [eatcv entity-id]
+  (take-while (fn [[e a t c v]]
+                (= e entity-id))
+              (index/inclusive-subsequence eatcv
+                                           [entity-id nil nil nil nil])))
+
+(defn entity-to-sec [db schema entity-id]
+  (->> (entity-datoms-from-eatcv (-> db :indexes :eatcv :index)
+                                 entity-id)
+       (map second)
+       (into #{})
+       (#(conj % :entity/id))
+       (map (fn [attribute]
+              [attribute (entity-value db schema entity-id attribute)]))
+       (filter (fn [[attribute value]]
+                 (not (nil? value))))
+       (map (fn [[attribute value]]
+              (MapEntry. attribute value)))))
+
+(deftype Entity [db schema entity-id]
   Object
-  (toString [this]   "Entity")
-  (hashCode [this]   (hash this))
+  (toString [this] "Entity")
+  (hashCode [this] (hash this))
 
   clojure.lang.Seqable
-  (seq [this] (seq []))
+  (seq [this] (entity-to-sec db schema entity-id))
 
   clojure.lang.Associative
   (equiv [this other-object] (= this other-object))
-  (containsKey [this attribute] (get-value attribute))
-  (entryAt [this attribute]     (some->> (get-value attribute)
+  (containsKey [this attribute] (entity-value db schema entity-id attribute))
+  (entryAt [this attribute]     (some->> (entity-value db schema entity-id attribute)
                                          (clojure.lang.MapEntry. attribute)))
 
   (empty [this]         (throw (UnsupportedOperationException.)))
@@ -442,11 +518,14 @@
   (count [this]         (throw (UnsupportedOperationException.)))
 
   clojure.lang.ILookup
-  (valAt [this attribute] (get-value attribute))
-  (valAt [this attribute not-found] (or (get-value attribute)
+  (valAt [this attribute] (entity-value db schema entity-id attribute))
+  (valAt [this attribute not-found] (or (entity-value db schema entity-id attribute)
                                         not-found))
 
   clojure.lang.IFn
-  (invoke [this attribute] (get-value attribute))
-  (invoke [this attribute not-found] (or (get-value attribute)
+  (invoke [this attribute] (entity-value db schema entity-id attribute))
+  (invoke [this attribute not-found] (or (entity-value db schema entity-id attribute)
                                          not-found)))
+
+(defmethod print-method Entity [entity ^java.io.Writer writer]
+  (.write writer (pr-str (into {} entity))))
