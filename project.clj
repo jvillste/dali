@@ -21,6 +21,7 @@
                  [org.clojure/test.check "0.10.0-alpha2"]
                  [com.sleepycat/je "7.5.11"]
                  [com.taoensso/nippy "2.13.0"]]
+  :test-paths ["src/clj" "test"]
   :aot [argumentica.EdnComparator]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
   :resource-paths ["resources"])

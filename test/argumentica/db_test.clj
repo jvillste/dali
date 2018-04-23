@@ -5,7 +5,7 @@
 
 
 (deftest test-transact-statements-over
-  (let [db (-> (db/create (btree-index/create 3 {} nil))
+  (let [db (-> (db/create (btree-index/create-memory-btree-index))
                (db/transact-statements-over [:master] [[1] :friend :add "friend 1"])
                (db/transact-statements-over [:master] [[1] :friend :add "friend 2"]))]
     

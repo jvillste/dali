@@ -126,7 +126,13 @@
                                                                          (client-db/entities @client-db-atom
                                                                                              :type
                                                                                              :entity))]
-                                                   (entity-editor (conj id entity-id) client-db-atom entity-id)))))))
+                                                   (entity-editor (conj id entity-id) client-db-atom entity-id))
+
+                                                 (layouts/vertically-2 {}
+                                                  (for [statement (client-db/transaction @client-db-atom)]
+                                                    (text/text (pr-str statement)
+                                                               [0 0 0 255]
+                                                               font))))))))
 
 (defn crud-client []
   (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")

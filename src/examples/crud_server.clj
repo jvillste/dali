@@ -94,6 +94,11 @@
                              :tconst
                              transducer))
 
+(defn persons-as-transaction [transducer]
+  (imbdb-file-to-transaction "data/imdb/name.basics.tsv"
+                             :nconst
+                             transducer))
+
 
 (comment
 
@@ -109,18 +114,43 @@
                                                    :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}}
                                  :transaction-log (sorted-map-transaction-log/create))
                (db-common/transact (titles-as-transaction (take 10)))
-               (db-common/transact (crew-as-transaction (take 10))))]
+               #_(db-common/transact (crew-as-transaction (take 10))))
+        title-ids (into #{} (db-common/entities db :type :title))
+        db (db-common/transact db
+                               (crew-as-transaction (comp (take 1000)
+                                                          (filter (fn [title]
+                                                                    (contains? title-ids
+                                                                               (:tconst title)))))))
+        #_person-ids #_(->> (db-common/entities db :type :title)
+                            (map (fn [entity-id]
+                                   (db-common/->Entity db imdb-schema entity-id)))
+                            (mapcat :directors)
+                            (into #{}))
+        #_db #_(db-common/transact db
+                                   (persons-as-transaction (comp (take 1000)
+                                                                 (filter (fn [person]
+                                                                           (contains? person-ids
+                                                                                      (:nconst person)))))))]
+    #_title-ids
+    #_(crew-as-transaction (comp (take 1000)
+                               (filter (fn [title]
+                                         (contains? title-ids
+                                                    (:tconst title))))))
     (->> (db-common/entities db :type :title)
-         (map (fn [entity-id]
-                (db-common/->Entity db imdb-schema entity-id)))
-         (map :directors)))
+           (map (fn [entity-id]
+                  (db-common/->Entity db imdb-schema entity-id)))
+           (map :primaryTitle)))
 
-  (into {} (seq {:a :b}))
-  (keys (type (first (seq {:a :b}))))
+
+  (csv/transduce-lines "data/imdb/title.basics.tsv"
+                       (comp (take 2))
+                       conj
+                       [])
+
+
   (csv/transduce-maps "data/imdb/title.basics.tsv"
                       {:separator #"\t"}
-                      (comp (take 2)
-                            #_(map postprocess-entity))
+                      (comp (take 2))
                       conj
                       [])
 

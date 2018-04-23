@@ -172,23 +172,7 @@
           #{}
           statements))
 
-(defn accumulate-entities [entities avtec-datom]
-  (case (avtec-command avtec-datom)
-    :add (conj entities (avtec-entity avtec-datom))
-    :retract (disj entities (avtec-entity avtec-datom))
-    :set  (conj entities (avtec-entity avtec-datom))
-    entities))
 
-(defn entities-from-avtec-datoms [datoms]
-  (reduce accumulate-entities
-          #{}
-          datoms))
-
-(defn entities [db attribute value]
-  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
-                                                       attribute
-                                                       value
-                                                       nil)))
 
 (defn take-while-and-n-more [pred n coll]
     (let [[head tail] (split-with pred coll)]
@@ -247,6 +231,24 @@
                            latest-transaction-number)
               (index/inclusive-subsequence avtec
                                            [attribute value 0 nil nil])))
+
+(defn accumulate-entities [entities avtec-datom]
+  (case (avtec-command avtec-datom)
+    :add (conj entities (avtec-entity avtec-datom))
+    :retract (disj entities (avtec-entity avtec-datom))
+    :set  (conj entities (avtec-entity avtec-datom))
+    entities))
+
+(defn entities-from-avtec-datoms [datoms]
+  (reduce accumulate-entities
+          #{}
+          datoms))
+
+(defn entities [db attribute value]
+  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
+                                                       attribute
+                                                       value
+                                                       nil)))
 
 (defn eat-datoms-in-reverse-from-eatcv [eatcv entity-id attribute latest-transaction-number]
   (take-while (eat-matches entity-id
@@ -501,13 +503,13 @@
 (deftype Entity [db schema entity-id]
   Object
   (toString [this] "Entity")
-  (hashCode [this] (hash this))
+  (hashCode [this] (hash entity-id))
 
   clojure.lang.Seqable
   (seq [this] (entity-to-sec db schema entity-id))
 
   clojure.lang.Associative
-  (equiv [this other-object] (= this other-object))
+  (equiv [this other-object] (= entity-id (:entity/id other-object)))
   (containsKey [this attribute] (entity-value db schema entity-id attribute))
   (entryAt [this attribute]     (some->> (entity-value db schema entity-id attribute)
                                          (clojure.lang.MapEntry. attribute)))
@@ -527,5 +529,25 @@
   (invoke [this attribute not-found] (or (entity-value db schema entity-id attribute)
                                          not-found)))
 
+(defn entity? [value]
+  (= Entity (class value)))
+
+(defn entity-to-map [entity]
+  (into {} (map (fn [[key value]]
+                  [key
+                   (if (= (entity? value))
+                     (:entity/id value)
+                     (if true #_(and (set? value)
+                              (entity? (first value)))
+                       "foo"#_(clojure.core/set (map :entity/id value))
+                       value))])
+                entity)))
+
+(deftest test-entity-to-map
+  (is (= nil
+         (entity-to-map {:entity (->Entity nil nil 1)
+                         :entities #{(->Entity nil nil 2)
+                                     #_(->Entity nil nil 3)}}))))
+
 (defmethod print-method Entity [entity ^java.io.Writer writer]
-  (.write writer (pr-str (into {} entity))))
+  (.write writer  #_"Entity" (pr-str (entity-to-map entity) #_(into {} entity))))
