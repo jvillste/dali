@@ -780,7 +780,6 @@
            btree))
 
 (defn get-node-content [storage storage-key]
-  (prn storage-key)
   (bytes-to-node (storage/get-from-storage! storage
                                             storage-key)))
 

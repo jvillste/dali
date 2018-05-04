@@ -30,10 +30,15 @@
   index)
 
 (defn store-index-roots-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-root]
-  (common/apply-to-indexes db
-                           store-index-root-after-maximum-number-of-transactions
-                           (transaction-log/last-transaction-number (:transaction-log db))
-                           maximum-number-of-transactions-after-previous-root))
+  (if-let [last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))]
+    (-> db
+        (common/apply-to-indexes store-index-root-after-maximum-number-of-transactions
+                                 last-transaction-number
+                                 maximum-number-of-transactions-after-previous-root)
+        (update :transaction-log
+                transaction-log/truncate!
+                last-transaction-number))
+    db))
 
 (defn store-index-roots [db]
   (store-index-roots-after-maximum-number-of-transactions db 0))
@@ -92,7 +97,7 @@
              (value :entity-1 :name)))))
 
 (defn close! [disk-db]
-  (berkeley-db-transaction-log/close! (:transaction-log disk-db)))
+  (transaction-log/close! (:transaction-log disk-db)))
 
 
 ;; test runs

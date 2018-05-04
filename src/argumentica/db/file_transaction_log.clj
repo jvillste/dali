@@ -118,7 +118,7 @@
 
 (defmethod transaction-log/close! FileTransactionLog
   [this]
-  (.close (:output-stream this)))
+  (.close (:output-stream @(:state-atom this))))
 
 (defmethod transaction-log/subseq FileTransactionLog
   [this first-transaction-number]
@@ -147,4 +147,5 @@
                                [2 :name :set "Bar 2"]])
       (transaction-log/add! 2 [[1 :name :set "Baz 1"]]))
 
-    (prn (transaction-log/subseq log 2))))
+    (prn (transaction-log/subseq log 2))
+    (prn (transaction-log/last-transaction-number log))))

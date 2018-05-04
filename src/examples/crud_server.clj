@@ -9,7 +9,8 @@
              [sorted-set-index :as sorted-set-index]]
             [argumentica.db
              [common :as db-common]
-             [server-api :as server-api]]
+             [server-api :as server-api]
+             [file-transaction-log :as file-transaction-log]]
             [clojure
              [string :as string]
              [test :as t]]
@@ -40,7 +41,7 @@
                                                                 :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}
                                                         :full-text {:index (btree-index/create-directory-btree-index (str base-path "/full-text"))
                                                                     :eatcv-to-datoms eatcv-to-full-text-avtec}}
-                                              :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log"))
+                                              :transaction-log (file-transaction-log/create (str base-path "/transaction-log"))
                                               #_(sorted-map-transaction-log/create))))
 
 (defn create-in-memory-db []
@@ -188,7 +189,7 @@
       (let [db (create-directory-btree-db disk-db-directory)]
         (try
           (-> db
-              (add-titles 10)
+              #_(add-titles 10)
               (btree-db/store-index-roots-after-maximum-number-of-transactions 0)
               (db-common/value "tt0000002" :primaryTitle))
           (finally (btree-db/close! db)))))
@@ -197,21 +198,12 @@
       (storage/get-edn-from-storage! "5F260E53A7526D0DCDDDAE26965D0F3207DE37F62FF8C784FC47D1EFACC6F5DF"))
 
   (-> (directory-storage/create (str disk-db-directory "/eatcv/nodes"))
-      (storage/get-edn-from-storage! "F952E0C59044114F10E6CC8440587BE84A8627093FE90DEC2C728506AB9807D4"))
+      (storage/get-edn-from-storage! "FBDC7869347D39568AEBB7D25D768E792965CA3A8C047DA2BD98C24DF95D8000"))
 
   (-> (directory-storage/create (str disk-db-directory "/full-text/nodes"))
       (storage/get-edn-from-storage! "98CB6A20C5B5587691B202AA4E38DE64E12EF9AB1A74D2A6366E3BC49E970004"
                                      #_"FBDC7869347D39568AEBB7D25D768E792965CA3A8C047DA2BD98C24DF95D8000"))
-
-  (fs/mkdirs "data/temp/storage")
-
-  (-> (directory-storage/create "data/temp/storage")
-      (storage/put-edn-to-storage! "key" {:values #{[:directors "nm0005690" 1 "tt0000001" :add] [:directors "nm0005690" 1 "tt0000005" :add] [:directors "nm0005690" 1 "tt0000006" :add] [:directors "nm0005690" 1 "tt0000007" :add] [:directors "nm0005690" 1 "tt0000008" :add] [:directors "nm0085156" 1 "tt0000009" :add] [:directors "nm0374658" 1 "tt0000007" :add] [:directors "nm0525910" 1 "tt0000010" :add] [:directors "nm0721526" 1 "tt0000002" :add] [:directors "nm0721526" 1 "tt0000003" :add] [:directors "nm0721526" 1 "tt0000004" :add] [:endYear "\\N" 0 "tt0000001" :set] [:endYear "\\N" 0 "tt0000002" :set] [:endYear "\\N" 0 "tt0000003" :set] [:endYear "\\N" 0 "tt0000004" :set] [:endYear "\\N" 0 "tt0000005" :set] [:endYear "\\N" 0 "tt0000006" :set] [:endYear "\\N" 0 "tt0000007" :set] [:endYear "\\N" 0 "tt0000008" :set] [:endYear "\\N" 0 "tt0000009" :set] [:endYear "\\N" 0 "tt0000010" :set] [:genres "Animation" 0 "tt0000002" :add] [:genres "Animation" 0 "tt0000003" :add] [:genres "Animation" 0 "tt0000004" :add] [:genres "Comedy" 0 "tt0000003"
- :add] [:genres "Documentary" 0 "tt0000001" :add] [:genres "Documentary" 0 "tt0000008" :add] [:genres "Documentary" 0 "tt0000010" :add] [:genres "Romance" 0 "tt0000003" :add] [:genres "Romance" 0 "tt0000009" :add] [:genres "Short" 0 "tt0000001" :add] [:genres "Short" 0 "tt0000002" :add] [:genres "Short" 0 "tt0000004" :add] [:genres "Short" 0 "tt0000005" :add] [:genres "Short" 0 "tt0000006" :add] [:genres "Short" 0 "tt0000007" :add] [:genres "Short" 0 "tt0000008" :add] [:genres "Short" 0 "tt0000010" :add] [:genres "Sport" 0 "tt0000007" :add] [:isAdult 0 0 "tt0000001" :set] [:isAdult 0 0 "tt0000002" :set] [:isAdult 0 0 "tt0000003" :set] [:isAdult 0 0 "tt0000004" :set] [:isAdult 0 0 "tt0000005" :set] [:isAdult 0 0 "tt0000006" :set] [:isAdult 0 0 "tt0000007" :set] [:isAdult 0 0 "tt0000008" :set] [:isAdult 0 0 "tt0000009" :set] [:isAdult 0 0 "tt0000010" :set] [:originalTitle "Blacksmith Scene" 0 "tt0000005" :set] [:originalTitle "Carmencita" 0 "tt0000001" :set] [:originalTitle "Chinese Opium Den" 0 "tt0000006" :set
-] [:originalTitle "Corbett and Courtney Before the Kinetograph" 0 "tt0000007" :set] [:originalTitle "Edison Kinetoscopic Record of a Sneeze" 0 "tt0000008" :set] [:originalTitle "La sortie de l'usine Lumière à Lyon" 0 "tt0000010" :set] [:originalTitle "Le clown et ses chiens" 0 "tt0000002" :set] [:originalTitle "Miss Jerry" 0 "tt0000009" :set] [:originalTitle "Pauvre Pierrot" 0 "tt0000003" :set] [:originalTitle "Un bon bock" 0 "tt0000004" :set] [:primaryTitle "Blacksmith Scene" 0 "tt0000005" :set] [:primaryTitle "Carmencita" 0 "tt0000001" :set] [:primaryTitle "Chinese Opium Den" 0 "tt0000006" :set] [:primaryTitle "Corbett and Courtney Before the Kinetograph" 0 "tt0000007" :set] [:primaryTitle "Edison Kinetoscopic Record of a Sneeze" 0 "tt0000008" :set] [:primaryTitle "Employees Leaving the Lumière Factory" 0 "tt0000010" :set] [:primaryTitle "Le clown et ses chiens" 0 "tt0000002" :set] [:primaryTitle "Miss Jerry" 0 "tt0000009" :set] [:primaryTitle "Pauvre Pierrot" 0 "tt0000003" :set] [:primaryTitle "Un bon bock
-" 0 "tt0000004" :set] [:runtimeMinutes 1 0 "tt0000001" :set] [:runtimeMinutes 1 0 "tt0000005" :set] [:runtimeMinutes 1 0 "tt0000006" :set] [:runtimeMinutes 1 0 "tt0000007" :set] [:runtimeMinutes 1 0 "tt0000008" :set] [:runtimeMinutes 1 0 "tt0000010" :set] [:runtimeMinutes 4 0 "tt0000003" :set] [:runtimeMinutes 5 0 "tt0000002" :set] [:runtimeMinutes 45 0 "tt0000009" :set] [:runtimeMinutes "\\N" 0 "tt0000004" :set] [:startYear 1892 0 "tt0000002" :set] [:startYear 1892 0 "tt0000003" :set] [:startYear 1892 0 "tt0000004" :set] [:startYear 1893 0 "tt0000005" :set] [:startYear 1894 0 "tt0000001" :set] [:startYear 1894 0 "tt0000006" :set] [:startYear 1894 0 "tt0000007" :set] [:startYear 1894 0 "tt0000008" :set] [:startYear 1894 0 "tt0000009" :set] [:startYear 1895 0 "tt0000010" :set] [:titleType "movie" 0 "tt0000009" :set] [:titleType "short" 0 "tt0000001" :set] [:titleType "short" 0 "tt0000002" :set] [:titleType "short" 0 "tt0000003" :set] [:titleType "short" 0 "tt0000004" :set] [:titleType "short" 0 "tt0000005" :set
-] [:titleType "short" 0 "tt0000006" :set] [:titleType "short" 0 "tt0000007" :set] [:titleType "short" 0 "tt0000008" :set] [:titleType "short" 0 "tt0000010" :set] [:type :title 0 "tt0000001" :set] [:type :title 0 "tt0000002" :set] [:type :title 0 "tt0000003" :set] [:type :title 0 "tt0000004" :set] [:type :title 0 "tt0000005" :set] [:type :title 0 "tt0000006" :set] [:type :title 0 "tt0000007" :set] [:type :title 0 "tt0000008" :set] [:type :title 0 "tt0000009" :set] [:type :title 0 "tt0000010" :set] [:writers "\\N" 1 "tt0000001" :set] [:writers "\\N" 1 "tt0000002" :set] [:writers "\\N" 1 "tt0000003" :set] [:writers "\\N" 1 "tt0000004" :set] [:writers "\\N" 1 "tt0000005" :set] [:writers "\\N" 1 "tt0000006" :set] [:writers "\\N" 1 "tt0000007" :set] [:writers "\\N" 1 "tt0000008" :set] [:writers "\\N" 1 "tt0000010" :set] [:writers "nm0085156" 1 "tt0000009" :set]}})
-      (storage/get-edn-from-storage! "key")))
+  (fs/mkdirs "data/temp/storage"))
 
 
 
