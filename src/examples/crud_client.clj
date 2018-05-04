@@ -33,8 +33,8 @@
 (def magnifying-class (buffered-image/create-from-file (io/resource "magnifying-class.png")))
 
 
-(def font (font/create "LiberationSans-Regular.ttf" #_20 38))
-(def symbol-font (font/create "LiberationSans-Regular.ttf" #_20 58))
+(def font (font/create "LiberationSans-Regular.ttf" 20 #_38))
+(def symbol-font (font/create "LiberationSans-Regular.ttf" 20 #_58))
 
 (defn button-mouse-event-handler [handler node event]
   (when (= :mouse-clicked
@@ -73,8 +73,19 @@
                (layouts/with-minimum-size 300 nil
                  (bare-text-editor id text handle-text-change))))
 
+
+
 (defn property-view [id name value on-text-change]
-  (layouts/box 15
+  (layouts/horizontally-2 {:margin 10
+                           :centered true}
+                          (text/text name
+                                     [0 0 0 255]
+                                     font)
+                          (layouts/with-maximum-size 500 nil
+                            (text-editor id
+                                         (or value "")
+                                         on-text-change)))
+  #_(layouts/box 15
                (visuals/rectangle-2 :corner-arc-radius 60
                                     :fill-color [229 229 229 255])
                (layouts/horizontally-2 {:margin 10
@@ -95,8 +106,12 @@
                    (swap! client-db-atom client-db/transact [[entity-id attribute :set new-text]]))))
 
 (defn entity-editor [id client-db-atom entity-id]
-  (layouts/vertically-2 {}
-                        (property-editor (conj id :name) client-db-atom entity-id :name)))
+  (layouts/box 15
+               (visuals/rectangle-2 :corner-arc-radius 60
+                                    :fill-color [229 229 229 255])
+               (layouts/vertically-2 {}
+                        (property-editor (conj id :name) client-db-atom entity-id :name)
+                        #_(property-editor (conj id :address) client-db-atom entity-id :address))))
 
 (defn entity-list [id client-db-atom]
   (let [state-atom (atom-registry/get! [:state client-db-atom]

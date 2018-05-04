@@ -53,10 +53,9 @@
 
 (defn start []
   
-  (let [db-dir "data/berkeley-db-storage-test"]
-    #_(fs/mkdir db-dir)
-    #_(fs/delete-dir db-dir)
-
+  (let [db-dir "data/temp/berkeley-db-storage-test"]
+    (fs/delete-dir db-dir)
+    (fs/mkdir db-dir)
 
     (let [state (create db-dir
                         "db")]

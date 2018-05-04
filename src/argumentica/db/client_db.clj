@@ -48,6 +48,8 @@
           (common/avtec-datoms-from-avtec (get-in (:local-db client-db) [:indexes :avtec :index])
                                           attribute
                                           value
+                                          (fn [other-value]
+                                            (= value other-value))
                                           nil)))
 
 (defn entities [client-db attribute value]

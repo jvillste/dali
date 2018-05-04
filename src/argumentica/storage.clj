@@ -23,6 +23,7 @@
     (type storage)))
 
 
+
 (defn edn-to-byte-array [edn]
   (zip/compress-byte-array (.getBytes (pr-str edn)
                                       "UTF-8")))
@@ -33,10 +34,16 @@
     key
     (pr-str key)))
 
+(defn edn-to-bytes [edn]
+  (prn "edn-to-bytes" edn)
+  (nippy/freeze edn))
+
 (defn put-edn-to-storage! [storage key edn]
+  (prn "put-edn-to-storage!" key edn)
   (put-to-storage! storage
                    (key-to-storage-key key)
-                   (edn-to-byte-array edn)))
+                   (edn-to-bytes edn)
+                   #_(edn-to-byte-array edn)))
 
 (defn safely-read-string [string]
   (binding [*read-eval* false]
@@ -51,7 +58,7 @@
              "UTF-8"))
 
 (defn byte-array-to-edn [byte-array]
-  (try 
+  (try
     (safely-read-string (String. (zip/uncompress-byte-array byte-array)
                                  "UTF-8"))
     (catch Exception e
@@ -59,18 +66,14 @@
                     "UTF-8"))
       (throw e))))
 
+(defn bytes-to-edn [bytes]
+  (nippy/thaw bytes))
+
 (defn get-edn-from-storage! [storage key]
   (if-let [byte-array (get-from-storage! storage
                                          (key-to-storage-key key))]
-    (byte-array-to-edn byte-array)
+    (bytes-to-edn #_byte-array-to-edn byte-array)
     nil))
-
-
-(defn edn-to-bytes [edn]
-  (nippy/freeze edn))
-
-(defn bytes-to-edn [bytes]
-  (nippy/thaw bytes))
 
 (comment
   (count (nippy/thaw (nippy/freeze [(java.util.UUID/randomUUID) :friend 120 :set (java.util.UUID/randomUUID)]))))

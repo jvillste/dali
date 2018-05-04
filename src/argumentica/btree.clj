@@ -22,7 +22,7 @@
 
 
 (defn create-node []
-  {:values (sorted-set)})
+  {:values (sorted-set-by comparator/cc-cmp)})
 
 (defn full-after-maximum-number-of-values [maximum]
   (assert (odd? maximum)
@@ -596,7 +596,7 @@
 
 
 (defn node-to-bytes [node]
-  (storage/edn-to-byte-array node))
+  (storage/edn-to-bytes node))
 
 (comment
   (node-to-bytes {:a :b})
@@ -607,7 +607,7 @@
 
 
 (defn bytes-to-node [byte-array]
-  (-> (storage/byte-array-to-edn byte-array)
+  (-> (storage/bytes-to-edn byte-array)
       (update :values
               (fn [values]
                 (into (sorted-set)
@@ -638,13 +638,15 @@
     (when (not (storage/storage-contains? (:metadata-storage btree)
                                           the-storage-key))
       
+      (println "put metadata to storage")
       (storage/put-edn-to-storage! (:metadata-storage btree)
                                    the-storage-key
                                    (conj (select-keys the-node
                                                       [:child-ids])
                                          {:value-count (count (:values the-node))
                                           :storage-byte-count (count bytes)}))
-      
+
+      (println "put node to storage")
       (storage/put-to-storage! (:node-storage btree)
                                the-storage-key
                                bytes))
@@ -778,6 +780,7 @@
            btree))
 
 (defn get-node-content [storage storage-key]
+  (prn storage-key)
   (bytes-to-node (storage/get-from-storage! storage
                                             storage-key)))
 

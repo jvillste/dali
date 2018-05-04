@@ -1,6 +1,7 @@
 (ns argumentica.db.common
   (:require [clojure.string :as string]
             [clojure.set :as set]
+            [flatland.useful.map :as map]
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [index :as index]))
@@ -215,22 +216,15 @@
                                            [entity-id attribute 0 nil nil])))
 
 
-
-(defn avt-matches [attribute value transaction-comparator latest-transaction-number]
+(defn avt-matches [attribute value-predicate transaction-comparator latest-transaction-number]
   (fn [[a v t e c]]
     (and (= a attribute)
-         (= v value)
+         (value-predicate v)
          (if latest-transaction-number
            (transaction-comparator t latest-transaction-number)
            true))))
 
-(defn avtec-datoms-from-avtec [avtec attribute value latest-transaction-number]
-  (take-while (avt-matches attribute
-                           value
-                           <=
-                           latest-transaction-number)
-              (index/inclusive-subsequence avtec
-                                           [attribute value 0 nil nil])))
+
 
 (defn accumulate-entities [entities avtec-datom]
   (case (avtec-command avtec-datom)
@@ -244,11 +238,39 @@
           #{}
           datoms))
 
+
+
+(defn avtec-datoms-from-avtec [avtec attribute value value-predicate latest-transaction-number]
+  (take-while (avt-matches attribute
+                           value-predicate
+                           <=
+                           latest-transaction-number)
+              (index/inclusive-subsequence avtec
+                                           [attribute value 0 nil nil])))
+
 (defn entities [db attribute value]
   (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
                                                        attribute
                                                        value
+                                                       (fn [other-value]
+                                                         (= other-value
+                                                            value))
                                                        nil)))
+
+(defn all-avtec-datoms-from-avtec-2 [avtec attribute value value-predicate latest-transaction-number]
+  (take-while (avt-matches attribute
+                           value-predicate
+                           <=
+                           latest-transaction-number)
+              (index/inclusive-subsequence avtec
+                                           [attribute value 0 nil nil])))
+
+(defn entities-2 [avtec-index attribute value value-predicate]
+  (entities-from-avtec-datoms (all-avtec-datoms-from-avtec-2 avtec-index
+                                                             attribute
+                                                             value
+                                                             value-predicate
+                                                             nil)))
 
 (defn eat-datoms-in-reverse-from-eatcv [eatcv entity-id attribute latest-transaction-number]
   (take-while (eat-matches entity-id
@@ -451,9 +473,9 @@
 (defn entity-value-from-values [db schema attribute values]
   (cond (and (-> schema attribute :multivalued?)
              (-> schema attribute :reference?))
-        (map (fn [value]
-               (->Entity db schema value))
-             values)
+        (into #{} (map (fn [value]
+                        (->Entity db schema value))
+                      values))
 
         (and (not (-> schema attribute :multivalued?))
              (-> schema attribute :reference?))
@@ -532,22 +554,27 @@
 (defn entity? [value]
   (= Entity (class value)))
 
+(deftest test-entity?
+  (is (entity? (Entity. nil nil nil)))
+  (is (not (entity? 1)))
+  (is (not (entity? "Foo"))))
+
 (defn entity-to-map [entity]
-  (into {} (map (fn [[key value]]
-                  [key
-                   (if (= (entity? value))
-                     (:entity/id value)
-                     (if true #_(and (set? value)
-                              (entity? (first value)))
-                       "foo"#_(clojure.core/set (map :entity/id value))
-                       value))])
-                entity)))
+  (map/map-vals entity
+                (fn [value]
+                  (if (entity? value)
+                    (:entity/id value)
+                    (if (and (set? value)
+                             (entity? (first value)))
+                      (into #{} (map :entity/id value))
+                      value)))))
 
 (deftest test-entity-to-map
-  (is (= nil
-         (entity-to-map {:entity (->Entity nil nil 1)
+  (is (= {:name "Foo", :entity 1, :entities #{3 2}}
+         (entity-to-map {:name "Foo"
+                         :entity (->Entity nil nil 1)
                          :entities #{(->Entity nil nil 2)
-                                     #_(->Entity nil nil 3)}}))))
+                                     (->Entity nil nil 3)}}))))
 
 (defmethod print-method Entity [entity ^java.io.Writer writer]
-  (.write writer  #_"Entity" (pr-str (entity-to-map entity) #_(into {} entity))))
+  (.write writer  (pr-str (entity-to-map entity))))

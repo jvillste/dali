@@ -96,34 +96,30 @@
 
 
 ;; test runs
+(def disk-db-directory "data/imdbdb")
 
 (defn- write-disk-db [statements]
-  (let [db (create-directory-btree-db "data/db")]
+  (let [db (create-directory-btree-db disk-db-directory)]
     (try
       (transact db statements)
+      #_(store-index-roots-after-maximum-number-of-transactions db 0)
       (finally
         (close! db)))))
 
 (defn- read-disk-db []
-  (let [db (create-directory-btree-db "data/db")]
+  (let [db (create-directory-btree-db disk-db-directory)]
     (try
       (value db :entity-1 :name)
       (finally
         (close! db)))))
 
 (defn- flush-disk-db []
-  (let [db (create-directory-btree-db "data/db")]
+  (let [db (create-directory-btree-db disk-db-directory)]
     (try
       (store-index-roots-after-maximum-number-of-transactions db 0)
       (finally
         (close! db)))))
 
-(comment
-  (import [java.nio.file Files Paths])
-  (storage/byte-array-to-edn (Files/readAllBytes (Paths/get "data/db/metadata/roots"
-                                                            #_"data/db/metadata/2F765674B333B1C14B03B28CCE08706C338F9C945B2E1CC5622E72BD6F3F8413"
-                                                            #_"data/db/nodes/2F765674B333B1C14B03B28CCE08706C338F9C945B2E1CC5622E72BD6F3F8413"
-                                                            (into-array String [])))))
 
 (defn- start []
   #_(fs/delete-dir "data/db")
@@ -131,4 +127,6 @@
 
   #_(write-disk-db [(common/set-statement :enitty-1 :name "Bar")])
   #_(flush-disk-db)
+  #_(-> (directory-storage/create "data/db/nodes")
+      (storage/get-edn-from-storage! "151B32735139E469E921267A6A9C9B9B08EC6E726C90A778A0D854207E7454B3"))
   (read-disk-db))

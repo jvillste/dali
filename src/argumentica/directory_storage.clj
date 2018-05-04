@@ -31,6 +31,7 @@
 (defmethod storage/put-to-storage!
   DirectoryStorage
   [this key bytes]
+  (prn "directory-storage/put-to-storage!" (:path this) key)
   (Files/write (key-path this key)
                bytes
                (into-array OpenOption []))

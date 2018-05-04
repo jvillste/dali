@@ -9,13 +9,22 @@
 
 (def database-name "log")
 
-(defn create [directory-path]
-  (fs/mkdir directory-path)
+(defn open [directory-path]
   (->BerkeleyDbTransactionLog (atom (-> (berkeley-db/create directory-path)
                                         (berkeley-db/open-database database-name)))))
 
+(defn create [directory-path]
+  (when (not (fs/exists? directory-path))
+    (fs/mkdir directory-path))
+  (Thread/sleep 1000)
+  (open directory-path))
+
 (defn close! [berkeley-db-transaction-log]
-  (berkeley-db/close @(:state-atom berkeley-db-transaction-log)))
+  (berkeley-db/close @(:state-atom berkeley-db-transaction-log))
+  berkeley-db-transaction-log)
+
+(comment (-> (create "data/test2")
+             (close!)))
 
 (defmethod transaction-log/add! BerkeleyDbTransactionLog
   [this transaction-number statements]
@@ -41,11 +50,11 @@
 (defmethod transaction-log/last-transaction-number BerkeleyDbTransactionLog
   [this]
   (first (berkeley-db/transduce-keyvalues @(:state-atom this)
-                                    database-name
-                                    :get-type :last
-                                    :transducer (map (fn [[key-bytes value-bytes]]
-                                                       (berkeley-db/entry-bytes-to-big-integer key-bytes)))
-                                    :reducer conj)))
+                                          database-name
+                                          :get-type :last
+                                          :transducer (map (fn [[key-bytes value-bytes]]
+                                                             (berkeley-db/entry-bytes-to-big-integer key-bytes)))
+                                          :reducer conj)))
 
 (comment
 
@@ -57,15 +66,16 @@
 (defn start []
 
 
-  (let [state (-> (create "data/log"))]
+  (let [state (-> (create "data/log2"))]
     (try
-      #_(transaction-log/subseq state
-                              1)
-      (transaction-log/last-transaction-number state)
+      #_(transaction-log/last-transaction-number state)
 
-      #_(transaction-log/add! state
-                              1
-                              [[1 :friend 1 :add 2]])
+      (transaction-log/add! state
+                            1
+                            [[1 :friend 1 :add 2]])
+
+      (transaction-log/subseq state
+                              1)
 
       #_(transaction-log/add! state
                               2

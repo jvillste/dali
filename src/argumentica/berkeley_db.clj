@@ -199,7 +199,7 @@
                []
                [1 2 3])
 
-  (let [state (-> (create "data/log")
+  (let [state (-> (create "data/log2")
                   (open-database "log"))]
     (try
       (transduce-keyvalues state
@@ -207,7 +207,7 @@
 
                            :transducer (comp (map first)
                                              #_(map type)
-                                             (map argumentica.storage/bytes-to-edn))
+                                             #_(map argumentica.storage/bytes-to-edn))
                            :reducer conj
                            :get-type :first
                            )
@@ -239,7 +239,7 @@
   (fs/delete-dir "data/berkeley")
 
   (let [state (-> (create "data/berkeley2")
-                        (open-database "db"))
+                  (open-database "db"))
         value-bytes (get state
                          "db"
                          (.getBytes "foo2"
@@ -252,15 +252,15 @@
     value)
 
   (let [state (-> (create "data/berkeley2")
-                        (open-database "db"))]
+                  (open-database "db"))]
 
-    (put state
-         "db"
-         (.getBytes "foo2"
-                    "UTF-8")
+    (put! state
+          "db"
+          (.getBytes "foo2"
+                     "UTF-8")
 
-         (.getBytes "bar"
-                    "UTF-8"))
+          (.getBytes "bar"
+                     "UTF-8"))
 
     (close state))
 

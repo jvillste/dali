@@ -77,11 +77,15 @@
   (concat (common/avtec-datoms-from-avtec (get-in server-btree-db [:indexes :avtec :remote-index :index])
                                           attribute
                                           value
+                                          (fn [other-value]
+                                            (= value other-value))
                                           (:last-indexed-transaction-number server-btree-db))
 
           (common/avtec-datoms-from-avtec (get-in server-btree-db [:indexes :avtec :local-index :index])
                                           attribute
                                           value
+                                          (fn [other-value]
+                                            (= value other-value))
                                           (:last-indexed-transaction-number server-btree-db))))
 
 (defn entities [server-btree-db attribute value]
