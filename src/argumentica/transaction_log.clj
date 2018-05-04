@@ -6,6 +6,9 @@
 (defmulti truncate! (fn [log first-transaction-number-to-preserve]
                       (type log)))
 
+(defmulti close! (fn [log]
+                  (type log)))
+
 (defmulti subseq (fn [log first-transaction-number]
                    (type log)))
 

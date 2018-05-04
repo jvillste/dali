@@ -1,4 +1,4 @@
-(ns argumentica.db.directory-transaction-log
+(ns argumentica.db.file-transaction-log
   (:require (argumentica [transaction-log :as transaction-log])
             [me.raynes.fs :as fs]
             [clojure.java.io :as io]
@@ -9,7 +9,10 @@
   (:use clojure.test))
 
 
-(defrecord FileTransactionLog [log-file-path state-atom])
+(defrecord FileTransactionLog [log-file-path state-atom]
+  java.io.Closeable
+  (close [this]
+    (.close (:output-stream @state-atom))))
 
 (defn log-to-string [log]
   (string/join "\n"
@@ -41,15 +44,16 @@
   (->FileTransactionLog log-file-path
                         (atom {:in-memory-log (if (fs/exists? log-file-path)
                                                 (read-and-fix-log! log-file-path)
-                                                (sorted-map))})))
+                                                (sorted-map))
+                               :output-stream (io/output-stream log-file-path)})))
 
-(defn write-to-log-file! [log-file-path transaction-number statements]
-  (spit log-file-path
-        (prn-str [transaction-number statements])
-        :append true))
+(defn write-to-log-file! [output-stream transaction-number statements]
+  (.write output-stream
+          (.getBytes (prn-str [transaction-number statements])
+                     "UTF-8")))
 
-(defn add-transaction! [state log-file-path transaction-number statements]
-  (write-to-log-file! log-file-path
+(defn add-transaction! [state transaction-number statements]
+  (write-to-log-file! (:output-stream state)
                       transaction-number
                       statements)
   (update state
@@ -84,11 +88,13 @@
 (defn truncate! [state log-file-path first-preserved-transaction-number]
   (let [truncated-log (truncate-sorted-map (:in-memory-log state)
                                            first-preserved-transaction-number)]
-
+    (.close (:output-stream state))
     (reset-log-file! log-file-path truncated-log)
-    (assoc state :in-memory-log truncated-log)))
+    (assoc state
+           :in-memory-log truncated-log
+           :output-stream (io/output-stream log-file-path))))
 
-(defn synchronously-apply-to-state [file-transaction-log function & arguments]
+(defn synchronously-apply-to-state! [file-transaction-log function & arguments]
   (locking (:state-atom file-transaction-log)
     (apply swap!
            (:state-atom file-transaction-log)
@@ -98,18 +104,21 @@
 
 (defmethod transaction-log/truncate! FileTransactionLog
   [this first-preserved-transaction-number]
-  (synchronously-apply-to-state this
-                                truncate!
-                                (:log-file-path this)
-                                first-preserved-transaction-number))
+  (synchronously-apply-to-state! this
+                                 truncate!
+                                 (:log-file-path this)
+                                 first-preserved-transaction-number))
 
 (defmethod transaction-log/add! FileTransactionLog
   [this transaction-number statements]
-  (synchronously-apply-to-state this
-                                add-transaction!
-                                (:log-file-path this)
-                                transaction-number
-                                statements))
+  (synchronously-apply-to-state! this
+                                 add-transaction!
+                                 transaction-number
+                                 statements))
+
+(defmethod transaction-log/close! FileTransactionLog
+  [this]
+  (.close (:output-stream this)))
 
 (defmethod transaction-log/subseq FileTransactionLog
   [this first-transaction-number]
@@ -122,6 +131,7 @@
   (first (last (:in-memory-log @(:state-atom this)))))
 
 
+
 (comment
   (write-to-log-file! "data/temp/log"
                       3
@@ -130,11 +140,11 @@
   (read-and-fix-log! "data/temp/log")
 
 
-  (-> (create "data/temp/log")
+  (with-open [log (create "data/temp/log")]
+    (doto log
       (transaction-log/truncate! 30)
       (transaction-log/add! 1 [[1 :name :set "Bar 1"]
                                [2 :name :set "Bar 2"]])
-      (transaction-log/add! 2 [[1 :name :set "Baz 1"]])
-      (transaction-log/subseq 2))
+      (transaction-log/add! 2 [[1 :name :set "Baz 1"]]))
 
-  )
+    (prn (transaction-log/subseq log 2))))
