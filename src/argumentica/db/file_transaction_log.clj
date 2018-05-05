@@ -45,7 +45,8 @@
                         (atom {:in-memory-log (if (fs/exists? log-file-path)
                                                 (read-and-fix-log! log-file-path)
                                                 (sorted-map))
-                               :output-stream (io/output-stream log-file-path)})))
+                               :output-stream (io/output-stream log-file-path
+                                                                :append true)})))
 
 (defn write-to-log-file! [output-stream transaction-number statements]
   (.write output-stream
@@ -53,9 +54,10 @@
                      "UTF-8")))
 
 (defn add-transaction! [state transaction-number statements]
-  (write-to-log-file! (:output-stream state)
-                      transaction-number
-                      statements)
+  (when (not (:is-transient? state))
+    (write-to-log-file! (:output-stream state)
+                        transaction-number
+                        statements))
   (update state
           :in-memory-log
           assoc
@@ -88,11 +90,14 @@
 (defn truncate! [state log-file-path first-preserved-transaction-number]
   (let [truncated-log (truncate-sorted-map (:in-memory-log state)
                                            first-preserved-transaction-number)]
-    (.close (:output-stream state))
-    (reset-log-file! log-file-path truncated-log)
-    (assoc state
-           :in-memory-log truncated-log
-           :output-stream (io/output-stream log-file-path))))
+    (when (not (:is-transient? state))
+      (.close (:output-stream state))
+      (reset-log-file! log-file-path truncated-log))
+
+    (-> state
+        (assoc :in-memory-log truncated-log)
+        (cond-> (:is-transient? state)
+          (assoc  :output-stream (io/output-stream log-file-path :append true))))))
 
 (defn synchronously-apply-to-state! [file-transaction-log function & arguments]
   (locking (:state-atom file-transaction-log)
@@ -116,9 +121,16 @@
                                  transaction-number
                                  statements))
 
+(defn close! [file-transaction-log]
+  (if (not (transient? file-transaction-log))
+    (.close (:output-stream @(:state-atom file-transaction-log)))))
+
+(defn transient? [file-transaction-log]
+  (:is-transient? @(:state-atom file-transaction-log)))
+
 (defmethod transaction-log/close! FileTransactionLog
   [this]
-  (.close (:output-stream @(:state-atom this))))
+  (close! this))
 
 (defmethod transaction-log/subseq FileTransactionLog
   [this first-transaction-number]
@@ -130,7 +142,26 @@
   [this]
   (first (last (:in-memory-log @(:state-atom this)))))
 
+(defn make-transient! [file-transaction-log]
+  (assert (not (transient? file-transaction-log)))
 
+  (synchronously-apply-to-state! file-transaction-log
+                                 (fn [state]
+                                   (close! file-transaction-log)
+                                   (fs/delete (:log-file-path file-transaction-log))
+                                   (assoc state :is-transient? true))))
+
+(defn make-persistent! [file-transaction-log]
+  (assert (transient? file-transaction-log))
+
+  (synchronously-apply-to-state! file-transaction-log
+                                 (fn [state]
+                                   (reset-log-file! (:log-file-path file-transaction-log)
+                                                    (:in-memory-log state))
+                                   (assoc state
+                                          :is-transient? false
+                                          :output-stream (io/output-stream (:log-file-path file-transaction-log)
+                                                                           :append true)))))
 
 (comment
   (write-to-log-file! "data/temp/log"
@@ -142,10 +173,13 @@
 
   (with-open [log (create "data/temp/log")]
     (doto log
-      (transaction-log/truncate! 30)
+      (make-transient!)
       (transaction-log/add! 1 [[1 :name :set "Bar 1"]
                                [2 :name :set "Bar 2"]])
-      (transaction-log/add! 2 [[1 :name :set "Baz 1"]]))
+      (transaction-log/add! 2 [[1 :name :set "Baz 1"]])
+      (transaction-log/truncate! 2)
+      (transaction-log/add! 3 [[1 :name :set "Foo 2"]])
+      (make-persistent!))
 
     (prn (transaction-log/subseq log 2))
     (prn (transaction-log/last-transaction-number log))))
