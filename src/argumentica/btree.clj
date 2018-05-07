@@ -19,10 +19,11 @@
            [java.nio.file.attribute FileAttribute]))
 
 
-
+(defn create-sorted-set []
+  (sorted-set-by comparator/cc-cmp))
 
 (defn create-node []
-  {:values (sorted-set-by comparator/cc-cmp)})
+  {:values (create-sorted-set)})
 
 (defn full-after-maximum-number-of-values [maximum]
   (assert (odd? maximum)
@@ -126,11 +127,11 @@
 
 (defn split-sorted-set [source-sorted-set]
   (let [median-value (median-value (vec source-sorted-set))]
-    {:lesser-values (into (sorted-set)
+    {:lesser-values (into (create-sorted-set)
                           (subseq source-sorted-set
                                   <
                                   median-value))
-     :greater-values (into (sorted-set)
+     :greater-values (into (create-sorted-set)
                            (subseq source-sorted-set
                                    >
                                    median-value))
@@ -637,7 +638,6 @@
 
     (when (not (storage/storage-contains? (:metadata-storage btree)
                                           the-storage-key))
-      
       (println "put metadata to storage")
       (storage/put-edn-to-storage! (:metadata-storage btree)
                                    the-storage-key
@@ -705,11 +705,11 @@
                              3 {:values #{4}},
                              12 {:values #{4}},
                              11 {:values #{2}},
-                             5 {:child-ids ["796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C" 6], :values #{3}},
+                             5 {:child-ids [match/any-string 6], :values #{3}},
                              14 {:child-ids [10 15], :values #{3}},
                              16 {:values #{9 8}},
-                             10 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04" 11], :values #{1}},
-                             8 {:child-ids ["C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04" "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"], :values #{1}}},
+                             10 {:child-ids [match/any-string 11], :values #{1}},
+                             8 {:child-ids [match/any-string match/any-string], :values #{1}}},
                             :root-id 14,
                             :usages {7 16, 4 14, 15 30, 13 31, 6 13, 3 9, 12 26, 11 23, 5 12, 14 29, 16 33, 10 20},
                             :next-usage-number 34}
@@ -1504,31 +1504,6 @@
                                             storage-key)))
             root-key))
 
-(deftest test-storage-keys-from-stored-nodes
-  (is (= '("F9BB95AB72D53E649CBBF11393513766328FEC2854368CDF711BE0D9A0F7E50E"
-           "FC1BA555525A5BD07E5BF7F3A2F22D8DD9CC8F513E39933390A7CD5487E8B88D"
-           "796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C"
-           "C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
-           "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"
-           "1552ED8E39B3FF5EFF43E9D33F8312274F898739862A72A46557E53EF163CA0F"
-           "3383407D43C265C4D7E89F4AAE7AFFF0A7F34FB03480991ABD3552DF30F5780C"
-           "42521C364179D339A1D113688F7BE4E72D8AC5D4E10C10987B441847E9DACE45"
-           "3BE0B4C1B1B8AC80DE2624E516AEFC08E89B274BDCD332EFE687E244454EEADC"
-           "07827984EDC3C50B0F822622D379F5910F3FBA61F876DAB141A9006DA9D5C52F"
-           "E06A1920A38B07A5AA2096886C5F0E136DDCBF1A42C38CF2E895EECB769BD410"
-           "07C6028CA1B9FD0A62A622EC3AFAF75FADB678E1873BA017F601E5C17908DFDC"
-           "186882D1FB0CA8B418C7B8B0BB1111D155ECABA205B05DCE074C6E8506B3B007"
-           "32F8379E24C819D47612AFCA7EEB6979D3DC58518BE5E818375EACCF589620FE"
-           "BF1712D67656931C4CCC1AFFB6B9198A9A54389DDDD92F9650C088EBC6249EF9"
-           "36BDF55B4AF483308E6FCB89F07844F10CF52914F667560A22BF3CDFCD877AFB"
-           "5252BDB24DC15231B0F868D3EEB70E094AC5A95E4382E3C3CC6D469CECFFBC0A")
-         (let [btree (unload-btree (reduce add
-                                           (create (full-after-maximum-number-of-values 3))
-                                           (range 20)))]
-
-           (storage-keys-from-stored-nodes (:node-storage btree)
-                                           (:root-id btree))))))
-
 
 (defn storage-keys-from-metadata [metadata-storage root-key]
   (tree-seq (fn [storage-key]
@@ -1539,30 +1514,17 @@
                                                          storage-key)))
             root-key))
 
-(deftest test-storage-keys-from-metadata
-  (is (= '("F9BB95AB72D53E649CBBF11393513766328FEC2854368CDF711BE0D9A0F7E50E"
-           "FC1BA555525A5BD07E5BF7F3A2F22D8DD9CC8F513E39933390A7CD5487E8B88D"
-           "796AD3EEF52891C9000283476C05418E626F8DB78CB80177180D0A33831EFC8C"
-           "C657A0DE1F4454290D14CAD2FC6472174DB247A474DC4AC7ED71F53D0669CE04"
-           "61C88379F997BA90CA05A124B47C52FB60649D0A281EC1892F2482D3BFFC4FFE"
-           "1552ED8E39B3FF5EFF43E9D33F8312274F898739862A72A46557E53EF163CA0F"
-           "3383407D43C265C4D7E89F4AAE7AFFF0A7F34FB03480991ABD3552DF30F5780C"
-           "42521C364179D339A1D113688F7BE4E72D8AC5D4E10C10987B441847E9DACE45"
-           "3BE0B4C1B1B8AC80DE2624E516AEFC08E89B274BDCD332EFE687E244454EEADC"
-           "07827984EDC3C50B0F822622D379F5910F3FBA61F876DAB141A9006DA9D5C52F"
-           "E06A1920A38B07A5AA2096886C5F0E136DDCBF1A42C38CF2E895EECB769BD410"
-           "07C6028CA1B9FD0A62A622EC3AFAF75FADB678E1873BA017F601E5C17908DFDC"
-           "186882D1FB0CA8B418C7B8B0BB1111D155ECABA205B05DCE074C6E8506B3B007"
-           "32F8379E24C819D47612AFCA7EEB6979D3DC58518BE5E818375EACCF589620FE"
-           "BF1712D67656931C4CCC1AFFB6B9198A9A54389DDDD92F9650C088EBC6249EF9"
-           "36BDF55B4AF483308E6FCB89F07844F10CF52914F667560A22BF3CDFCD877AFB"
-           "5252BDB24DC15231B0F868D3EEB70E094AC5A95E4382E3C3CC6D469CECFFBC0A")
-         (let [btree (unload-btree (reduce add
-                                           (create-from-options :full? (full-after-maximum-number-of-values 3))
-                                           (range 20)))]
-
-           (storage-keys-from-metadata (:metadata-storage btree)
-                                       (:root-id btree))))))
+(deftest test-storage-keys-from-metadata-and-stored-nodes
+  (let [btree (unload-btree (reduce add
+                                    (create-from-options :full? (full-after-maximum-number-of-values 3))
+                                    (range 20)))
+        the-storage-keys-from-metadata (storage-keys-from-metadata (:metadata-storage btree)
+                                                                   (:root-id btree))]
+    (is (= 17 (count the-storage-keys-from-metadata)))
+    (is (every? string? the-storage-keys-from-metadata))
+    (is (= the-storage-keys-from-metadata
+           (storage-keys-from-stored-nodes (:node-storage btree)
+                                           (:root-id btree))))))
 
 (defn get-metadata [btree key]
   (storage/get-edn-from-storage! (:metadata-storage btree)
@@ -1588,7 +1550,7 @@
        (used-storage-keys btree)))
 
 (deftest test-stored-node-sizes
-  (is (= '(219 138 23 23 26 139 138 23 22 138 22 138 137 23 22 22 22)
+  (is (= '(21 21 21 165 165 21 302 21 165 23 21 165 21 165 21 165 20)
          (stored-node-sizes (store-root (reduce add
                                                 (create-from-options :full? (full-after-maximum-number-of-values 3))
                                                 (range 20))
