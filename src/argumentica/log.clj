@@ -23,8 +23,8 @@
 
 (defmacro log-result [message & body]
   `(let [result# (do ~@body)]
-     (write message (cut-string-to-max-length (pr-str result#)
-                                                      300))
+     (write ~message (cut-string-to-max-length (pr-str result#)
+                                               300))
      result#))
 
 (defmacro with-exception-logging [& body]

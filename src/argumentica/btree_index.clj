@@ -26,16 +26,21 @@
   BtreeIndex
   [this value]
   (swap-btree! this
-               btree/add 
+               btree/add
                value))
 
-(defn create-directory-btree-index [base-path]
-  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
-                                                 :node-storage (directory-storage/create (str base-path "/nodes"))))))
+(defn create [btree]
+  (->BtreeIndex (atom btree)))
 
-(defn create-memory-btree-index []
+(defn create-directory-btree-index [base-path node-size]
+  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
+                                                 :node-storage (directory-storage/create (str base-path "/nodes"))
+                                                 :full? (btree/full-after-maximum-number-of-values node-size)))))
+
+(defn create-memory-btree-index [node-size]
   (->BtreeIndex (atom (btree/create-from-options :metadata-storage (hash-map-storage/create)
-                                                 :node-storage (hash-map-storage/create)))))
+                                                 :node-storage (hash-map-storage/create)
+                                                 :full? (btree/full-after-maximum-number-of-values node-size)))))
 
 (defn create-memory-btree-index-from-btree-index [btree-index]
   (->BtreeIndex (atom (btree/create-from-options :metadata-storage (-> btree-index :btree-index-atom deref :metadata-storage)

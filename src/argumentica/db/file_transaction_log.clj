@@ -3,7 +3,8 @@
             [me.raynes.fs :as fs]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
-            [clojure.string :as string])
+            [clojure.string :as string]
+            [argumentica.util :as util])
   (:import [java.nio.file Files Paths OpenOption LinkOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
@@ -64,19 +65,6 @@
           transaction-number
           statements))
 
-(defn truncate-sorted-map [the-sorted-map first-preserved-key]
-  (apply sorted-map (apply concat (filter (fn [[key _value]]
-                                            (<= first-preserved-key
-                                                key))
-                                          the-sorted-map))))
-
-(deftest test-truncate-sorted-map
-  (is (= {2 :2
-          3 :3}
-         (truncate-sorted-map (sorted-map 1 :1 2 :2 3 :3)
-                              2))))
-
-
 
 (deftest test-log-to-string
   (is (= "[1 [[1 :name :set \"Foo 1\"] [2 :name :set \"Foo 2\"]]]\n[2 [[1 :name :set \"Bar 1\"] [2 :name :set \"Bar 2\"]]]"
@@ -88,8 +76,10 @@
 
 
 (defn truncate! [state log-file-path first-preserved-transaction-number]
-  (let [truncated-log (truncate-sorted-map (:in-memory-log state)
-                                           first-preserved-transaction-number)]
+  (let [truncated-log (util/filter-sorted-map-keys (:in-memory-log state)
+                                                   (fn [transaction-number]
+                                                     (<= first-preserved-transaction-number
+                                                         transaction-number)))]
     (when (not (:is-transient? state))
       (.close (:output-stream state))
       (reset-log-file! log-file-path truncated-log))
@@ -121,12 +111,14 @@
                                  transaction-number
                                  statements))
 
-(defn close! [file-transaction-log]
-  (if (not (transient? file-transaction-log))
-    (.close (:output-stream @(:state-atom file-transaction-log)))))
+
 
 (defn transient? [file-transaction-log]
   (:is-transient? @(:state-atom file-transaction-log)))
+
+(defn close! [file-transaction-log]
+  (if (not (transient? file-transaction-log))
+    (.close (:output-stream @(:state-atom file-transaction-log)))))
 
 (defmethod transaction-log/close! FileTransactionLog
   [this]
@@ -142,7 +134,8 @@
   [this]
   (first (last (:in-memory-log @(:state-atom this)))))
 
-(defn make-transient! [file-transaction-log]
+(defmethod transaction-log/make-transient! FileTransactionLog
+  [file-transaction-log]
   (assert (not (transient? file-transaction-log)))
 
   (synchronously-apply-to-state! file-transaction-log
@@ -151,7 +144,8 @@
                                    (fs/delete (:log-file-path file-transaction-log))
                                    (assoc state :is-transient? true))))
 
-(defn make-persistent! [file-transaction-log]
+(defmethod transaction-log/make-persistent! FileTransactionLog
+  [file-transaction-log]
   (assert (transient? file-transaction-log))
 
   (synchronously-apply-to-state! file-transaction-log
@@ -173,13 +167,13 @@
 
   (with-open [log (create "data/temp/log")]
     (doto log
-      (make-transient!)
+      (transaction-log/make-transient!)
       (transaction-log/add! 1 [[1 :name :set "Bar 1"]
                                [2 :name :set "Bar 2"]])
       (transaction-log/add! 2 [[1 :name :set "Baz 1"]])
       (transaction-log/truncate! 2)
       (transaction-log/add! 3 [[1 :name :set "Foo 2"]])
-      (make-persistent!))
+      (transaction-log/make-persistent!))
 
     (prn (transaction-log/subseq log 2))
     (prn (transaction-log/last-transaction-number log))))

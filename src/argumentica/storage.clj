@@ -35,11 +35,9 @@
     (pr-str key)))
 
 (defn edn-to-bytes [edn]
-  (prn "edn-to-bytes" edn)
   (nippy/freeze edn))
 
 (defn put-edn-to-storage! [storage key edn]
-  (prn "put-edn-to-storage!" key edn)
   (put-to-storage! storage
                    (key-to-storage-key key)
                    (edn-to-bytes edn)
@@ -67,6 +65,7 @@
       (throw e))))
 
 (defn bytes-to-edn [bytes]
+  (prn bytes)
   (nippy/thaw bytes))
 
 (defn get-edn-from-storage! [storage key]

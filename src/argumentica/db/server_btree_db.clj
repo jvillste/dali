@@ -62,12 +62,12 @@
   (concat (common/eat-datoms-from-eatcv (get-in server-btree-db [:indexes :eatcv :remote-index :index])
                                         entity-id
                                         attribute
-                                        (:last-indexed-transaction-number server-btree-db))
+                                        nil #_(:last-indexed-transaction-number server-btree-db))
 
           (common/eat-datoms-from-eatcv (get-in server-btree-db [:indexes :eatcv :local-index :index])
                                         entity-id
                                         attribute
-                                        (:last-indexed-transaction-number server-btree-db))))
+                                        nil #_(:last-indexed-transaction-number server-btree-db))))
 
 
 (defn value [server-btree-db entity-id attribute]

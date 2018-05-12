@@ -20,7 +20,9 @@
                             [server-btree-db :as server-btree-db]
                             [client-db :as client-db])
             [clojure.java.io :as io]
-            (argumentica [btree-db :as btree-db]))
+            (argumentica [btree-db :as btree-db])
+            [argumentica.db.common :as common]
+            [examples.imdb :as imdb])
   (:import [java.util UUID])
   (:gen-class))
 
@@ -33,7 +35,7 @@
 (def magnifying-class (buffered-image/create-from-file (io/resource "magnifying-class.png")))
 
 
-(def font (font/create "LiberationSans-Regular.ttf" 20 #_38))
+(def font (font/create "LiberationSans-Regular.ttf" #_20 38))
 (def symbol-font (font/create "LiberationSans-Regular.ttf" 20 #_58))
 
 (defn button-mouse-event-handler [handler node event]
@@ -110,7 +112,7 @@
                (visuals/rectangle-2 :corner-arc-radius 60
                                     :fill-color [229 229 229 255])
                (layouts/vertically-2 {}
-                        (property-editor (conj id :name) client-db-atom entity-id :name)
+                        (property-editor (conj id :primaryTitle) client-db-atom entity-id :primaryTitle)
                         #_(property-editor (conj id :address) client-db-atom entity-id :address))))
 
 (defn entity-list [id client-db-atom]
@@ -132,15 +134,16 @@
                                                                          (button "Commit" [commit-button-handler client-db-atom])
                                                                          (button "Refresh" [refresh-button-handler client-db-atom]))
 
-                                                 (for [entity-id (filter (fn [entity-id]
-                                                                           (.contains (or (client-db/value @client-db-atom
-                                                                                                           entity-id
-                                                                                                           :name)
-                                                                                          "")
-                                                                                      (:query @state-atom)))
-                                                                         (client-db/entities @client-db-atom
+                                                 (for [entity-id (->> (client-db/entities @client-db-atom
                                                                                              :type
-                                                                                             :entity))]
+                                                                                             :title)
+                                                                      (take 10)
+                                                                      #_(filter (fn [entity-id]
+                                                                              (.contains (or (client-db/value @client-db-atom
+                                                                                                              entity-id
+                                                                                                              :name)
+                                                                                             "")
+                                                                                         (:query @state-atom)))))]
                                                    (entity-editor (conj id entity-id) client-db-atom entity-id))
 
                                                  (layouts/vertically-2 {}
@@ -150,15 +153,29 @@
                                                                font))))))))
 
 (defn crud-client []
-  (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")
-                                               (client/->InProcessClient server-state-atom)))]
+  (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
+                                               #_(client/->InProcessClient server-state-atom)))]
     (fn [width height]
       (-> (#'entity-list [:entity-list-1] client-db-atom)
           (application/do-layout width height)))))
 
 (comment
   (let [client (client/->HttpClient "http://localhost:4010/api")]
-    (client/last-transaction-number client)))
+    (type (client/get-from-node-storage client :avtec "467092283B53F4DECB9CDB9483E4008E6F3E8BC9ED9B9566C06E3FEEB7F44ACD")))
+  
+  (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
+                                               #_(client/->InProcessClient server-state-atom)))]
+
+    (common/->Entity @client-db-atom
+                     imdb/schema
+                     "tt0000002")
+
+    
+    #_(client-db/entities @client-db-atom
+                        :type
+                        :title))
+
+  )
 
 (defn start []
   (application/start-window (crud-client)))

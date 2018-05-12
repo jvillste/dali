@@ -100,9 +100,9 @@
           (is (= "Baz2"
                  (value client-db entity-id :name)))
 
-          (is (= [[0 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Foo"]]]
-                  [1 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Bar"]]]
-                  [2 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Baz2"]]]]
+          (is (= '([0 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Foo"]]]
+                   [1 [[#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Bar"]]]
+                   [2 ([#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name :set "Baz2"])])
                  (server-api/transaction-log-subseq server-state-atom
                                                     0))))))))
 

@@ -14,3 +14,9 @@
 
 (defmulti last-transaction-number (fn [log]
                                     (type log)))
+
+(defmulti make-transient! (fn [log]
+                            (type log)))
+
+(defmulti make-persistent! (fn [log]
+                             (type log)))

@@ -19,7 +19,14 @@
              [server :as server]]
             [argumentica.btree-db :as btree-db]
             [argumentica.directory-storage :as directory-storage]
-            [argumentica.storage :as storage]))
+            [argumentica.storage :as storage]
+            [argumentica.db.file-transaction-log :as file-transaction-log]
+            [argumentica.transaction-log :as transaction-log]
+            [argumentica.btree :as btree]
+            [argumentica.util :as util]
+            [net.cgrand.xforms :as xforms]
+            [kixi.stats.core  :as stats]
+            [examples.imdb :as imdb]))
 
 (defn tokenize [string]
   (string/split string #" "))
@@ -34,32 +41,64 @@
        c])
     []))
 
+(defn create-directory-btree-index [base-path node-size index-name]
+  (btree-index/create-directory-btree-index (str base-path "/" index-name)
+                                            node-size))
+
+(defn add-index [indexes key eatcv-to-datoms create-index]
+  (assoc indexes
+         key
+         {:index (create-index (name key))
+          :eatcv-to-datoms eatcv-to-datoms}))
+
+
+(defn create-btree-db [create-index transaction-log]
+  (db-common/update-indexes (db-common/create :indexes (-> {}
+                                                           (add-index :eatcv
+                                                                      db-common/eatcv-to-eatcv-datoms
+                                                                      create-index)
+
+                                                           (add-index :avtec
+                                                                      db-common/eatcv-to-avtec-datoms
+                                                                      create-index)
+
+                                                           (add-index :full-text
+                                                                      eatcv-to-full-text-avtec
+                                                                      create-index))
+                                              :transaction-log transaction-log)))
+
 (defn create-directory-btree-db [base-path]
-  (db-common/update-indexes (db-common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index (str base-path "/eatcv"))
-                                                                :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
-                                                        :avtec {:index (btree-index/create-directory-btree-index (str base-path "/avtec"))
-                                                                :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}
-                                                        :full-text {:index (btree-index/create-directory-btree-index (str base-path "/full-text"))
-                                                                    :eatcv-to-datoms eatcv-to-full-text-avtec}}
-                                              :transaction-log (file-transaction-log/create (str base-path "/transaction-log"))
-                                              #_(sorted-map-transaction-log/create))))
+  (create-btree-db (fn [index-name]
+                     (btree-index/create-directory-btree-index (str base-path "/" index-name)
+                                                               1001))
+                   (file-transaction-log/create (str base-path "/transaction-log"))))
 
-(defn create-in-memory-db []
-  (db-common/create :indexes {:eatcv {:index (sorted-set-index/create)
-                                      :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
-                              :avtec {:index (sorted-set-index/create)
-                                      :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}
-                              :full-text {:index (sorted-set-index/create)
-                                          :eatcv-to-datoms eatcv-to-full-text-avtec}}
-                    :transaction-log (sorted-map-transaction-log/create)))
+(defn create-in-memory-btree-db [node-size]
+  (create-btree-db (fn [index-name]
+                     (btree-index/create-memory-btree-index node-size))
+                   (sorted-map-transaction-log/create)))
 
-(def imdb-schema
-  {:genres {:multivalued? true}
-   :directors {:multivalued? true
-               :reference? true}
-   :knownForTitles {:multivalued? true
-                    :reference? true}
-   :primaryProfession {:multivalued? true}})
+#_(defn create-directory-btree-db [base-path]
+    (db-common/update-indexes (db-common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index (str base-path "/eatcv")
+                                                                                                                   1001)
+                                                                  :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
+                                                          :avtec {:index (btree-index/create-directory-btree-index (str base-path "/avtec")
+                                                                                                                   1001)
+                                                                  :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}
+                                                          :full-text {:index (btree-index/create-directory-btree-index (str base-path "/full-text")
+                                                                                                                       1001)
+                                                                      :eatcv-to-datoms eatcv-to-full-text-avtec}}
+                                                :transaction-log (file-transaction-log/create (str base-path "/transaction-log"))
+                                                #_(sorted-map-transaction-log/create))))
+
+#_(defn create-in-memory-db []
+    (db-common/create :indexes {:eatcv {:index (sorted-set-index/create)
+                                        :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
+                                :avtec {:index (sorted-set-index/create)
+                                        :eatcv-to-datoms db-common/eatcv-to-avtec-datoms}
+                                :full-text {:index (sorted-set-index/create)
+                                            :eatcv-to-datoms eatcv-to-full-text-avtec}}
+                      :transaction-log (sorted-map-transaction-log/create)))
 
 (defn entity-map-to-transaction [entity-map schema id-key]
   (let [id (get entity-map
@@ -86,10 +125,28 @@
                       (comp transducer
                             (mapcat (fn [entity-map]
                                       (entity-map-to-transaction entity-map
-                                                                 imdb-schema
+                                                                 imdb/schema
                                                                  id-key))))
                       conj
                       []))
+
+(defn transact-titles [db file-name transducer]
+  (transaction-log/make-transient! (:transaction-log db))
+  (csv/transduce-maps file-name
+                      {:separator #"\t"}
+                      (comp transducer
+                            (map (fn [entity-map]
+                                   (entity-map-to-transaction (assoc entity-map :type :title)
+                                                              imdb/schema
+                                                              :tconst)))
+                            (map (fn [transaction]
+                                   (db-common/transact db transaction))))
+                      (constantly nil)
+                      nil)
+  (btree-db/store-index-roots-after-maximum-number-of-transactions db 0)
+  (transaction-log/truncate! (:transaction-log db) (inc (transaction-log/last-transaction-number (:transaction-log db))))
+  (transaction-log/make-persistent! (:transaction-log db))
+  db)
 
 (defn titles-as-transaction [transducer]
   (imbdb-file-to-transaction "data/imdb/title.basics.tsv"
@@ -114,7 +171,7 @@
 
 (defn add-titles [db count]
   (let [db (db-common/transact db (titles-as-transaction (take count)))
-        title-ids (into #{} (db-common/entities db :type :title))]
+        title-ids (set (db-common/entities db :type :title))]
 
     (db-common/transact db
                         (crew-as-transaction (comp (filter (fn [title]
@@ -125,7 +182,7 @@
 (defn add-directors [db]
   (let [person-ids (->> (db-common/entities db :type :title)
                         (map (fn [entity-id]
-                               (db-common/->Entity db imdb-schema entity-id)))
+                               (db-common/->Entity db imdb/schema entity-id)))
                         (mapcat :directors)
                         (map :entity/id)
                         (into #{}))]
@@ -135,11 +192,27 @@
                                                                            (:nconst person))))
                                                       #_(take 5))))))
 
+
+
+(defn node-size-report [node-sizes title-count max-title-count]
+  (let [total-megabytes (/ (reduce + node-sizes)
+                           (* 1024 1024))]
+    (merge {:count (count node-sizes)
+            :total-megabytes  (int total-megabytes)
+            :whole-db-megabytes (int (* total-megabytes
+                                        (/ max-title-count title-count)))}
+           (transduce identity stats/summary node-sizes))))
+
+
+
 (comment
   (csv/transduce-lines "data/imdb/title.basics.tsv"
-                       (take 10)
+                       (comp #_(util/count-logger 100000)
+                             xforms/count)
                        conj
                        [])
+
+  (transduce xforms/count conj [] [1 2 3 4])
 
 
   (csv/transduce-maps "data/imdb/title.basics.tsv"
@@ -151,8 +224,8 @@
   (titles-as-transaction (take 10))
 
 
-  (def db (-> (create-in-memory-db)
-              (add-titles 10)))
+  (def db (-> (create-in-memory-btree-db 21)
+              (transact-titles "data/imdb/title.basics.tsv" (take 20))))
 
   (db-common/value db "tt0000002" :primaryTitle)
 
@@ -160,9 +233,9 @@
 
   (db-common/entities db :genres "Short")
 
-  (db-common/->Entity db imdb-schema "tt0000002")
+  (db-common/->Entity db imdb/schema "tt0000002")
 
-  (:primaryTitle (db-common/->Entity db imdb-schema "tt0000002"))
+  (:primaryTitle (db-common/->Entity db imdb/schema "tt0000002"))
 
   (let [target-value "b"]
     (db-common/entities-2 (-> db :indexes :full-text :index)
@@ -178,7 +251,7 @@
                                (fn [value]
                                  (.startsWith value target-value)))
          (map (fn [entity-id]
-                (db-common/->Entity db imdb-schema entity-id)))))
+                (db-common/->Entity db imdb/schema entity-id)))))
 
   (def disk-db-directory "data/temp/imdbdb")
 
@@ -186,30 +259,71 @@
           (fs/delete-dir (str disk-db-directory "/eatcv"))
           (fs/delete-dir (str disk-db-directory "/full-text"))
           (fs/delete-dir (str disk-db-directory "/transaction-log")))
-      (let [db (create-directory-btree-db disk-db-directory)]
-        (try
-          (-> db
-              #_(add-titles 10)
-              (btree-db/store-index-roots-after-maximum-number-of-transactions 0)
-              (db-common/value "tt0000002" :primaryTitle))
-          (finally (btree-db/close! db)))))
+      )
+
+
+
+  (let [title-count 1000000
+        max-title-count 4933210
+        node-size 200001
+        db #_(create-directory-btree-db disk-db-directory)
+        (create-in-memory-btree-db node-size)]
+    (try
+      (-> db
+          #_(add-titles 10)
+          (transact-titles "data/imdb/title.basics.tsv" (take title-count))
+          #_(btree-db/store-index-roots-after-maximum-number-of-transactions 0)
+          #_(db-common/value "tt0000002" :primaryTitle)
+          (get-in [:indexes :eatcv :index])
+          (btree-index/btree)
+          (btree/stored-node-sizes)
+          (node-size-report title-count max-title-count)
+          (assoc :node-size node-size)
+          (assoc :title-count title-count))
+      (finally (btree-db/close! db))))
 
   (-> (directory-storage/create (str disk-db-directory "/avtec/nodes"))
-      (storage/get-edn-from-storage! "5F260E53A7526D0DCDDDAE26965D0F3207DE37F62FF8C784FC47D1EFACC6F5DF"))
+      (storage/get-edn-from-storage! "5A9923F103A588A4ED1B08FA5189C99FE92E6A085B2EA64EC75DE64F886BB249"))
 
   (-> (directory-storage/create (str disk-db-directory "/eatcv/nodes"))
-      (storage/get-edn-from-storage! "FBDC7869347D39568AEBB7D25D768E792965CA3A8C047DA2BD98C24DF95D8000"))
+      (storage/get-edn-from-storage! "5A9923F103A588A4ED1B08FA5189C99FE92E6A085B2EA64EC75DE64F886BB249"))
 
   (-> (directory-storage/create (str disk-db-directory "/full-text/nodes"))
       (storage/get-edn-from-storage! "98CB6A20C5B5587691B202AA4E38DE64E12EF9AB1A74D2A6366E3BC49E970004"
                                      #_"FBDC7869347D39568AEBB7D25D768E792965CA3A8C047DA2BD98C24DF95D8000"))
-  (fs/mkdirs "data/temp/storage"))
+  (fs/mkdirs "data/temp/storage")
+
+  (def node-size-report-for-100000-titles-with-node-size-10001
+    {:count 175,
+     :total-megabytes 7,
+     :whole-db-megabytes 363,
+     :min 13975.0,
+     :q1 42481.0,
+     :median 43927.0,
+     :q3 45059.75,
+     :max 66770.0,
+     :iqr 2578.75})
+
+  {:count 87,
+   :total-megabytes 68,
+   :whole-db-megabytes 338,
+   :min 7137.0,
+   :q1 764638.5,
+   :median 818078.0,
+   :q3 896682.25,
+   :max 1337318.0,
+   :iqr 132043.75
+   :node-size 200001
+   :title-count 1000000}
+
+  )
 
 
 
 (defn start-server [directory port]
-  (server/start-server (cor-api/app (server-api/create-state (-> (create-directory-btree-db directory)
-                                                                 (add-titles 10)))
+  (server/start-server (cor-api/app (server-api/create-state (-> #_(create-directory-btree-db directory)
+                                                                 (create-in-memory-btree-db 21)
+                                                                 (transact-titles "data/imdb/title.basics.tsv" (take 20))))
                                     'argumentica.db.server-api)
                        port))
 
@@ -226,7 +340,7 @@
         (Thread/sleep 1000)))
 
   (.start (Thread. (fn [] (reset! server
-                                  (start-server "data/crud" 4010))))))
+                                  (start-server "data/temp/crud" 4010))))))
 
 
 (comment
@@ -251,7 +365,7 @@
                                                                                (:tconst title)))))))
         person-ids (->> (db-common/entities db :type :title)
                         (map (fn [entity-id]
-                               (db-common/->Entity db imdb-schema entity-id)))
+                               (db-common/->Entity db imdb/schema entity-id)))
                         (mapcat :directors)
                         (map :entity/id)
                         (into #{}))
@@ -272,11 +386,11 @@
                                                       (:tconst title))))))
     (->> (db-common/entities db :type :person)
          (map (fn [entity-id]
-                (db-common/->Entity db imdb-schema entity-id)))
+                (db-common/->Entity db imdb/schema entity-id)))
          #_(map :knownForTitles))
     #_(->> (db-common/entities db :type :title)
            (map (fn [entity-id]
-                  (db-common/->Entity db imdb-schema entity-id)))
+                  (db-common/->Entity db imdb/schema entity-id)))
            #_(map :primaryTitle))
     #_person-ids)
 

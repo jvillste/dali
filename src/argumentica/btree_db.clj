@@ -35,9 +35,9 @@
         (common/apply-to-indexes store-index-root-after-maximum-number-of-transactions
                                  last-transaction-number
                                  maximum-number-of-transactions-after-previous-root)
-        (update :transaction-log
-                transaction-log/truncate!
-                last-transaction-number))
+        #_(update :transaction-log
+                  transaction-log/truncate!
+                  last-transaction-number))
     db))
 
 (defn store-index-roots [db]
@@ -68,14 +68,14 @@
                                         :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log")))))
 
 (defn create-memory-btree-db []
-  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index)
+  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index 10001)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}
-                                                  :avtec {:index (btree-index/create-memory-btree-index)
+                                                  :avtec {:index (btree-index/create-memory-btree-index 10001)
                                                           :eatcv-to-datoms common/eatcv-to-avtec-datoms}}
                                         :transaction-log  (sorted-map-transaction-log/create))))
 
 (defn create-memory-btree-db-from-transaction-log [transaction-log first-transaction-number]
-  (-> (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index)
+  (-> (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index 10001)
                                        :eatcv-to-datoms common/eatcv-to-eatcv-datoms
                                        :last-indexed-transaction-number (dec first-transaction-number)}}
                      :transaction-log transaction-log)
