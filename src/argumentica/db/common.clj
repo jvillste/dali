@@ -4,7 +4,8 @@
             [flatland.useful.map :as map]
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
-                         [index :as index]))
+                         [index :as index])
+            [argumentica.comparator :as comparator])
   (:use clojure.test)
   (:import clojure.lang.MapEntry))
 
@@ -333,42 +334,42 @@
   [e a c v])
 
 (defn squash-statements [statements]
-  (sort (reduce (fn [result-statements statement]
-                  (case (statement-command statement)
-                    :add (conj (set/select (fn [result-statement]
-                                             (not (and (= (statement-entity statement)
-                                                          (statement-entity result-statement))
-                                                       (= (statement-attribute statement)
-                                                          (statement-attribute result-statement))
-                                                       (= (statement-value statement)
-                                                          (statement-value result-statement))
-                                                       (= :retract
-                                                          (statement-command result-statement)))))
-                                           result-statements)
-                               statement)
-                    :retract (let [removed-statements (set/select (fn [result-statement]
-                                                                    (and (= (statement-entity statement)
+  (sort comparator/cc-cmp (reduce (fn [result-statements statement]
+                                    (case (statement-command statement)
+                                      :add (conj (set/select (fn [result-statement]
+                                                               (not (and (= (statement-entity statement)
                                                                             (statement-entity result-statement))
                                                                          (= (statement-attribute statement)
                                                                             (statement-attribute result-statement))
                                                                          (= (statement-value statement)
-                                                                            (statement-value result-statement))))
-                                                                  result-statements)]
+                                                                            (statement-value result-statement))
+                                                                         (= :retract
+                                                                            (statement-command result-statement)))))
+                                                             result-statements)
+                                                 statement)
+                                      :retract (let [removed-statements (set/select (fn [result-statement]
+                                                                                      (and (= (statement-entity statement)
+                                                                                              (statement-entity result-statement))
+                                                                                           (= (statement-attribute statement)
+                                                                                              (statement-attribute result-statement))
+                                                                                           (= (statement-value statement)
+                                                                                              (statement-value result-statement))))
+                                                                                    result-statements)]
 
-                               (if (empty? removed-statements)
-                                 (conj result-statements
-                                       statement)
-                                 (set/difference result-statements
-                                                 removed-statements)))
-                    :set  (conj (set/select (fn [result-statement]
-                                              (not (and (= (statement-entity statement)
-                                                           (statement-entity result-statement))
-                                                        (= (statement-attribute statement)
-                                                           (statement-attribute result-statement)))))
-                                            result-statements)
-                                statement)))
-                #{}
-                statements)))
+                                                 (if (empty? removed-statements)
+                                                   (conj result-statements
+                                                         statement)
+                                                   (set/difference result-statements
+                                                                   removed-statements)))
+                                      :set  (conj (set/select (fn [result-statement]
+                                                                (not (and (= (statement-entity statement)
+                                                                             (statement-entity result-statement))
+                                                                          (= (statement-attribute statement)
+                                                                             (statement-attribute result-statement)))))
+                                                              result-statements)
+                                                  statement)))
+                                  #{}
+                                  statements)))
 
 
 (deftest test-squash-statements
