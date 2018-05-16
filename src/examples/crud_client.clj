@@ -38,6 +38,12 @@
 (def font (font/create "LiberationSans-Regular.ttf" #_20 38))
 (def symbol-font (font/create "LiberationSans-Regular.ttf" 20 #_58))
 
+
+(defn text [string]
+  (text/text string
+             [0 0 0 255]
+             font))
+
 (defn button-mouse-event-handler [handler node event]
   (when (= :mouse-clicked
            (:type event))
@@ -115,6 +121,11 @@
                         (property-editor (conj id :primaryTitle) client-db-atom entity-id :primaryTitle)
                         #_(property-editor (conj id :address) client-db-atom entity-id :address))))
 
+(defn loaded-nodes [client-db]
+  (let [indexes (-> client-db :server-btree-db :indexes)]
+    (into {} (for [index-key (keys indexes)]
+               [index-key (-> indexes index-key :remote-index :index :btree-index-atom deref :nodes keys count)]))))
+
 (defn entity-list [id client-db-atom]
   (let [state-atom (atom-registry/get! [:state client-db-atom]
                                        {:create (fn [] {:query ""})})]
@@ -135,22 +146,23 @@
                                                                          (button "Refresh" [refresh-button-handler client-db-atom]))
 
                                                  (for [entity-id (->> (client-db/entities @client-db-atom
-                                                                                             :type
-                                                                                             :title)
+                                                                                          :type
+                                                                                          :title)
                                                                       (take 10)
                                                                       #_(filter (fn [entity-id]
-                                                                              (.contains (or (client-db/value @client-db-atom
-                                                                                                              entity-id
-                                                                                                              :name)
-                                                                                             "")
-                                                                                         (:query @state-atom)))))]
+                                                                                  (.contains (or (client-db/value @client-db-atom
+                                                                                                                  entity-id
+                                                                                                                  :name)
+                                                                                                 "")
+                                                                                             (:query @state-atom)))))]
                                                    (entity-editor (conj id entity-id) client-db-atom entity-id))
 
                                                  (layouts/vertically-2 {}
-                                                  (for [statement (client-db/transaction @client-db-atom)]
-                                                    (text/text (pr-str statement)
-                                                               [0 0 0 255]
-                                                               font))))))))
+                                                                       (for [statement (client-db/transaction @client-db-atom)]
+                                                                         (text/text (pr-str statement)
+                                                                                    [0 0 0 255]
+                                                                                    font)))
+                                                 (text (pr-str (loaded-nodes @client-db-atom))))))))
 
 (defn crud-client []
   (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
@@ -166,14 +178,16 @@
   (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
                                                #_(client/->InProcessClient server-state-atom)))]
 
-    (common/->Entity @client-db-atom
-                     imdb/schema
-                     "tt0000002")
-
-    
-    #_(client-db/entities @client-db-atom
+    (client-db/entities @client-db-atom
                         :type
-                        :title))
+                        :title)
+
+    #_(loaded-nodes @client-db-atom)
+    #_(-> @client-db-atom :server-btree-db :indexes :avtec :remote-index :index :btree-index-atom ;;deref :nodes keys count
+          )
+    #_(common/->Entity @client-db-atom
+                       imdb/schema
+                       "tt0000002"))
 
   )
 
