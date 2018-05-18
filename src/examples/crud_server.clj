@@ -1,4 +1,4 @@
-(ns crud-server
+(ns examples.crud-server
   (:gen-class)
   (:require [me.raynes.fs :as fs]
             [argumentica

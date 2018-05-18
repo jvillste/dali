@@ -5,6 +5,7 @@
                          [sorted-set-db :as sorted-set-db]
                          [transaction-log :as transaction-log])
             (argumentica.db [client :as client]
+                            [db :as db]
                             [common :as db-common]
                             [server-api :as server-api]
                             [server-btree-db :as server-btree-db]
@@ -12,6 +13,8 @@
             [argumentica.sorted-set-index :as sorted-set-index]
             [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log])
   (:use clojure.test))
+
+
 
 (defn create [client index-definition]
   {:server-btree-db (server-btree-db/create client
@@ -23,25 +26,31 @@
    :client client})
 
 (defn transact [client-db statements]
-  (update client-db :local-db common/transact statements))
+  (update client-db :local-db db-common/transact statements))
 
 (defn refresh [client-db]
   (update client-db
           :server-btree-db
           server-btree-db/update))
 
+(defn inclusive-subsequence [client-db index-key first-datom]
+  (concat (server-btree-db/inclusive-subsequence (:server-btree-db client-db)
+                                                 index-key
+                                                 first-datom)
+          (index/inclusive-subsequence (get-in client-db [:local-db :indexes index-key :index])
+                                       first-datom)))
 
 (defn datoms [client-db entity-id attribute]
   (concat (server-btree-db/datoms (:server-btree-db client-db)
                                   entity-id
                                   attribute)
-          (common/eat-datoms-from-eatcv (get-in (:local-db client-db) [:indexes :eatcv :index])
+          (db-common/eat-datoms-from-eatcv (get-in (:local-db client-db) [:indexes :eatcv :index])
                                         entity-id
                                         attribute
                                         nil)))
 
 (defn values [client-db entity-id attribute]
-  (common/values-from-eatcv-statements (datoms client-db entity-id attribute)))
+  (db-common/values-from-eatcv-statements (datoms client-db entity-id attribute)))
 
 (defn value [client-db entity-id attribute]
   (first (values client-db entity-id attribute)))
@@ -51,7 +60,7 @@
   (concat (server-btree-db/avtec-datoms (:server-btree-db client-db)
                                         attribute
                                         value)
-          (common/avtec-datoms-from-avtec (get-in (:local-db client-db) [:indexes :avtec :index])
+          (db-common/avtec-datoms-from-avtec (get-in (:local-db client-db) [:indexes :avtec :index])
                                           attribute
                                           value
                                           (fn [other-value]
@@ -59,10 +68,10 @@
                                           nil)))
 
 (defn entities [client-db attribute value]
-  (common/entities-from-avtec-datoms (avtec-datoms client-db attribute value)))
+  (db-common/entities-from-avtec-datoms (avtec-datoms client-db attribute value)))
 
 (defn transaction [client-db]
-  (common/squash-transactions (map second (transaction-log/subseq (-> client-db :local-db :transaction-log)
+  (db-common/squash-transactions (map second (transaction-log/subseq (-> client-db :local-db :transaction-log)
                                                                   0))))
 
 (defn commit [client-db]
@@ -121,8 +130,17 @@
                              entity-id
                              attribute)]
         (if (uuid? the-value)
-          (common/->Entity (create-get-value the-value client-db))
+          (db-common/->Entity (create-get-value the-value client-db))
           the-value)))))
 
 (defn entity [client-db entity-id]
-  (common/->Entity (create-get-value entity-id client-db)))
+  (db-common/->Entity (create-get-value entity-id client-db)))
+
+
+(deftype ClientDb [state]
+  db/DB
+  (transact [this statements]
+    (transact this statements))
+  (inclusive-subsequence [this index-key first-datom]
+    (inclusive-subsequence this index-key first-datom)))
+

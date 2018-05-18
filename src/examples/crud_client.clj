@@ -1,4 +1,4 @@
-(ns crud-client
+(ns examples.crud-client
   (:require [fungl.application :as application]
             (flow-gl.graphics [font :as font]
                               [buffered-image :as buffered-image])
@@ -22,12 +22,14 @@
             [clojure.java.io :as io]
             (argumentica [btree-db :as btree-db])
             [argumentica.db.common :as common]
-            [examples.imdb :as imdb])
+            [examples.imdb :as imdb]
+            [examples.crud-server :as crud-server])
   (:import [java.util UUID])
   (:gen-class))
 
 
-(def #_defonce server-state-atom (atom (server-api/create-state (crud-server/create-in-memory-btree-db 21))))
+(#_def defonce server-state-atom (atom (server-api/create-state (-> (crud-server/create-in-memory-btree-db 21)
+                                                                    (crud-server/transact-titles "data/imdb/title.basics.tsv" (take 20))))))
 
 (comment
   (:db @server-state-atom))
@@ -180,16 +182,17 @@
                                                (client/->InProcessClient server-state-atom)
                                                crud-server/imdb-index-definition))]
 
-    (client-db/entities @client-db-atom
-                        :type
-                        :title)
+    (client-db/inclusive-subsequence @client-db-atom :avtec [:type :title nil nil nil])
+    #_(client-db/entities @client-db-atom
+                          :type
+                          :title)
 
     #_(loaded-nodes @client-db-atom)
     #_(-> @client-db-atom :server-btree-db :indexes :avtec :remote-index :index :btree-index-atom ;;deref :nodes keys count
           )
     #_(common/->Entity @client-db-atom
-                       imdb/schema
-                       "tt0000002"))
+                     imdb/schema
+                     "tt0000002"))
 
   )
 

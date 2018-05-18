@@ -6,7 +6,8 @@
             (argumentica.db [common :as common]
                             [client :as client]
                             [server-btree-index :as server-btree-index]
-                            [server-transaction-log :as server-transaction-log])))
+                            [server-transaction-log :as server-transaction-log])
+            [argumentica.index :as index]))
 
 (defn create-new-local-index [latest-root client eatcv-to-datoms]
   (common/update-index {:index (sorted-set-index/create)
@@ -64,6 +65,12 @@
           (assoc server-btree-db
                  :last-indexed-transaction-number (client/last-transaction-number (:client server-btree-db)))
           (keys (:indexes server-btree-db))))
+
+(defn inclusive-subsequence [server-btree-db index-key first-value]
+  (concat (index/inclusive-subsequence (get-in server-btree-db [:indexes index-key :remote-index :index])
+                                       first-value)
+          (index/inclusive-subsequence (get-in server-btree-db [:indexes index-key :local-index :index])
+                                       first-value)))
 
 (defn datoms [server-btree-db entity-id attribute]
   (concat (common/eat-datoms-from-eatcv (get-in server-btree-db [:indexes :eatcv :remote-index :index])

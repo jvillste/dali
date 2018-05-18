@@ -65,7 +65,6 @@
       (throw e))))
 
 (defn bytes-to-edn [bytes]
-  (prn bytes)
   (nippy/thaw bytes))
 
 (defn get-edn-from-storage! [storage key]
