@@ -26,7 +26,9 @@
             [argumentica.util :as util]
             [net.cgrand.xforms :as xforms]
             [kixi.stats.core  :as stats]
-            [examples.imdb :as imdb]))
+            [examples.imdb :as imdb]
+            [flatland.useful.map :as usefull-map])
+  (:use clojure.test))
 
 (defn tokenize [string]
   (string/split string #" "))
@@ -51,21 +53,18 @@
          {:index (create-index (name key))
           :eatcv-to-datoms eatcv-to-datoms}))
 
+(defn index [key eatcv-to-datoms])
+
+(def imdb-index-definition
+  {:eatcv db-common/eatcv-to-eatcv-datoms
+   :avtec db-common/eatcv-to-avtec-datoms
+   :full-text eatcv-to-full-text-avtec})
+
 
 (defn create-btree-db [create-index transaction-log]
-  (db-common/update-indexes (db-common/create :indexes (-> {}
-                                                           (add-index :eatcv
-                                                                      db-common/eatcv-to-eatcv-datoms
-                                                                      create-index)
-
-                                                           (add-index :avtec
-                                                                      db-common/eatcv-to-avtec-datoms
-                                                                      create-index)
-
-                                                           (add-index :full-text
-                                                                      eatcv-to-full-text-avtec
-                                                                      create-index))
-                                              :transaction-log transaction-log)))
+  (db-common/db-from-index-definition imdb-index-definition
+                                      create-index
+                                      transaction-log))
 
 (defn create-directory-btree-db [base-path]
   (create-btree-db (fn [index-name]
@@ -74,7 +73,7 @@
                    (file-transaction-log/create (str base-path "/transaction-log"))))
 
 (defn create-in-memory-btree-db [node-size]
-  (create-btree-db (fn [index-name]
+  (create-btree-db (fn [_index-name]
                      (btree-index/create-memory-btree-index node-size))
                    (sorted-map-transaction-log/create)))
 

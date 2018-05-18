@@ -579,3 +579,24 @@
 
 (defmethod print-method Entity [entity ^java.io.Writer writer]
   (.write writer  (pr-str (entity-to-map entity))))
+
+
+(defn index-definition-to-indexes [index-definition create-index]
+  (into {}
+        (map (fn [[key eatcv-to-datoms]]
+               [key
+                {:eatcv-to-datoms eatcv-to-datoms
+                 :index (create-index (name key))}])
+             index-definition)))
+
+(deftest test-index-definition-to-indexes
+  (is (= {:eatcv
+          {:eatcv-to-datoms :eatcv-to-eatcv-datoms,
+           :index {:index-name "eatcv"}}}
+         (index-definition-to-indexes {:eatcv :eatcv-to-eatcv-datoms}
+                                      (fn [index-name] {:index-name index-name})))))
+
+(defn db-from-index-definition [index-definition create-index transaction-log]
+  (update-indexes (create :indexes (index-definition-to-indexes index-definition
+                                                                create-index)
+                          :transaction-log transaction-log)))

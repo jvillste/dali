@@ -14,7 +14,7 @@
                         :eatcv-to-datoms eatcv-to-datoms}
                        (server-transaction-log/->ServerTransactionLog client)))
 
-(defn create-index [client index-key eatcv-to-datoms]
+(defn create-remote-and-local-indexes [client index-key eatcv-to-datoms]
   (let [latest-root (client/latest-root client
                                         index-key)]
     {:remote-index {:index (server-btree-index/create client
@@ -24,11 +24,18 @@
                                           client
                                           eatcv-to-datoms)}))
 
-(defn create [client]
+(defn index-definition-to-remote-and-local-indexes [index-definition client]
+  (into {}
+        (map (fn [[key eatcv-to-datoms]]
+               [key
+                (create-remote-and-local-indexes client key eatcv-to-datoms)])
+             index-definition)))
+
+(defn create [client index-definition]
   {:client client
    :last-indexed-transaction-number (client/last-transaction-number client)
-   :indexes {:eatcv (create-index client :eatcv common/eatcv-to-eatcv-datoms)
-             :avtec (create-index client :avtec common/eatcv-to-avtec-datoms)}})
+   :indexes (index-definition-to-remote-and-local-indexes index-definition
+                                                          client)})
 
 (defn update-index [server-btree-db index-key]
   (let [latest-root (client/latest-root (:client server-btree-db)

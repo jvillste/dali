@@ -5,15 +5,21 @@
                          [sorted-set-db :as sorted-set-db]
                          [transaction-log :as transaction-log])
             (argumentica.db [client :as client]
-                            [common :as common]
+                            [common :as db-common]
                             [server-api :as server-api]
                             [server-btree-db :as server-btree-db]
-                            [server-transaction-log :as server-transaction-log]))
+                            [server-transaction-log :as server-transaction-log])
+            [argumentica.sorted-set-index :as sorted-set-index]
+            [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log])
   (:use clojure.test))
 
-(defn create [client]
-  {:server-btree-db (server-btree-db/create client)
-   :local-db (sorted-set-db/create)
+(defn create [client index-definition]
+  {:server-btree-db (server-btree-db/create client
+                                            index-definition)
+   :local-db (db-common/db-from-index-definition index-definition
+                                                 (fn [_index-name]
+                                                   (sorted-set-index/create))
+                                                 (sorted-map-transaction-log/create))
    :client client})
 
 (defn transact [client-db statements]

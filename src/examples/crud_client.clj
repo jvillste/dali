@@ -27,12 +27,12 @@
   (:gen-class))
 
 
-(#_def defonce server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db))))
+(def #_defonce server-state-atom (atom (server-api/create-state (crud-server/create-in-memory-btree-db 21))))
 
 (comment
   (:db @server-state-atom))
 
-(def magnifying-class (buffered-image/create-from-file (io/resource "magnifying-class.png")))
+(def magnifying-glass (buffered-image/create-from-file (io/resource "magnifying-glass.png")))
 
 
 (def font (font/create "LiberationSans-Regular.ttf" #_20 38))
@@ -60,7 +60,7 @@
   (swap! client-db-atom client-db/commit))
 
 (defn create-button-handler [client-db-atom]
-  (swap! client-db-atom client-db/transact [[(UUID/randomUUID) :type :set :entity]]))
+  (swap! client-db-atom client-db/transact [[(UUID/randomUUID) :type :set :title]]))
 
 (defn refresh-button-handler [client-db-atom]
   (swap! client-db-atom client-db/refresh))
@@ -136,7 +136,7 @@
                          (layouts/with-margins 20 20 20 20
                            (layouts/vertically-2 {:margin 30}
                                                  (layouts/horizontally-2 {:margin 10}
-                                                                         (assoc (visuals/image magnifying-class) :width 60 :height 60)
+                                                                         (assoc (visuals/image magnifying-glass) :width 60 :height 60)
                                                                          (text-editor (conj id :query-editor)
                                                                                       (:query @state-atom)
                                                                                       (fn [new-text] (swap! state-atom assoc :query new-text)))
@@ -165,8 +165,9 @@
                                                  (text (pr-str (loaded-nodes @client-db-atom))))))))
 
 (defn crud-client []
-  (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
-                                               #_(client/->InProcessClient server-state-atom)))]
+  (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")
+                                               (client/->InProcessClient server-state-atom)
+                                               crud-server/imdb-index-definition))]
     (fn [width height]
       (-> (#'entity-list [:entity-list-1] client-db-atom)
           (application/do-layout width height)))))
@@ -175,8 +176,9 @@
   (let [client (client/->HttpClient "http://localhost:4010/api")]
     (type (client/get-from-node-storage client :avtec "467092283B53F4DECB9CDB9483E4008E6F3E8BC9ED9B9566C06E3FEEB7F44ACD")))
   
-  (let [client-db-atom (atom (client-db/create (client/->HttpClient "http://localhost:4010/api")
-                                               #_(client/->InProcessClient server-state-atom)))]
+  (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")
+                                               (client/->InProcessClient server-state-atom)
+                                               crud-server/imdb-index-definition))]
 
     (client-db/entities @client-db-atom
                         :type
