@@ -96,17 +96,17 @@
                                          (or value "")
                                          on-text-change)))
   #_(layouts/box 15
-               (visuals/rectangle-2 :corner-arc-radius 60
-                                    :fill-color [229 229 229 255])
-               (layouts/horizontally-2 {:margin 10
-                                        :centered true}
-                                       (text/text name
-                                                  [0 0 0 255]
-                                                  font)
-                                       (layouts/with-maximum-size 500 nil
-                                         (text-editor id
-                                                      (or value "")
-                                                      on-text-change)))))
+                 (visuals/rectangle-2 :corner-arc-radius 60
+                                      :fill-color [229 229 229 255])
+                 (layouts/horizontally-2 {:margin 10
+                                          :centered true}
+                                         (text/text name
+                                                    [0 0 0 255]
+                                                    font)
+                                         (layouts/with-maximum-size 500 nil
+                                           (text-editor id
+                                                        (or value "")
+                                                        on-text-change)))))
 
 (defn property-editor [id client-db-atom entity-id attribute]
   (property-view id
@@ -120,8 +120,8 @@
                (visuals/rectangle-2 :corner-arc-radius 60
                                     :fill-color [229 229 229 255])
                (layouts/vertically-2 {}
-                        (property-editor (conj id :primaryTitle) client-db-atom entity-id :primaryTitle)
-                        #_(property-editor (conj id :address) client-db-atom entity-id :address))))
+                                     (property-editor (conj id :primaryTitle) client-db-atom entity-id :primaryTitle)
+                                     #_(property-editor (conj id :address) client-db-atom entity-id :address))))
 
 (defn loaded-nodes [client-db]
   (let [indexes (-> client-db :server-btree-db :indexes)]
@@ -202,8 +202,8 @@
     #_(-> @client-db-atom :server-btree-db :indexes :avtec :remote-index :index :btree-index-atom ;;deref :nodes keys count
           )
     #_(common/->Entity @client-db-atom
-                     imdb/schema
-                     "tt0000002"))
+                       imdb/schema
+                       "tt0000002"))
 
 
   (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")

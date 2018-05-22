@@ -5,7 +5,9 @@
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
                          [index :as index])
-            [argumentica.comparator :as comparator])
+            [argumentica.db.db]
+            [argumentica.comparator :as comparator]
+            [argumentica.db.db :as db])
   (:use clojure.test)
   (:import clojure.lang.MapEntry))
 
@@ -54,10 +56,10 @@
   (get statement 4))
 
 
-(defn eatcv-to-eatcv-datoms [e a t c v]
+(defn eatcv-to-eatcv-datoms [_db e a t c v]
   [[e a t c v]])
 
-(defn eatcv-to-avtec-datoms [e a t c v]
+(defn eatcv-to-avtec-datoms [_db e a t c v]
   [[a v t e c]])
 
 
@@ -103,14 +105,20 @@
           :next-transaction-number
           inc))
 
-(defn update-index [index transaction-log]
+(defn update-index [index db transaction-log]
   (let [new-transactions (transaction-log/subseq transaction-log
                                                  (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
                                                    (inc last-indexed-transaction-number)
                                                    0))]
     (doseq [[t statements] new-transactions]
+      (assert (every? (fn [statement]
+                        (= 4 (count statement)))
+                      statements)
+              "Statement must have four values")
+
       (doseq [[e a c v] statements]
         (doseq [datom ((:eatcv-to-datoms index)
+                       db
                        e
                        a
                        t
@@ -138,6 +146,7 @@
 (defn update-indexes [db]
   (apply-to-indexes db
                     update-index
+                    db
                     (:transaction-log db)))
 
 
@@ -600,3 +609,12 @@
   (update-indexes (create :indexes (index-definition-to-indexes index-definition
                                                                 create-index)
                           :transaction-log transaction-log)))
+
+(defrecord LocalDb [db]
+  db/DB
+  (transact [this statements]
+    (LocalDb. (transact db statements)))
+
+  (inclusive-subsequence [this index-key first-datom]
+    (index/inclusive-subsequence (-> db :indexes index-key :index)
+                                 first-datom)))

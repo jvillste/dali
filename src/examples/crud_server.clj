@@ -21,27 +21,45 @@
             [argumentica.directory-storage :as directory-storage]
             [argumentica.storage :as storage]
             [argumentica.db.file-transaction-log :as file-transaction-log]
+            [argumentica.db.db :as db]
             [argumentica.transaction-log :as transaction-log]
             [argumentica.btree :as btree]
             [argumentica.util :as util]
             [net.cgrand.xforms :as xforms]
             [kixi.stats.core  :as stats]
             [examples.imdb :as imdb]
-            [flatland.useful.map :as usefull-map])
+            [flatland.useful.map :as usefull-map]
+            [argumentica.index :as index]
+            [clojure.set :as set])
+  (:import [argumentica.db.common LocalDb])
   (:use clojure.test))
 
 (defn tokenize [string]
-  (string/split string #" "))
+  (->> (string/split string #" ")
+       (map string/lower-case)))
 
-(defn eatcv-to-full-text-avtec [e a t c v]
+(defn eatcv-to-full-text-avtec [db e a t c v]
   (if (string? v)
-    (for [token (tokenize v)]
-      [a
-       (string/lower-case token)
-       t
-       e
-       c])
-    []))
+    (case c
+
+      :set
+      (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))
+            new-tokens (set (tokenize v))
+            added-tokens (set/difference new-tokens old-tokens)
+            retracted-tokens (set/difference old-tokens new-tokens)]
+
+        (concat (for [token added-tokens]
+                  [a
+                   token
+                   t
+                   e
+                   :add])
+                (for [token retracted-tokens]
+                  [a
+                   token
+                   t
+                   e
+                   :retract]))))))
 
 (defn create-directory-btree-index [base-path node-size index-name]
   (btree-index/create-directory-btree-index (str base-path "/" index-name)
@@ -76,6 +94,16 @@
   (create-btree-db (fn [_index-name]
                      (btree-index/create-memory-btree-index node-size))
                    (sorted-map-transaction-log/create)))
+
+(deftest test-full-text-index
+  (let [db (-> (LocalDb. (create-in-memory-btree-db 21))
+               (db/transact [[:entity-1 :name :set "First Name"]])
+               (db/transact [[:entity-1 :name :set "Second Name"]]))]
+    (is '([:name "first" 0 :entity-1 :add]
+          [:name "first" 1 :entity-1 :retract]
+          [:name "name" 0 :entity-1 :add]
+          [:name "second" 1 :entity-1 :add])
+        (db/inclusive-subsequence db :full-text nil))))
 
 #_(defn create-directory-btree-db [base-path]
     (db-common/update-indexes (db-common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index (str base-path "/eatcv")
