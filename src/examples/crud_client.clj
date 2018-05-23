@@ -174,17 +174,7 @@
       (-> (#'entity-list [:entity-list-1] client-db-atom)
           (application/do-layout width height)))))
 
-(defn pattern-matches? [pattern datom]
-  (every? (fn [[pattern-value datom-value]]
-            (if pattern-value
-              (= pattern-value
-                 datom-value)
-              true))
-          (map vector pattern datom)))
 
-(defn datoms [client-db index-key pattern]
-  (take-while (partial pattern-matches? pattern)
-              (client-db/inclusive-subsequence client-db index-key pattern)))
 
 (comment
   (let [client (client/->HttpClient "http://localhost:4010/api")]

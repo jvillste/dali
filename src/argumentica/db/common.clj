@@ -205,9 +205,21 @@
                                                   [:x :name 0 :set "foo"]]))))
 
 
-(defn datoms [db]
+#_(defn datoms [db]
   (index/inclusive-subsequence (-> db :indexes :eatcv :index)
                                [nil nil nil nil nil]))
+
+(defn pattern-matches? [pattern datom]
+  (every? (fn [[pattern-value datom-value]]
+            (if pattern-value
+              (= pattern-value
+                 datom-value)
+              true))
+          (map vector pattern datom)))
+
+(defn datoms [db index-key pattern]
+  (take-while (partial pattern-matches? pattern)
+              (db/inclusive-subsequence db index-key pattern)))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -610,11 +622,11 @@
                                                                 create-index)
                           :transaction-log transaction-log)))
 
-(defrecord LocalDb [db]
+(defrecord LocalDb [indexes transaction-log]
   db/DB
   (transact [this statements]
-    (LocalDb. (transact db statements)))
+    (transact this statements))
 
   (inclusive-subsequence [this index-key first-datom]
-    (index/inclusive-subsequence (-> db :indexes index-key :index)
+    (index/inclusive-subsequence (-> this :indexes index-key :index)
                                  first-datom)))

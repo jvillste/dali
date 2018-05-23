@@ -40,21 +40,36 @@
 
 (defn eatcv-to-full-text-avtec [db e a t c v]
   (if (string? v)
-    (case c
+    (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))
+          new-tokens (set (tokenize v))]
+      (case c
 
-      :set
-      (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))
-            new-tokens (set (tokenize v))
-            added-tokens (set/difference new-tokens old-tokens)
-            retracted-tokens (set/difference old-tokens new-tokens)]
+        :retract
+        (for [token (set/difference old-tokens
+                                    (set (mapcat tokenize (db-common/values-from-eatcv-statements (concat (db-common/datoms db :eatcv [e a nil nil nil])
+                                                                                                          [[e a t c v]])))))]
+          [a
+           token
+           t
+           e
+           :retract])
 
-        (concat (for [token added-tokens]
+        :add
+        (for [token (set/difference new-tokens old-tokens)]
+          [a
+           token
+           t
+           e
+           :add])
+
+        :set
+        (concat (for [token (set/difference new-tokens old-tokens)]
                   [a
                    token
                    t
                    e
                    :add])
-                (for [token retracted-tokens]
+                (for [token (set/difference old-tokens new-tokens)]
                   [a
                    token
                    t
@@ -96,14 +111,18 @@
                    (sorted-map-transaction-log/create)))
 
 (deftest test-full-text-index
-  (let [db (-> (LocalDb. (create-in-memory-btree-db 21))
+  (let [db (-> (db-common/map->LocalDb (create-in-memory-btree-db 21))
                (db/transact [[:entity-1 :name :set "First Name"]])
-               (db/transact [[:entity-1 :name :set "Second Name"]]))]
-    (is '([:name "first" 0 :entity-1 :add]
-          [:name "first" 1 :entity-1 :retract]
-          [:name "name" 0 :entity-1 :add]
-          [:name "second" 1 :entity-1 :add])
-        (db/inclusive-subsequence db :full-text nil))))
+               (db/transact [[:entity-1 :name :set "Second Name"]])
+               (db/transact [[:entity-1 :name :add "Third Name"]])
+               (db/transact [[:entity-1 :name :retract "Second Name"]]))]
+    (is (= '([:name "first" 0 :entity-1 :add]
+             [:name "first" 1 :entity-1 :retract]
+             [:name "name" 0 :entity-1 :add]
+             [:name "second" 1 :entity-1 :add]
+             [:name "second" 3 :entity-1 :retract]
+             [:name "third" 2 :entity-1 :add])
+           (db/inclusive-subsequence db :full-text nil)))))
 
 #_(defn create-directory-btree-db [base-path]
     (db-common/update-indexes (db-common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index (str base-path "/eatcv")
