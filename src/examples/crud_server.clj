@@ -40,41 +40,30 @@
 
 (defn eatcv-to-full-text-avtec [db e a t c v]
   (if (string? v)
-    (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))
-          new-tokens (set (tokenize v))]
+    (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))]
       (case c
 
         :retract
         (for [token (set/difference old-tokens
-                                    (set (mapcat tokenize (db-common/values-from-eatcv-statements (concat (db-common/datoms db :eatcv [e a nil nil nil])
-                                                                                                          [[e a t c v]])))))]
-          [a
-           token
-           t
-           e
-           :retract])
+                                    (set (mapcat tokenize
+                                                 (db-common/values-from-eatcv-statements (concat (db-common/datoms db
+                                                                                                                   :eatcv
+                                                                                                                   [e a nil nil nil])
+                                                                                                 [[e a t c v]])))))]
+          [a token t e :retract])
 
         :add
-        (for [token (set/difference new-tokens old-tokens)]
-          [a
-           token
-           t
-           e
-           :add])
+        (for [token (set/difference (set (tokenize v))
+                                    old-tokens)]
+          [a token t e :add])
 
         :set
-        (concat (for [token (set/difference new-tokens old-tokens)]
-                  [a
-                   token
-                   t
-                   e
-                   :add])
-                (for [token (set/difference old-tokens new-tokens)]
-                  [a
-                   token
-                   t
-                   e
-                   :retract]))))))
+        (let [new-tokens (set (tokenize v))]
+          (concat (for [token (set/difference new-tokens old-tokens)]
+                    [a token t e :add])
+                  (for [token (set/difference old-tokens new-tokens)]
+                    [a token t e :retract])))))
+    []))
 
 (defn create-directory-btree-index [base-path node-size index-name]
   (btree-index/create-directory-btree-index (str base-path "/" index-name)
