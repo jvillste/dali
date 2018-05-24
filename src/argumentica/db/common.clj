@@ -630,3 +630,11 @@
   (inclusive-subsequence [this index-key first-datom]
     (index/inclusive-subsequence (-> this :indexes index-key :index)
                                  first-datom)))
+
+(deftype EmptyDb []
+  db/DB
+  (transact [this statements]
+            this)
+
+  (inclusive-subsequence [this index-key first-datom]
+                         []))

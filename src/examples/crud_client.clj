@@ -206,7 +206,7 @@
 
     #_(client-db/inclusive-subsequence @client-db-atom :avtec [:type :title nil nil nil])
     #_(client-db/inclusive-subsequence @client-db-atom :full-text [:primaryTitle "the" nil nil nil])
-    (datoms @client-db-atom :full-text [:primaryTitle "the" nil nil nil]))
+    (db-common/datoms @client-db-atom :full-text [:primaryTitle "the" nil nil nil]))
 
   )
 

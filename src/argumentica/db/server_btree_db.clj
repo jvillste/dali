@@ -9,10 +9,13 @@
                             [server-transaction-log :as server-transaction-log])
             [argumentica.index :as index]))
 
+
+
 (defn create-new-local-index [latest-root client eatcv-to-datoms]
   (common/update-index {:index (sorted-set-index/create)
                         :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)
                         :eatcv-to-datoms eatcv-to-datoms}
+                       (common/->EmptyDb)
                        (server-transaction-log/->ServerTransactionLog client)))
 
 (defn create-remote-and-local-indexes [client index-key eatcv-to-datoms]
