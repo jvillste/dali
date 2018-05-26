@@ -106,12 +106,10 @@
           inc))
 
 (defn update-index [index db transaction-log]
-  (prn "updating-index from " (:last-indexed-transaction-number index))
   (let [new-transactions (transaction-log/subseq transaction-log
                                                  (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
                                                    (inc last-indexed-transaction-number)
                                                    0))]
-    (prn "new statements" new-transactions)
     (doseq [[t statements] new-transactions]
       (assert (every? (fn [statement]
                         (= 4 (count statement)))

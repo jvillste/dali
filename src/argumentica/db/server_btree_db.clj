@@ -12,7 +12,6 @@
 
 
 (defn create-new-local-index [latest-root client eatcv-to-datoms]
-  (prn "create-new-local-index " (-> latest-root :metadata :last-transaction-number))
   {:index (sorted-set-index/create)
    :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)
    :eatcv-to-datoms eatcv-to-datoms})
