@@ -195,6 +195,10 @@
                        imdb/schema
                        "tt0000002"))
 
+  (let [client-db-atom (atom (server-btree-db/create (client/->InProcessClient server-state-atom)
+                                                     crud-server/imdb-index-definition))]
+
+    )
 
   (let [client-db-atom (atom (client-db/create #_(client/->HttpClient "http://localhost:4010/api")
                                                (client/->InProcessClient server-state-atom)
@@ -206,7 +210,8 @@
 
     #_(client-db/inclusive-subsequence @client-db-atom :avtec [:type :title nil nil nil])
     #_(client-db/inclusive-subsequence @client-db-atom :full-text [:primaryTitle "the" nil nil nil])
-    (db-common/datoms @client-db-atom :full-text [:primaryTitle "the" nil nil nil]))
+    (-> @client-db-atom :local-db :indexes :eatcv #_:full-text)
+    #_(db-common/datoms @client-db-atom :full-text [:primaryTitle "the" nil nil nil]))
 
   )
 

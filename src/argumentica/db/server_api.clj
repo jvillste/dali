@@ -11,7 +11,7 @@
   {:db db})
 
 (defn ^:cor/api transact [state-atom statements]
-  ;; TODO: can not use swap! for transactions because transacting is not idempotent, use for example a go block 
+  ;; TODO: can not use swap! for transactions because transacting is not idempotent, use for example a go block
   (swap! state-atom
          update :db
          btree-db/transact statements)

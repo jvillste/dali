@@ -22,11 +22,6 @@
 (defn create-sorted-set []
   (sorted-set-by comparator/cc-cmp))
 
-
-(comment (into (create-sorted-set)
-               [[:endYear "\\N" 0 "tt0005062" :set] [:endYear "\\N" 0 "tt0010135" :set] [:endYear "\\N" 0 "tt0015229" :set] [:genres "Animation" 0 "tt0003849" :add] [:genres "Drama" 0 "tt0003674" :add] [:genres "Drama" 0 "tt0014965" :add] [:genres "Short" 0 "tt0000924" :add] [:genres "Short" 0 "tt0011712" :add] [:isAdult 0 0 "tt0001563" :set] [:isAdult 0 0 "tt0006631" :set] [:isAdult 0 0 "tt0011712" :set] [:originalTitle "A Dog's Life" 0 "tt0007865" :set] [:originalTitle "Momijigari" 0 "tt0000319" :set] [:originalTitle "Two Women" 0 "tt0006191" :set] [:primaryTitle "Mutt and Jeff" 0 "tt0003182" :set] [:primaryTitle "The Wheel of Life" 0 "tt0004793" :set] [:runtimeMinutes "\\N" 0 "tt0001426" :set] [:runtimeMinutes "\\N" 0 "tt0008415" :set] [:startYear 1913 0 "tt0003145" :set] [:startYear 1917 0 "tt0008231" :set] [:startYear 1922 0 "tt0013317" :set] [:titleType "movie" 0 "tt0006083" :set] [:titleType "movie" 0 "tt0012840" :set] [:titleType "short" 0 "tt0000978" :set]
-                [:runtimeMinutes 0 0 "tt0001426" :set]]))
-
 (defn create-node []
   {:values (create-sorted-set)})
 
