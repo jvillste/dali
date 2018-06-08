@@ -41,24 +41,6 @@
                                                                       latest-root)})
      :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)}))
 
-#_(defn create-remote-and-local-indexes [client index-key eatcv-to-datoms]
-  (let [latest-root (client/latest-root client
-                                        index-key)]
-    {:remote-index {:index (server-btree-index/create client
-                                                      index-key
-                                                      latest-root)}
-     :local-index (create-new-local-index latest-root
-                                          client
-                                          eatcv-to-datoms)}))
-
-#_(defn index-definition-to-remote-and-local-indexes [index-definition client]
-  (into {}
-        (map (fn [[key eatcv-to-datoms]]
-               [key
-                (create-remote-and-local-indexes client key eatcv-to-datoms)])
-             index-definition)))
-
-
 
 (defn update-peer-index-root [peer-index]
   (let [latest-root (client/latest-root (:client peer-index)
@@ -76,35 +58,6 @@
                     (sorted-set-index/create))
           (assoc :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number))))))
 
-#_(defn update-root [server-btree-db index-key]
-  (let [latest-root (client/latest-root (:client server-btree-db)
-                                        index-key)
-        previous-root (-> server-btree-db :indexes index-key :remote-index :index :btree-index-atom deref :latest-root)]
-    (if (= latest-root previous-root)
-      server-btree-db
-      (-> server-btree-db
-          (update-in [:indexes index-key :remote-index :index]
-                     (fn [remote-btree-index]
-                       (server-btree-index/set-root remote-btree-index
-                                                    latest-root)))
-          (assoc-in [:indexes index-key :local-index]
-                    (create-new-local-index latest-root
-                                            (:client server-btree-db)
-                                            (-> server-btree-db :indexes index-key :local-index :eatcv-to-datoms)))))))
-
-
-
-#_(defn first-unindexed-transaction-number [server-btree-db]
-  (->> server-btree-db
-       :indexes
-       vals
-       (map :local-index)
-       (map :last-indexed-transaction-number)
-       (map (fn [transaction-number]
-              (if transaction-number
-                (inc transaction-number)
-                0)))
-       (apply min)))
 
 (defn update-index-roots [server-btree-db]
   (update server-btree-db
@@ -115,27 +68,11 @@
 (defn update-indexes [server-btree-db]
   (-> server-btree-db
       (update-index-roots)
-      (common/update-indexes))
-  
-  #_(let [server-btree-db ]
-      (reduce (fn [server-btree-db [transaction-number statements]]
-                (update server-btree-db
-                        :indexes
-                        map/map-vals
-                        (fn [index]
-                          (update index :local-index
-                                  common/add-transaction-to-index
-                                  server-btree-db
-                                  transaction-number
-                                  statements))))
-              server-btree-db
-              (client/transaction-log-subseq (:client server-btree-db)
-                                             (first-unindexed-transaction-number server-btree-db)))))
+      (common/update-indexes)))
 
 (defn inclusive-subsequence [server-btree-db index-key first-datom]
   (index/inclusive-subsequence (get-in server-btree-db [:indexes index-key :index])
                                first-datom))
-
 
 (defn index-definition-to-peer-indexes [index-definition client]
   (into {}

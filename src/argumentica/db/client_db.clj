@@ -31,12 +31,11 @@
 (defn refresh [client-db]
   (update client-db
           :server-btree-db
-          server-btree-db/update))
+          server-btree-db/update-indexes))
 
 (defn inclusive-subsequence [client-db index-key first-datom]
-  (concat (server-btree-db/inclusive-subsequence (:server-btree-db client-db)
-                                                 index-key
-                                                 first-datom)
+  (concat (index/inclusive-subsequence (get-in client-db [:server-btree-db :indexes index-key :index])
+                                       first-datom)
           (index/inclusive-subsequence (get-in client-db [:local-db :indexes index-key :index])
                                        first-datom)))
 
@@ -45,9 +44,9 @@
                                   entity-id
                                   attribute)
           (db-common/eat-datoms-from-eatcv (get-in (:local-db client-db) [:indexes :eatcv :index])
-                                        entity-id
-                                        attribute
-                                        nil)))
+                                           entity-id
+                                           attribute
+                                           nil)))
 
 (defn values [client-db entity-id attribute]
   (db-common/values-from-eatcv-statements (datoms client-db entity-id attribute)))
@@ -61,18 +60,18 @@
                                         attribute
                                         value)
           (db-common/avtec-datoms-from-avtec (get-in (:local-db client-db) [:indexes :avtec :index])
-                                          attribute
-                                          value
-                                          (fn [other-value]
-                                            (= value other-value))
-                                          nil)))
+                                             attribute
+                                             value
+                                             (fn [other-value]
+                                               (= value other-value))
+                                             nil)))
 
 (defn entities [client-db attribute value]
   (db-common/entities-from-avtec-datoms (avtec-datoms client-db attribute value)))
 
 (defn transaction [client-db]
   (db-common/squash-transactions (map second (transaction-log/subseq (-> client-db :local-db :transaction-log)
-                                                                  0))))
+                                                                     0))))
 
 (defn commit [client-db]
   (client/transact (:client client-db)
@@ -121,7 +120,6 @@
                  (server-api/transaction-log-subseq server-state-atom
                                                     0))))))))
 
-
 (defn create-get-value [entity-id client-db]
   (fn [attribute]
     (if (= attribute :entity/id)
@@ -136,11 +134,10 @@
 (defn entity [client-db entity-id]
   (db-common/->Entity (create-get-value entity-id client-db)))
 
-
 (deftype ClientDb [state]
-  db/DB
+  db/WriteableDB
   (transact [this statements]
     (transact this statements))
+  db/ReadableDB
   (inclusive-subsequence [this index-key first-datom]
     (inclusive-subsequence this index-key first-datom)))
-
