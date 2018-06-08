@@ -2,8 +2,8 @@
   (:require [schema.core :as s]))
 
 (defprotocol TransactionLog
-  (add! [this transaction-statements])
-  (subseq [this first-transaction-number])
+  (add-transaction! [this transaction-statements])
+  (inclusive-subsequence [this first-transaction-number])
   (last-transaction-number [this])
 
   (truncate! [this first-transaction-number-to-preserve])
@@ -12,7 +12,7 @@
   (make-persistent! [this]))
 
 (defprotocol Index
-  (add! [this datom])
+  (add-datom! [this datom])
   (inclusive-subsequence [this first-datom])
 
   (flush! [this metadata]))
