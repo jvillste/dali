@@ -13,10 +13,10 @@
 
 (defprotocol Index
   (add-datom! [this datom])
-  (inclusive-subsequence [this first-datom])
+  (inclusive-subsequence [this first-datom]))
 
-  (flush! [this metadata]))
-
+(defprotocol Btree
+  (store-root! [this metadata]))
 
 (s/defschema Database
   {:transaction-log (s/protocol TransactionLog)
