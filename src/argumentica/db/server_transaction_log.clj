@@ -1,7 +1,6 @@
 (ns argumentica.db.server-transaction-log
   (:require (argumentica.db [client :as client])
-            (argumentica [transaction-log :as transaction-log]
-                         [storage :as storage])))
+            (argumentica [transaction-log :as transaction-log])))
 
 (defrecord ServerTransactionLog [client])
 
@@ -13,6 +12,3 @@
 (defmethod transaction-log/last-transaction-number ServerTransactionLog
   [this]
   (client/last-transaction-number (:client this)))
-
-
-

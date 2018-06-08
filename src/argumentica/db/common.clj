@@ -66,11 +66,12 @@
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
 
-(defn map-to-transaction [transaction-number entity-id eatcv-to-datoms a-map]
+(defn map-to-transaction [db transaction-number entity-id eatcv-to-datoms a-map]
   (reduce (fn [transaction [key value]]
             (apply conj
                    transaction
-                   (eatcv-to-datoms entity-id
+                   (eatcv-to-datoms db
+                                    entity-id
                                     key
                                     transaction-number
                                     :set
@@ -81,7 +82,8 @@
 (deftest test-map-to-transaction
   (is (= [[2 :name 1 :set "Foo"]
           [2 :age 1 :set 20]]
-         (map-to-transaction 1
+         (map-to-transaction nil
+                             1
                              2
                              eatcv-to-eatcv-datoms
                              {:name "Foo"
@@ -105,31 +107,30 @@
           :next-transaction-number
           inc))
 
-(defn update-index [index db transaction-log]
-  (let [new-transactions (transaction-log/subseq transaction-log
-                                                 (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
-                                                   (inc last-indexed-transaction-number)
-                                                   0))]
-    (doseq [[t statements] new-transactions]
-      (assert (every? (fn [statement]
-                        (= 4 (count statement)))
-                      statements)
-              "Statement must have four values")
+(defn add-transaction-to-index [index db transaction-number statements]
+  (if (or (nil? (:last-indexed-transaction-number index))
+          (< (:last-indexed-transaction-number index)
+             transaction-number))
+    (do (assert (every? (fn [statement]
+                          (= 4 (count statement)))
+                        statements)
+                "Statement must have four values")
 
-      (doseq [[e a c v] statements]
-        (doseq [datom ((:eatcv-to-datoms index)
-                       db
-                       e
-                       a
-                       t
-                       c
-                       v)]
-          (index/add! (:index index)
-                      datom))))
+        (doseq [[e a c v] statements]
+          (doseq [datom ((:eatcv-to-datoms index)
+                         db
+                         e
+                         a
+                         transaction-number
+                         c
+                         v)]
+            (index/add! (:index index)
+                        datom)))
 
-    (assoc index
-           :last-indexed-transaction-number
-           (first (last new-transactions)))))
+        (assoc index
+               :last-indexed-transaction-number
+               transaction-number))
+    index))
 
 (defn apply-to-indexes [db function & arguments]
   (update db :indexes
@@ -143,11 +144,28 @@
                     indexes
                     (keys indexes)))))
 
+(defn first-unindexed-transacion-number [db]
+  (->> (vals (:indexes db))
+       (map :last-indexed-transaction-number)
+       (map (fn [transaction-number]
+              (if transaction-number
+                (inc transaction-number)
+                0)))
+       (apply min)))
+
 (defn update-indexes [db]
-  (apply-to-indexes db
-                    update-index
-                    db
-                    (:transaction-log db)))
+  (reduce (fn [db [transaction-number statements]]
+            (update db
+                    :indexes
+                    map/map-vals
+                    (fn [index]
+                      (add-transaction-to-index index
+                                                db
+                                                transaction-number
+                                                statements))))
+          db
+          (transaction-log/subseq (:transaction-log db)
+                                  (first-unindexed-transacion-number db))))
 
 
 (defn transact [db statements]
@@ -183,8 +201,6 @@
           #{}
           statements))
 
-
-
 (defn take-while-and-n-more [pred n coll]
     (let [[head tail] (split-with pred coll)]
       (concat head (take n tail))))
@@ -219,7 +235,8 @@
 
 (defn datoms [db index-key pattern]
   (take-while (partial pattern-matches? pattern)
-              (db/inclusive-subsequence db index-key pattern)))
+              (index/inclusive-subsequence (get-in db [:indexes index-key :index])
+                                           pattern)))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -332,10 +349,9 @@
            (last-transaction-number db)))
 
   ([db entity-id attribute transaction-number]
-   (values-from-eatcv (-> db :indexes :eatcv :index)
-                      entity-id
-                      attribute
-                      transaction-number)))
+   (values-from-eatcv-statements (datoms db
+                                         :eatcv
+                                         [entity-id attribute transaction-number nil nil]))))
 
 (defn value
   ([db entity-id attribute]
@@ -623,18 +639,48 @@
                           :transaction-log transaction-log)))
 
 (defrecord LocalDb [indexes transaction-log]
-  db/DB
+  db/WriteableDB
   (transact [this statements]
     (transact this statements))
 
+  db/ReadableDB
   (inclusive-subsequence [this index-key first-datom]
     (index/inclusive-subsequence (-> this :indexes index-key :index)
                                  first-datom)))
 
 (deftype EmptyDb []
-  db/DB
+  db/WriteableDB
   (transact [this statements]
-            this)
+    this)
 
+  db/ReadableDB
   (inclusive-subsequence [this index-key first-datom]
-                         []))
+    []))
+
+
+(defn eatcv-to-full-text-avtec [tokenize db e a t c v]
+  (if (string? v)
+    (let [old-tokens (clojure.core/set (mapcat tokenize (values db e a (dec t))))]
+      (case c
+
+        :retract
+        (for [token (set/difference old-tokens
+                                    (clojure.core/set (mapcat tokenize
+                                                              (values-from-eatcv-statements (concat (datoms db
+                                                                                                            :eatcv
+                                                                                                            [e a nil nil nil])
+                                                                                                    [[e a t c v]])))))]
+          [a token t e :retract])
+
+        :add
+        (for [token (set/difference (clojure.core/set (tokenize v))
+                                    old-tokens)]
+          [a token t e :add])
+
+        :set
+        (let [new-tokens (clojure.core/set (tokenize v))]
+          (concat (for [token (set/difference new-tokens old-tokens)]
+                    [a token t e :add])
+                  (for [token (set/difference old-tokens new-tokens)]
+                    [a token t e :retract])))))
+    []))

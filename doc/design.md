@@ -193,6 +193,4 @@ Values can be one of:
 
 ### Cons
 
-* 
-
-
+*

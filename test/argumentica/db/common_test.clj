@@ -24,7 +24,7 @@
                (sorted-set-db/transact [[1 :friend :set 2]
                                         [2 :friend :set 1]])
                (sorted-set-db/transact [[1 :friend :set 3]]))]
-    
+
     (is (= [[1 :friend 0 :set 2]]
            (common/eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
                                          1
