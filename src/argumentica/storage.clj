@@ -1,5 +1,5 @@
 (ns argumentica.storage
-  (:require (argumentica [zip :as zip])
+  (:require [argumentica.zip :as zip]
             [taoensso.nippy :as nippy]))
 
 (defmulti put-to-storage!

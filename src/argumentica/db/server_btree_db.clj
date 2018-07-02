@@ -10,60 +10,14 @@
             [argumentica.index :as index]
             [flatland.useful.map :as map]
             [argumentica.transaction-log :as transaction-log]
-            [argumentica.db.db :as db]))
-
-(defrecord PeerIndex [local-index
-                      remote-index])
-
-(defmethod index/add!
-  PeerIndex
-  [this first-datom]
-  (index/add! (get-in this [:local-index])
-              first-datom))
-
-(defmethod index/inclusive-subsequence
-  PeerIndex
-  [this first-datom]
-  (concat (index/inclusive-subsequence (get-in this [:remote-index])
-                                       first-datom)
-          (index/inclusive-subsequence (get-in this [:local-index])
-                                       first-datom)))
-
-(defn create-peer-index [client index-key eatcv-to-datoms]
-  (let [latest-root (client/latest-root client
-                                        index-key)]
-    {:client client
-     :index-key index-key
-     :eatcv-to-datoms eatcv-to-datoms
-     :index (map->PeerIndex {:local-index (sorted-set-index/create)
-                             :remote-index (server-btree-index/create client
-                                                                      index-key
-                                                                      latest-root)})
-     :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)}))
-
-
-(defn update-peer-index-root [peer-index]
-  (let [latest-root (client/latest-root (:client peer-index)
-                                        (:index-key peer-index))
-        previous-root (-> peer-index :index :remote-index :btree-index-atom deref :latest-root)]
-
-    (if (= latest-root previous-root)
-      peer-index
-      (-> peer-index
-          (update-in [:index :remote-index]
-                     (fn [remote-btree-index]
-                       (server-btree-index/set-root remote-btree-index
-                                                    latest-root)))
-          (assoc-in [:index :local-index]
-                    (sorted-set-index/create))
-          (assoc :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number))))))
-
+            [argumentica.db.db :as db]
+            [argumentica.db.peer-index :as peer-index]))
 
 (defn update-index-roots [server-btree-db]
   (update server-btree-db
           :indexes
           map/map-vals
-          update-peer-index-root))
+          peer-index/update-root))
 
 (defn update-indexes [server-btree-db]
   (-> server-btree-db
@@ -78,7 +32,7 @@
   (into {}
         (map (fn [[key eatcv-to-datoms]]
                [key
-                (create-peer-index client key eatcv-to-datoms)])
+                (peer-index/create client key eatcv-to-datoms)])
              index-definition)))
 
 (defrecord ServerBtreeDb [client transaction-log indexes])
@@ -106,7 +60,7 @@
 
 
 (defn value [server-btree-db entity-id attribute]
-  (first (common/values-from-eatcv-statements (datoms server-btree-db entity-id attribute))))
+  (first (common/values-from-eatcv-datoms (datoms server-btree-db entity-id attribute))))
 
 (defn avtec-datoms [server-btree-db attribute value]
   (concat (common/avtec-datoms-from-avtec (get-in server-btree-db [:indexes :avtec :remote-index :index])

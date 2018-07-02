@@ -1,38 +1,34 @@
 (ns examples.crud-server
   (:gen-class)
-  (:require [me.raynes.fs :as fs]
-            [argumentica
-             [berkeley-db-transaction-log :as berkeley-db-transaction-log]
-             [btree-index :as btree-index]
-             [csv :as csv]
-             [sorted-map-transaction-log :as sorted-map-transaction-log]
-             [sorted-set-index :as sorted-set-index]]
-            [argumentica.db
-             [common :as db-common]
-             [server-api :as server-api]
-             [file-transaction-log :as file-transaction-log]]
-            [clojure
-             [string :as string]
-             [test :as t]]
-            [cor
-             [api :as cor-api]
-             [server :as server]]
+  (:require [argumentica.btree :as btree]
             [argumentica.btree-db :as btree-db]
-            [argumentica.directory-storage :as directory-storage]
-            [argumentica.storage :as storage]
-            [argumentica.db.file-transaction-log :as file-transaction-log]
+            [argumentica.btree-index :as btree-index]
+            [argumentica.csv :as csv]
+            [argumentica.db.common :as db-common]
             [argumentica.db.db :as db]
+            [argumentica.db.file-transaction-log :as file-transaction-log]
+            [argumentica.db.server-api :as server-api]
+            [argumentica.directory-storage :as directory-storage]
+            [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
+            [argumentica.sorted-set-index :as sorted-set-index]
+            [argumentica.storage :as storage]
             [argumentica.transaction-log :as transaction-log]
-            [argumentica.btree :as btree]
-            [argumentica.util :as util]
-            [net.cgrand.xforms :as xforms]
-            [kixi.stats.core  :as stats]
-            [examples.imdb :as imdb]
-            [flatland.useful.map :as usefull-map]
-            [argumentica.index :as index]
-            [clojure.set :as set])
-  (:import [argumentica.db.common LocalDb])
-  (:use clojure.test))
+            [clojure.set :as set]
+            [clojure.string :as string]
+            [clojure.test :as t :refer :all]
+            [cor.api :as cor-api]
+            [cor.server :as server]
+            [kixi.stats.core :as stats]
+            [me.raynes.fs :as fs]
+            [net.cgrand.xforms :as xforms]))
+
+(def schema
+  {:genres {:multivalued? true}
+   :directors {:multivalued? true
+               :reference? true}
+   :knownForTitles {:multivalued? true
+                    :reference? true}
+   :primaryProfession {:multivalued? true}})
 
 (defn tokenize [string]
   (->> (string/split string #" ")
@@ -46,10 +42,10 @@
         :retract
         (for [token (set/difference old-tokens
                                     (set (mapcat tokenize
-                                                 (db-common/values-from-eatcv-statements (concat (db-common/datoms db
-                                                                                                                   :eatcv
-                                                                                                                   [e a nil nil nil])
-                                                                                                 [[e a t c v]])))))]
+                                                 (db-common/values-from-eatcv-datoms (concat (db-common/datoms db
+                                                                                                               :eatcv
+                                                                                                               [e a nil nil nil])
+                                                                                             [[e a t c v]])))))]
           [a token t e :retract])
 
         :add
@@ -160,7 +156,7 @@
                       (comp transducer
                             (mapcat (fn [entity-map]
                                       (entity-map-to-transaction entity-map
-                                                                 imdb/schema
+                                                                 schema
                                                                  id-key))))
                       conj
                       []))
@@ -172,7 +168,7 @@
                       (comp transducer
                             (map (fn [entity-map]
                                    (entity-map-to-transaction (assoc entity-map :type :title)
-                                                              imdb/schema
+                                                              schema
                                                               :tconst)))
                             (map (fn [transaction]
                                    (db-common/transact db transaction))))
@@ -217,7 +213,7 @@
 (defn add-directors [db]
   (let [person-ids (->> (db-common/entities db :type :title)
                         (map (fn [entity-id]
-                               (db-common/->Entity db imdb/schema entity-id)))
+                               (db-common/->Entity db schema entity-id)))
                         (mapcat :directors)
                         (map :entity/id)
                         (into #{}))]
@@ -268,9 +264,9 @@
 
   (db-common/entities db :genres "Short")
 
-  (db-common/->Entity db imdb/schema "tt0000002")
+  (db-common/->Entity db schema "tt0000002")
 
-  (:primaryTitle (db-common/->Entity db imdb/schema "tt0000002"))
+  (:primaryTitle (db-common/->Entity db schema "tt0000002"))
 
   (let [target-value "b"]
     (db-common/entities-2 (-> db :indexes :full-text :index)
@@ -286,7 +282,7 @@
                                (fn [value]
                                  (.startsWith value target-value)))
          (map (fn [entity-id]
-                (db-common/->Entity db imdb/schema entity-id)))))
+                (db-common/->Entity db schema entity-id)))))
 
   (def disk-db-directory "data/temp/imdbdb")
 
@@ -400,7 +396,7 @@
                                                                                (:tconst title)))))))
         person-ids (->> (db-common/entities db :type :title)
                         (map (fn [entity-id]
-                               (db-common/->Entity db imdb/schema entity-id)))
+                               (db-common/->Entity db schema entity-id)))
                         (mapcat :directors)
                         (map :entity/id)
                         (into #{}))
@@ -421,11 +417,11 @@
                                                       (:tconst title))))))
     (->> (db-common/entities db :type :person)
          (map (fn [entity-id]
-                (db-common/->Entity db imdb/schema entity-id)))
+                (db-common/->Entity db schema entity-id)))
          #_(map :knownForTitles))
     #_(->> (db-common/entities db :type :title)
            (map (fn [entity-id]
-                  (db-common/->Entity db imdb/schema entity-id)))
+                  (db-common/->Entity db schema entity-id)))
            #_(map :primaryTitle))
     #_person-ids)
 

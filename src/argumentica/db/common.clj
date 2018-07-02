@@ -62,6 +62,8 @@
 (defn eatcv-to-avtec-datoms [_db e a t c v]
   [[a v t e c]])
 
+(def base-index-definition {:eatcv eatcv-to-eatcv-datoms
+                            :avtec eatcv-to-avtec-datoms})
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
@@ -101,13 +103,10 @@
 
 (defn add-log-entry [db eacv-statements]
   (transaction-log/add! (:transaction-log db)
-                        (:next-transaction-number db)
                         eacv-statements)
-  (update db
-          :next-transaction-number
-          inc))
+  db)
 
-(defn add-transaction-to-index [index db transaction-number statements]
+(defn add-transaction-to-index [index indexes transaction-number statements]
   (if (or (nil? (:last-indexed-transaction-number index))
           (< (:last-indexed-transaction-number index)
              transaction-number))
@@ -118,7 +117,7 @@
 
         (doseq [[e a c v] statements]
           (doseq [datom ((:eatcv-to-datoms index)
-                         db
+                         indexes
                          e
                          a
                          transaction-number
@@ -144,28 +143,47 @@
                     indexes
                     (keys indexes)))))
 
-(defn first-unindexed-transacion-number [db]
-  (->> (vals (:indexes db))
-       (map :last-indexed-transaction-number)
-       (map (fn [transaction-number]
-              (if transaction-number
-                (inc transaction-number)
-                0)))
+(defn first-unindexed-transacion-number-for-index [index]
+  (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
+    (inc last-indexed-transaction-number)
+    0))
+
+(defn first-unindexed-transacion-number-for-indexes [indexes]
+  (->> (vals indexes)
+       (map first-unindexed-transacion-number-for-index)
        (apply min)))
 
+(defn first-unindexed-transacion-number [db]
+  (first-unindexed-transacion-number-for-indexes (:indexes db)))
+
+#_(defn update-index [index transaction-log]
+    (reduce (fn [index [transaction-number statements]]
+              (add-transaction-to-index index
+                                        nil
+                                        transaction-number
+                                        statements))
+            index
+            (transaction-log/subseq transaction-log
+                                    (first-unindexed-transacion-number-for-index index))))
+
+(defn add-transactions-to-indexes [indexes transactions]
+  (reduce (fn [indexes [transaction-number statements]]
+            (map/map-vals indexes
+                          (fn [index]
+                            (add-transaction-to-index index
+                                                      indexes
+                                                      transaction-number
+                                                      statements))))
+          indexes
+          transactions))
+
+(defn update-indexes! [transaction-log indexes]
+  (add-transactions-to-indexes indexes
+                               (transaction-log/subseq transaction-log
+                                                       (first-unindexed-transacion-number-for-index indexes))))
+
 (defn update-indexes [db]
-  (reduce (fn [db [transaction-number statements]]
-            (update db
-                    :indexes
-                    map/map-vals
-                    (fn [index]
-                      (add-transaction-to-index index
-                                                db
-                                                transaction-number
-                                                statements))))
-          db
-          (transaction-log/subseq (:transaction-log db)
-                                  (first-unindexed-transacion-number db))))
+  (update db :indexes (partial update-indexes! (:transaction-log db))))
 
 
 (defn transact [db statements]
@@ -196,7 +214,7 @@
     :set  #{(eatcv-value statement)}
     values))
 
-(defn values-from-eatcv-statements [statements]
+(defn values-from-eatcv-datoms [statements]
   (reduce accumulate-values
           #{}
           statements))
@@ -233,10 +251,13 @@
               true))
           (map vector pattern datom)))
 
-(defn datoms [db index-key pattern]
+(defn datoms-from-index [index pattern]
   (take-while (partial pattern-matches? pattern)
-              (index/inclusive-subsequence (get-in db [:indexes index-key :index])
+              (index/inclusive-subsequence index
                                            pattern)))
+
+(defn datoms [db index-key pattern]
+  (datoms-from-index (get-in db [:indexes index-key :index])))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -330,7 +351,7 @@
                            latest-transaction-number)))
 
 (defn values-from-eatcv [eatcv entity-id attribute latest-transaction-number]
-  (values-from-eatcv-statements (eat-datoms-from-eatcv eatcv
+  (values-from-eatcv-datoms (eat-datoms-from-eatcv eatcv
                                                        entity-id
                                                        attribute
                                                        latest-transaction-number)))
@@ -341,6 +362,17 @@
     (transaction-log/last-transaction-number transaction-log)
     nil))
 
+(defn values-from-eatcv
+  ([eatcv entity-id attribute]
+   (values-from-eatcv eatcv
+                      entity-id
+                      attribute
+                      nil))
+
+  ([eatcv entity-id attribute transaction-number]
+   (values-from-eatcv-datoms (datoms-from-index eatcv
+                                              [entity-id attribute transaction-number nil nil]))))
+
 (defn values
   ([db entity-id attribute]
    (values db
@@ -349,7 +381,7 @@
            (last-transaction-number db)))
 
   ([db entity-id attribute transaction-number]
-   (values-from-eatcv-statements (datoms db
+   (values-from-eatcv-datoms (datoms db
                                          :eatcv
                                          [entity-id attribute transaction-number nil nil]))))
 
@@ -658,15 +690,15 @@
     []))
 
 
-(defn eatcv-to-full-text-avtec [tokenize db e a t c v]
+(defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
   (if (string? v)
-    (let [old-tokens (clojure.core/set (mapcat tokenize (values db e a (dec t))))]
+    (let [old-tokens (clojure.core/set (mapcat tokenize (values {:indexes indexes} e a (dec t))))]
       (case c
 
         :retract
         (for [token (set/difference old-tokens
                                     (clojure.core/set (mapcat tokenize
-                                                              (values-from-eatcv-statements (concat (datoms db
+                                                              (values-from-eatcv-datoms (concat (datoms {:indexes indexes}
                                                                                                             :eatcv
                                                                                                             [e a nil nil nil])
                                                                                                     [[e a t c v]])))))]

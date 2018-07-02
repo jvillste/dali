@@ -1,6 +1,6 @@
 (ns argumentica.transaction-log)
 
-(defmulti add! (fn [log transaction-number statements]
+(defmulti add! (fn [log statements]
                  (type log)))
 
 (defmulti truncate! (fn [log first-transaction-number-to-preserve]

@@ -125,7 +125,7 @@
                  [:entity-1 :name 2 :set "Name 3"])
                (server-btree-db/inclusive-subsequence server-btree-db-3 :eatcv nil)))))))
 
-(deftest test2-server-btree-db
+#_(deftest test2-server-btree-db
     (let [server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))
           client (client/->InProcessClient server-state-atom)
           server-btree-db (server-btree-db/create client

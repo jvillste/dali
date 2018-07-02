@@ -7,11 +7,15 @@
 (defn create []
   (->SortedMapTransactionLog (atom (sorted-map))))
 
+(defmethod transaction-log/last-transaction-number SortedMapTransactionLog
+  [this]
+  (first (last @(:sorted-map-atom this))))
+
 (defmethod transaction-log/add! SortedMapTransactionLog
-  [this transaction-number statements]
+  [this statements]
   (swap! (:sorted-map-atom this)
          assoc
-         transaction-number
+         (transaction-log/last-transaction-number this)
          statements)
   this)
 
@@ -30,9 +34,7 @@
                transaction-number)))
   this)
 
-(defmethod transaction-log/last-transaction-number SortedMapTransactionLog
-  [this]
-  (first (last @(:sorted-map-atom this))))
+
 
 
 (defmethod transaction-log/close! SortedMapTransactionLog

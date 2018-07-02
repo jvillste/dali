@@ -1,24 +1,21 @@
 (ns argumentica.ui.argument
-  (:require [fungl.application :as application]
-            (flow-gl.graphics [font :as font])
-            (fungl [cache :as cache]
-                   [layouts :as layouts]
-                   [atom-registry :as atom-registry])
-            (flow-gl.gui [layout :as layout]
-                         [visuals :as visuals]
-                         [animation :as animation]
-                         [keyboard :as keyboard]
-                         [scene-graph :as scene-graph])
-            (fungl.component [text-area :as text-area]
-                             [text :as text]
-                             [button :as button])
-            (argumentica.db [client :as client]
-                            [common :as db-common]
-                            [server-api :as server-api]
-                            [server-btree-db :as server-btree-db]
-                            [client-db :as client-db])
-            (argumentica [btree-db :as btree-db]))
-  (:import [java.util UUID]))
+  (:require [argumentica.btree-db :as btree-db]
+            [argumentica.db.client :as client]
+            [argumentica.db.client-db :as client-db]
+            [argumentica.db.server-api :as server-api]
+            [flow-gl.graphics.font :as font]
+            [flow-gl.gui.animation :as animation]
+            [flow-gl.gui.keyboard :as keyboard]
+            [flow-gl.gui.scene-graph :as scene-graph]
+            [flow-gl.gui.visuals :as visuals]
+            [fungl.application :as application]
+            [fungl.atom-registry :as atom-registry]
+            [fungl.cache :as cache]
+            [fungl.component.button :as button]
+            [fungl.component.text :as text]
+            [fungl.component.text-area :as text-area]
+            [fungl.layouts :as layouts])
+  (:import java.util.UUID))
 
 (def entity-id  #uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb")
 (def entity-id-2  #uuid "04776425-6078-41bf-af59-b9a113441368")

@@ -8,6 +8,9 @@
 (defn create []
   (->SortedSetIndex (atom (sorted-set-by comparator/cc-cmp))))
 
+(defn creator [_name]
+  (create))
+
 (defmethod index/add!
   SortedSetIndex
   [this value]

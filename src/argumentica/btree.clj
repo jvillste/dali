@@ -1,23 +1,16 @@
 (ns argumentica.btree
-  (:require [flow-gl.tools.trace :as trace]
-            [flow-gl.debug :as debug]
-            (argumentica [match :as match]
-                         [storage :as storage]
-                         [hash-map-storage :as hash-map-storage]
-                         [cryptography :as cryptography]
-                         [encode :as encode]
-                         [graph :as graph]
-                         [zip :as zip]
-                         [comparator :as comparator])
+  (:require [argumentica.comparator :as comparator]
+            [argumentica.cryptography :as cryptography]
+            [argumentica.encode :as encode]
+            [argumentica.hash-map-storage :as hash-map-storage]
+            [argumentica.match :as match]
+            [argumentica.storage :as storage]
+            [argumentica.zip :as zip]
+            [clojure.data.priority-map :as priority-map]
+            [clojure.test :refer :all]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as properties]
-            [clojure.java.io :as io]
-            [clojure.data.priority-map :as priority-map])
-  (:use [clojure.test])
-  (:import [java.io DataInputStream DataOutputStream]
-           [java.nio.file.attribute FileAttribute]))
-
+            [clojure.test.check.properties :as properties]))
 
 (defn create-sorted-set []
   (sorted-set-by comparator/cc-cmp))

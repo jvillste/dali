@@ -49,7 +49,7 @@
                                            nil)))
 
 (defn values [client-db entity-id attribute]
-  (db-common/values-from-eatcv-statements (datoms client-db entity-id attribute)))
+  (db-common/values-from-eatcv-datoms (datoms client-db entity-id attribute)))
 
 (defn value [client-db entity-id attribute]
   (first (values client-db entity-id attribute)))

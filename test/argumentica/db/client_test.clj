@@ -1,17 +1,10 @@
 (ns argumentica.db.client-test
-  (:require (argumentica [sorted-set-db :as sorted-set-db]
-                         [btree-db :as btree-db]
-                         [btree-index :as btree-index]
-                         [transaction-log :as transaction-log]
-                         [btree :as btree]
-                         [encode :as encode])
-            (argumentica.db [common :as common]
-                            [server-api :as server-api]
-                            [in-process-client :as in-process-client]
-                            [client :as client])
-            (cor [server :as server]
-                 [api :as api]))
-  (:use clojure.test))
+  (:require [argumentica.btree :as btree]
+            [argumentica.btree-db :as btree-db]
+            [argumentica.db.client :as client]
+            [argumentica.db.server-api :as server-api]
+            [argumentica.encode :as encode]
+            [clojure.test :refer :all]))
 
 (deftest test
   (let [state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))

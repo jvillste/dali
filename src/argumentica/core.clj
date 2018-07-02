@@ -1,41 +1,11 @@
 (ns argumentica.core
-  (:require (fungl [application :as application]
-                   [handler :as handler]
-                   [cache :as cache]
-                   [atom-registry :as atom-registry]
-                   [value-registry :as value-registry]
-                   [callable :as callable]
-                   [layout :as layout]
-                   [layouts :as layouts])
-            (flow-gl.gui 
-             [visuals :as visuals]
-             [quad-renderer :as quad-renderer]
-             [tiled-renderer :as tiled-renderer]
-             [animation :as animation]
-             [scene-graph :as scene-graph]
-             [stateful :as stateful]
-             [keyboard :as keyboard]
-             [events :as events])
-            #_(flow-gl.gui [drawable :as drawable]
-                           [layout :as layout]
-                           [layouts :as layouts]
-                           [layout-dsl :as l]
-                           [controls :as controls]
-                           [gui :as gui]
-                           [events :as events]
-                           [layoutable :as layoutable]
-                           [transformer :as transformer])
-            [datomic.api :as d]
-            #_(flow-gl.opengl.jogl [quad :as quad]
-                                   [render-target :as render-target]
-                                   [opengl :as opengl])
-            #_(flow-gl.tools [profiler :as profiler]
-                             [trace :as trace])
-            (flow-gl.graphics [font :as font]))
-  (:import [javax.media.opengl GL2])
-  (:use flow-gl.utils
-        clojure.test))
-
+  (:require [datomic.api :as d]
+            [flow-gl.graphics.font :as font]
+            [flow-gl.gui.visuals :as visuals]
+            [fungl.application :as application]
+            [fungl.atom-registry :as atom-registry]
+            [fungl.cache :as cache]
+            [fungl.layouts :as layouts]))
 
 ;; datomic
 
@@ -59,7 +29,7 @@
                    :db.type/string
                    :db.cardinality/one
                    :identity true)
-        
+
         (attribute :argumentica.argument/premises
                    :db.type/ref
                    :db.cardinality/many)

@@ -1,8 +1,5 @@
 (ns argumentica.graphliner
-  (:require [datomic.api :as d]
-            [datascript.core :as ds])
-  (:use clojure.test))
-
+  (:require [datomic.api :as d]))
 
 ;; datomic
 

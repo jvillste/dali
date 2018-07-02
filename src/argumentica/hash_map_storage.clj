@@ -1,5 +1,5 @@
 (ns argumentica.hash-map-storage
-  (:require (argumentica [storage :as storage])))
+  (:require [argumentica.storage :as storage]))
 
 (defrecord HashMapStorage [hash-map-atom])
 
@@ -36,5 +36,3 @@
   HashMapStorage
   [this key]
   (contains? @(:hash-map-atom this) key))
-
-

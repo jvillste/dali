@@ -1,21 +1,11 @@
 (ns argumentica.btree-db
-  (:require [me.raynes.fs :as fs]
-            [clojure.string :as string]
-            (argumentica.db [common :as common])
-            (argumentica [transaction-log :as transaction-log]
-                         [entity :as entity]
-                         [storage :as storage]
-                         [hash-map-storage :as hash-map-storage]
-                         [sorted-map-transaction-log :as sorted-map-transaction-log]
-                         [berkeley-db-transaction-log :as berkeley-db-transaction-log]
-                         [comparator :as comparator]
-                         [index :as index]
-                         [btree :as btree]
-                         [btree-index :as btree-index]
-                         [directory-storage :as directory-storage]))
-
-  (:use clojure.test))
-
+  (:require [argumentica.btree :as btree]
+            [argumentica.btree-index :as btree-index]
+            [argumentica.db.common :as common]
+            [argumentica.db.file-transaction-log :as file-transaction-log]
+            [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
+            [argumentica.transaction-log :as transaction-log]
+            [clojure.test :refer :all]))
 
 (defn store-index-root-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
@@ -65,7 +55,7 @@
 (defn create-directory-btree-db [base-path]
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index base-path)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
-                                        :transaction-log (berkeley-db-transaction-log/create (str base-path "/transaction-log")))))
+                                        :transaction-log (file-transaction-log/create (str base-path "/transaction-log")))))
 
 (defn create-memory-btree-db []
   (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index 10001)

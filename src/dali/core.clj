@@ -3,7 +3,7 @@
 
 (defprotocol TransactionLog
   (add-transaction! [this transaction-statements])
-  (inclusive-subsequence [this first-transaction-number])
+  (subseq-from [this first-transaction-number])
   (last-transaction-number [this])
 
   (truncate! [this first-transaction-number-to-preserve])
@@ -13,20 +13,30 @@
 
 (defprotocol Index
   (add-datom! [this datom])
-  (inclusive-subsequence [this first-datom]))
+  (subseq-from [this first-datom])
+  (last-indexed-transaction-number [this]))
 
 (defprotocol Btree
   (store-root! [this metadata]))
 
-(s/defschema Database
-  {:transaction-log (s/protocol TransactionLog)
-   :indexes {s/Keyword {:last-indexed-transaction-number s/Int
-                        :index (s/protocol Index)}}})
+(defprotocol Storage
+  (get [this key])
+  (put! [this key value])
+  (delete! [this key])
+  (keys [this])
+  (contains? [this key]))
+
+(defprotocol DatabaseReference
+  (transact! [this statements])
+  (dereference-database [this]))
 
 (s/defschema DatabaseReference
-  {:database Database
-   :transaction-number s/Int})
+  {:transaction-log (s/protocol TransactionLog)
+   :indexes {s/Keyword (s/protocol Index)}})
 
+(s/defschema DatabaseValue
+  {:indexes {s/Keyword (s/protocol Index)}
+   :last-transaction-number s/Int})
 
 (s/defschema Command
   (s/enum :add :retract :set))
@@ -42,13 +52,20 @@
           (s/pred (fn [datom] (some integer? datom))
                   "Contains a transaction number")))
 
-(s/defschema EatcvToDatom
+(s/defschema StatementToDatom
   (s/=> Datom
-        s/Any s/Keyword s/Int Command s/Any))
+
+        DatabaseValue
+        s/Int ;; transaction number
+        s/Any ;; entity
+        s/Keyword ;; attribute
+        Command ;; command
+        s/Any ;; value
+        ))
 
 (s/defschema IndexDefinition
-  {s/Keyword EatcvToDatom})
+  {s/Keyword StatementToDatom})
 
 (s/defschema Branch
-  {:base-database-reference DatabaseReference
-   :branch-database Database})
+  {:base-database DatabaseValue
+   :branch-database DatabaseValue})

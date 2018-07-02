@@ -1,21 +1,13 @@
 (ns argumentica.zip
   (:require [clojure.java.io :as io]
+            [clojure.test :refer :all]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties])
-  (:import [java.util Arrays]
-           [java.util.zip
-            ZipInputStream
-            ZipOutputStream
-            ZipEntry
-            Deflater
-            Inflater] 
-           [java.io
-            ByteArrayOutputStream
-            ByteArrayInputStream
-            BufferedOutputStream]
-           java.nio.charset.Charset)
-  (:use clojure.test))
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
+           java.nio.charset.Charset
+           java.util.Arrays
+           [java.util.zip Deflater Inflater ZipEntry ZipInputStream ZipOutputStream]))
 
 (defn compress [input-stream output-stream]
   (let [buffer-size 1001

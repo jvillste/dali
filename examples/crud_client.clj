@@ -1,35 +1,26 @@
 (ns examples.crud-client
-  (:require [fungl.application :as application]
-            (flow-gl.graphics [font :as font]
-                              [buffered-image :as buffered-image])
-            (fungl [cache :as cache]
-                   [layouts :as layouts]
-                   [atom-registry :as atom-registry]
-                   [callable :as callable])
-            (flow-gl.gui [layout :as layout]
-                         [visuals :as visuals]
-                         [animation :as animation]
-                         [keyboard :as keyboard]
-                         [scene-graph :as scene-graph])
-            (fungl.component [text-area :as text-area]
-                             [text :as text]
-                             [button :as button])
-            (argumentica.db [client :as client]
-                            [common :as db-common]
-                            [server-api :as server-api]
-                            [server-btree-db :as server-btree-db]
-                            [client-db :as client-db])
+  (:gen-class)
+  (:require [argumentica.db.client :as client]
+            [argumentica.db.client-db :as client-db]
+            [argumentica.db.server-btree-db :as server-btree-db]
             [clojure.java.io :as io]
-            (argumentica [btree-db :as btree-db])
-            [argumentica.db.common :as common]
-            [examples.imdb :as imdb]
-            [examples.crud-server :as crud-server])
-  (:import [java.util UUID])
-  (:gen-class))
+            [examples.crud-server :as crud-server]
+            [flow-gl.graphics.buffered-image :as buffered-image]
+            [flow-gl.graphics.font :as font]
+            [flow-gl.gui.animation :as animation]
+            [flow-gl.gui.visuals :as visuals]
+            [fungl.application :as application]
+            [fungl.atom-registry :as atom-registry]
+            [fungl.callable :as callable]
+            [fungl.component.text :as text]
+            [fungl.component.text-area :as text-area]
+            [fungl.layouts :as layouts]
+            [argumentica.db.server-api :as server-api])
+  (:import java.util.UUID))
 
-
-(#_def defonce server-state-atom (atom (server-api/create-state (-> (crud-server/create-in-memory-btree-db 21)
-                                                                    (crud-server/transact-titles "data/imdb/title.basics.tsv" (take 20))))))
+#_(declare server-state-atom)
+(defonce server-state-atom (atom (server-api/create-state (-> (crud-server/create-in-memory-btree-db 21)
+                                                              #_(crud-server/transact-titles "data/imdb/title.basics.tsv" (take 20))))))
 
 (comment
   (:db @server-state-atom))

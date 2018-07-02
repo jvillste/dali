@@ -104,14 +104,16 @@
                                  (:log-file-path this)
                                  first-preserved-transaction-number))
 
+(defmethod transaction-log/last-transaction-number FileTransactionLog
+  [this]
+  (first (last (:in-memory-log @(:state-atom this)))))
+
 (defmethod transaction-log/add! FileTransactionLog
-  [this transaction-number statements]
+  [this statements]
   (synchronously-apply-to-state! this
                                  add-transaction!
-                                 transaction-number
+                                 (transaction-log/last-transaction-number this)
                                  statements))
-
-
 
 (defn transient? [file-transaction-log]
   (:is-transient? @(:state-atom file-transaction-log)))
@@ -130,9 +132,7 @@
           >=
           first-transaction-number))
 
-(defmethod transaction-log/last-transaction-number FileTransactionLog
-  [this]
-  (first (last (:in-memory-log @(:state-atom this)))))
+
 
 (defmethod transaction-log/make-transient! FileTransactionLog
   [file-transaction-log]
