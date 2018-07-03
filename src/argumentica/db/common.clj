@@ -65,6 +65,11 @@
 (def base-index-definition {:eatcv eatcv-to-eatcv-datoms
                             :avtec eatcv-to-avtec-datoms})
 
+(def base-index-definitions [{:key :eatcv
+                              :eatcv-to-datoms eatcv-to-eatcv-datoms}
+                             {:key :avtec
+                              :eatcv-to-datoms eatcv-to-avtec-datoms}])
+
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
 
@@ -657,6 +662,14 @@
                 {:eatcv-to-datoms eatcv-to-datoms
                  :index (create-index (name key))}])
              index-definition)))
+
+(defn index-definitions-to-indexes [create-index index-definitions]
+  (into {}
+        (map (fn [{:keys [key eatcv-to-datoms]}]
+               [key
+                {:eatcv-to-datoms eatcv-to-datoms
+                 :index (create-index (name key))}])
+             index-definitions)))
 
 (deftest test-index-definition-to-indexes
   (is (= {:eatcv

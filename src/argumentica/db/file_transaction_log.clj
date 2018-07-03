@@ -108,7 +108,7 @@
   [this]
   (first (last (:in-memory-log @(:state-atom this)))))
 
-(defmethod transaction-log/add! FileTransactionLog
+(defmethod transaction-log/add!-method FileTransactionLog
   [this statements]
   (synchronously-apply-to-state! this
                                  add-transaction!

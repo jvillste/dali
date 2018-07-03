@@ -11,11 +11,11 @@
   [this]
   (first (last @(:sorted-map-atom this))))
 
-(defmethod transaction-log/add! SortedMapTransactionLog
-  [this statements]
+(defmethod transaction-log/add!-method SortedMapTransactionLog
+  [this transaction-number statements]
   (swap! (:sorted-map-atom this)
          assoc
-         (transaction-log/last-transaction-number this)
+         transaction-number
          statements)
   this)
 

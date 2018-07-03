@@ -47,6 +47,11 @@
    (s/one Command "command")
    (s/one s/Any "value")])
 
+(s/defschema Transaction
+  [Statement])
+
+(def validate-transaction (s/validator Transaction))
+
 (s/defschema Datom
   (s/both [s/Any]
           (s/pred (fn [datom] (some integer? datom))
