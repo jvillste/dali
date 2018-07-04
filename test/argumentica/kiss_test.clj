@@ -58,5 +58,3 @@
            (common/values-from-eatcv (-> indexes :eatcv :index)
                                      1
                                      :name)))))
-
-

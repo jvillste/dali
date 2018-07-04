@@ -34,20 +34,13 @@
   (s/enum :add :retract :set))
 
 (s/defschema Statement
-  [(s/one s/Any "entity")
-   (s/one s/Keyword "attribute")
-   (s/one Command "command")
-   (s/one s/Any "value")])
-
-(s/defschema TransactionStatement
-  [(s/one s/Any "entity")
-   (s/one s/Keyword "attribute")
-   (s/one s/Int "transaction")
-   (s/one Command "command")
-   (s/one s/Any "value")])
+  {:entity s/Any
+   :attribute s/Keyword
+   :command Command
+   :value s/Any})
 
 (s/defschema Transaction
-  [Statement])
+  #{Statement})
 
 (def validate-transaction (s/validator Transaction))
 
@@ -57,27 +50,25 @@
           (s/pred (fn [datom] (some integer? datom))
                   "Contains a transaction number")))
 
-(s/defschema GenerateDatoms
-  "A function from database reference and transaction statement to datoms."
+(s/defschema StatementToDatoms
+  "A function that defines what datoms an index contains."
   (s/=> [Datom]
 
         DatabaseReference
-        TransactionStatement))
+        s/Int ;; transaction number
+        Statement))
 
 (s/defschema IndexDefinition
   {:key s/Keyword
-   :generate-datoms GenerateDatoms})
+   :statement-to-datoms StatementToDatoms})
 
 (s/defschema Index
   (merge IndexDefinition
-         {:sortred-datom-set (s/protocol SortedDatomSet)}))
+         {:sorted-datom-set (s/protocol SortedDatomSet)
+          (s/optional-key :last-indexed-transaction-number) s/Int}))
 
 (s/defschema IndexMap
   {s/Keyword IndexDefinitionWithIndex})
-
-(s/defschema Branch
-  {:base-database DatabaseValue
-   :branch-database DatabaseValue})
 
 (s/defschema DatabaseReference
   {:transaction-log (s/protocol TransactionLog)
@@ -86,3 +77,7 @@
 (s/defschema DatabaseValue
   {:index-map IndexMap
    :last-transaction-number s/Int})
+
+(s/defschema Branch
+  {:base-database DatabaseValue
+   :branch-database DatabaseReference})
