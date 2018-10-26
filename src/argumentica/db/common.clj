@@ -110,9 +110,9 @@
                         transaction-log]
                  :or {indexes {}
                       transaction-log (sorted-map-transaction-log/create)}}]
-  {:next-transaction-number (if-let [last-transaction-number (transaction-log/last-transaction-number transaction-log)]
-                              (inc last-transaction-number)
-                              0)
+  {#_:next-transaction-number #_(if-let [last-transaction-number (transaction-log/last-transaction-number transaction-log)]
+                                  (inc last-transaction-number)
+                                  0)
    :indexes indexes
    :transaction-log transaction-log})
 
@@ -285,7 +285,14 @@
                                            pattern)))
 
 (defn datoms [db index-key pattern]
-  (datoms-from-index (get-in db [:indexes index-key :index])))
+  (take-while (let [datom-transaction-number (-> db :indexes index-key :datom-transaction-number)]
+                (fn [datom]
+                  (if-let [last-transaction-number (:last-transaction-number db)]
+                    (<= (datom-transaction-number datom)
+                        last-transaction-number)
+                    true)))
+              (datoms-from-index (get-in db [:indexes index-key :index])
+                                 pattern)))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
