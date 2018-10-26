@@ -6,7 +6,7 @@
                                             (predicate key))
                                           the-sorted-map))))
 
-(deftest test-truncate-sorted-map
+(deftest test-filter-sorted-map-keys
   (is (= {2 :2
           3 :3}
          (filter-sorted-map-keys (sorted-map 1 :1 2 :2 3 :3)
@@ -42,3 +42,10 @@
 
 (comment
   (transduce (count-logger 3) + (range 10)))
+
+(defmacro defn-alias [target-symbol source-symbol]
+  (let [metadata (meta (find-var (symbol (or (namespace source-symbol)
+                                             (name (ns-name *ns*)))
+                                         (name source-symbol))))]
+    `(def ~(with-meta target-symbol {:doc (:doc metadata) :arglists `(quote ~(:arglists metadata))})
+       ~source-symbol)))

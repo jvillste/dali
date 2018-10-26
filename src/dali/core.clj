@@ -34,6 +34,12 @@
   (s/enum :add :retract :set))
 
 (s/defschema Statement
+  [(s/one s/Any "entity")
+   (s/one s/Keyword "attribute")
+   (s/one Command "command")
+   (s/one s/Any "value")])
+
+#_(s/defschema Statement
   {:entity s/Any
    :attribute s/Keyword
    :command Command
@@ -58,9 +64,21 @@
         s/Int ;; transaction number
         Statement))
 
+(s/defschema SortedDatomSetCreator
+  (s/=> (s/protocol SortedDatomSet)
+
+        s/Str ;; key
+        ))
+
+(s/defschema DatomTransactionNumber
+  (s/=> s/Int
+
+        Datom))
+
 (s/defschema IndexDefinition
   {:key s/Keyword
-   :statement-to-datoms StatementToDatoms})
+   :statement-to-datoms StatementToDatoms
+   :datom-transaction-number DatomTransactionNumber})
 
 (s/defschema Index
   (merge IndexDefinition
@@ -68,7 +86,7 @@
           (s/optional-key :last-indexed-transaction-number) s/Int}))
 
 (s/defschema IndexMap
-  {s/Keyword IndexDefinitionWithIndex})
+  {s/Keyword Index})
 
 (s/defschema DatabaseReference
   {:transaction-log (s/protocol TransactionLog)

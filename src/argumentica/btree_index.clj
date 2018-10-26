@@ -12,7 +12,6 @@
   (btree/inclusive-subsequence (:btree-index-atom this)
                                value))
 
-
 (defn swap-btree! [btree-index function & arguments]
   (apply swap!
          (:btree-index-atom btree-index)

@@ -66,9 +66,11 @@
                             :avtec eatcv-to-avtec-datoms})
 
 (def base-index-definitions [{:key :eatcv
-                              :eatcv-to-datoms eatcv-to-eatcv-datoms}
+                              :eatcv-to-datoms eatcv-to-eatcv-datoms
+                              :datom-transaction-number eatcv-transaction-number}
                              {:key :avtec
-                              :eatcv-to-datoms eatcv-to-avtec-datoms}])
+                              :eatcv-to-datoms eatcv-to-avtec-datoms
+                              :datom-transaction-number avtec-transaction-number}])
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
@@ -96,6 +98,14 @@
                              {:name "Foo"
                               :age 20}))))
 
+(defn vectors-to-transaction [& statement-vectors]
+  (clojure.core/set (map (fn [[e a c v]]
+                           {:entity e
+                            :attribute a
+                            :command c
+                            :value c})
+                         statement-vectors)))
+
 (defn create [& {:keys [indexes
                         transaction-log]
                  :or {indexes {}
@@ -112,6 +122,7 @@
   db)
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
+  (println "adding to " transaction-number (:last-indexed-transaction-number index) index)
   (if (or (nil? (:last-indexed-transaction-number index))
           (< (:last-indexed-transaction-number index)
              transaction-number))
@@ -153,13 +164,13 @@
     (inc last-indexed-transaction-number)
     0))
 
-(defn first-unindexed-transacion-number-for-indexes [indexes]
-  (->> (vals indexes)
+(defn first-unindexed-transacion-number-for-index-map [index-map]
+  (->> (vals index-map)
        (map first-unindexed-transacion-number-for-index)
        (apply min)))
 
 (defn first-unindexed-transacion-number [db]
-  (first-unindexed-transacion-number-for-indexes (:indexes db)))
+  (first-unindexed-transacion-number-for-index-map (:indexes db)))
 
 #_(defn update-index [index transaction-log]
     (reduce (fn [index [transaction-number statements]]
@@ -182,14 +193,13 @@
           indexes
           transactions))
 
-(defn update-indexes! [transaction-log indexes]
+(defn update-indexes! [indexes transaction-log]
   (add-transactions-to-indexes indexes
                                (transaction-log/subseq transaction-log
-                                                       (first-unindexed-transacion-number-for-index indexes))))
+                                                       (first-unindexed-transacion-number-for-index-map indexes))))
 
 (defn update-indexes [db]
-  (update db :indexes (partial update-indexes! (:transaction-log db))))
-
+  (update db :indexes update-indexes! (:transaction-log db)))
 
 (defn transact [db statements]
   (-> db
@@ -197,8 +207,21 @@
       (update-indexes)))
 
 
+(defn transact! [db statements]
+  (transaction-log/add! (:transaction-log db)
+                        statements)
+
+  (update db
+          :indexes
+          update-indexes!
+          (:transaction-log db)))
+
+(defn deref [db]
+  (assoc db
+         :last-transaction-number (dec (first-unindexed-transacion-number db))))
+
 (defn set [db entity attribute value]
-  (transact db
+  (transact! db
             [[entity attribute :set value]]))
 
 (defn entities-by-string-value [avtec attribute pattern latest-transaction-number]
@@ -654,6 +677,11 @@
 (defmethod print-method Entity [entity ^java.io.Writer writer]
   (.write writer  (pr-str (entity-to-map entity))))
 
+(defn index-to-index-definition [index]
+  (select-keys index
+               [:eatcv-to-datoms
+                :datom-transaction-number
+                :key]))
 
 (defn index-definition-to-indexes [index-definition create-index]
   (into {}
@@ -663,14 +691,6 @@
                  :index (create-index (name key))}])
              index-definition)))
 
-(defn index-definitions-to-indexes [create-index index-definitions]
-  (into {}
-        (map (fn [{:keys [key eatcv-to-datoms]}]
-               [key
-                {:eatcv-to-datoms eatcv-to-datoms
-                 :index (create-index (name key))}])
-             index-definitions)))
-
 (deftest test-index-definition-to-indexes
   (is (= {:eatcv
           {:eatcv-to-datoms :eatcv-to-eatcv-datoms,
@@ -678,9 +698,33 @@
          (index-definition-to-indexes {:eatcv :eatcv-to-eatcv-datoms}
                                       (fn [index-name] {:index-name index-name})))))
 
+(defn index-definitions-to-indexes [create-index index-definitions]
+  (assert (sequential? index-definitions))
+
+  (into {}
+        (map (fn [index-definition]
+               [(:key index-definition)
+                (assoc index-definition
+                       :index
+                       (create-index (:key index-definition)))])
+             index-definitions)))
+
+(deftest test-index-definitions-to-indexes
+  (is (= {:eatcv
+          {:eatcv-to-datoms :eatcv-to-eatcv-datoms,
+           :key :eatcv,
+           :index {:index-key :eatcv}}}
+         (index-definitions-to-indexes (fn [index-key] {:index-key index-key})
+                                       [{:eatcv-to-datoms :eatcv-to-eatcv-datoms :key :eatcv}]))))
+
 (defn db-from-index-definition [index-definition create-index transaction-log]
   (update-indexes (create :indexes (index-definition-to-indexes index-definition
                                                                 create-index)
+                          :transaction-log transaction-log)))
+
+(defn db-from-index-definitions [index-definitions create-index transaction-log]
+  (update-indexes (create :indexes (index-definitions-to-indexes create-index
+                                                                 index-definitions)
                           :transaction-log transaction-log)))
 
 (defrecord LocalDb [indexes transaction-log]

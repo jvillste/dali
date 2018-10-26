@@ -191,6 +191,20 @@ Values can be one of:
 * Send the local transactions as a one transaction to the server when the user wants to commit.
 * The db reference can be updated to the latest and then the local transactions must be replayed on it.
 
-### Cons
+# Where should we keep track of the last indexed transaction number of each sorted datom set?
 
-*
+If each sorted datom set keeps track of it, it needs to be given to it on each add! -call or it needs to know how to get it from the given datom.
+
+Datom sets should only know about datoms, not about transactions.
+
+A datom set without knowing about the last transaction number can not be efficiently updated from a transaction log.
+
+The last transaction number is only needed for efficiency. Adding a datom to a datom set is idempotent.
+
+If the transaction numbers are kept in the index map, it must be stored in an atom and needs to be stored on disk at least occasionally if not after every transaction.
+
+
+# TODO
+
+* branch/create should take create-index as a parameter
+* sorted-datom-set-branch is not needed because it's generic code and not specific to sorted-set

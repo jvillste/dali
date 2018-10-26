@@ -25,6 +25,11 @@
           >=
           key))
 
+#_(defmethod index/last-indexed-transaction-number
+  BtreeIndex
+  [this]
+  (btree/last-transaction-number @(:btree-index-atom this)))
+
 (defmethod index/inclusive-reverse-subsequence
   SortedSetIndex
   [this key]

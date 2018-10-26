@@ -14,7 +14,8 @@
             [fungl.component.button :as button]
             [fungl.component.text :as text]
             [fungl.component.text-area :as text-area]
-            [fungl.layouts :as layouts])
+            [fungl.layouts :as layouts]
+            [argumentica.db.common :as common])
   (:import java.util.UUID))
 
 (def entity-id  #uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb")
@@ -26,15 +27,15 @@
                                          what-should-we-do-to-poverty (UUID/randomUUID)
                                          how-should-we-produce-energy (UUID/randomUUID)]
                                      (server-api/transact server-state-atom
-                                                          [[what-should-we-do-to-global-warming :type :set :question]
-                                                           [what-should-we-do-to-global-warming :text :set "What should we do to global warming?"]
-                                                           [reduce-coal-burning :type :set :answer]
-                                                           [reduce-coal-burning :text :set "We should reduce coal burning to prevent global warming"]
-                                                           [reduce-coal-burning :question :add what-should-we-do-to-global-warming]
-                                                           [what-should-we-do-to-poverty :type :set :question]
-                                                           [what-should-we-do-to-poverty :text :set "What should we do to poverty?"]
-                                                           [how-should-we-produce-energy :type :set :question]
-                                                           [how-should-we-produce-energy :text :set "How should we produce energy?"]]))
+                                                          #{[what-should-we-do-to-global-warming :type :set :question]
+                                                            [what-should-we-do-to-global-warming :text :set "What should we do to global warming?"]
+                                                            [reduce-coal-burning :type :set :answer]
+                                                            [reduce-coal-burning :text :set "We should reduce coal burning to prevent global warming"]
+                                                            [reduce-coal-burning :question :add what-should-we-do-to-global-warming]
+                                                            [what-should-we-do-to-poverty :type :set :question]
+                                                            [what-should-we-do-to-poverty :text :set "What should we do to poverty?"]
+                                                            [how-should-we-produce-energy :type :set :question]
+                                                            [how-should-we-produce-energy :text :set "How should we produce energy?"]}))
                                    server-state-atom))
 
 (comment
