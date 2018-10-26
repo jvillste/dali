@@ -27,8 +27,10 @@
 (defn add! [transaction-log transaction]
   (dali/validate-transaction transaction)
 
-  (add!-method transaction-log
-               (if-let [last-transaction-number (last-transaction-number transaction-log)]
-                 (inc last-transaction-number)
-                 0)
-               transaction))
+  (let [transaction-number (if-let [last-transaction-number (last-transaction-number transaction-log)]
+                             (inc last-transaction-number)
+                             0)]
+    (add!-method transaction-log
+                 transaction-number
+                 transaction)
+    transaction-number))

@@ -7,7 +7,8 @@
                          [index :as index])
             [argumentica.db.db]
             [argumentica.comparator :as comparator]
-            [argumentica.db.db :as db])
+            [argumentica.db.db :as db]
+            [argumentica.util :as util])
   (:use clojure.test)
   (:import clojure.lang.MapEntry))
 
@@ -122,7 +123,6 @@
   db)
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
-  (println "adding to " transaction-number (:last-indexed-transaction-number index) index)
   (if (or (nil? (:last-indexed-transaction-number index))
           (< (:last-indexed-transaction-number index)
              transaction-number))
@@ -146,6 +146,23 @@
                :last-indexed-transaction-number
                transaction-number))
     index))
+
+(defn add-transaction-to-index! [index indexes transaction-number statements]
+  (assert (every? (fn [statement]
+                    (= 4 (count statement)))
+                  statements)
+          "Statement must have four values")
+
+  (doseq [[e a c v] statements]
+    (doseq [datom ((:eatcv-to-datoms index)
+                   indexes
+                   e
+                   a
+                   transaction-number
+                   c
+                   v)]
+      (index/add! (:index index)
+                  datom))))
 
 (defn apply-to-indexes [db function & arguments]
   (update db :indexes
@@ -193,6 +210,13 @@
           indexes
           transactions))
 
+(defn add-transaction-to-indexes! [indexes transaction-number statements]
+  (doseq [index (vals indexes)]
+    (add-transaction-to-index! index
+                               indexes
+                               transaction-number
+                               statements)))
+
 (defn update-indexes! [indexes transaction-log]
   (add-transactions-to-indexes indexes
                                (transaction-log/subseq transaction-log
@@ -206,19 +230,16 @@
       (add-log-entry statements)
       (update-indexes)))
 
-
 (defn transact! [db statements]
-  (transaction-log/add! (:transaction-log db)
-                        statements)
-
-  (update db
-          :indexes
-          update-indexes!
-          (:transaction-log db)))
+  (let [transaction-number (transaction-log/add! (:transaction-log db)
+                                                 statements)]
+    (add-transaction-to-indexes! (:indexes db)
+                                 transaction-number
+                                 statements)))
 
 (defn deref [db]
   (assoc db
-         :last-transaction-number (dec (first-unindexed-transacion-number db))))
+         :last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))))
 
 (defn set [db entity attribute value]
   (transact! db
@@ -730,9 +751,9 @@
                           :transaction-log transaction-log)))
 
 (defn db-from-index-definitions [index-definitions create-index transaction-log]
-  (update-indexes (create :indexes (index-definitions-to-indexes create-index
-                                                                 index-definitions)
-                          :transaction-log transaction-log)))
+  (create :indexes (index-definitions-to-indexes create-index
+                                                 index-definitions)
+          :transaction-log transaction-log))
 
 (defrecord LocalDb [indexes transaction-log]
   db/WriteableDB
