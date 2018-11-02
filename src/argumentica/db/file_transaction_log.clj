@@ -52,7 +52,8 @@
 (defn write-to-log-file! [output-stream transaction-number statements]
   (.write output-stream
           (.getBytes (prn-str [transaction-number statements])
-                     "UTF-8")))
+                     "UTF-8"))
+  (.flush output-stream))
 
 (defn add-transaction! [state transaction-number statements]
   (when (not (:is-transient? state))
@@ -109,10 +110,10 @@
   (first (last (:in-memory-log @(:state-atom this)))))
 
 (defmethod transaction-log/add!-method FileTransactionLog
-  [this statements]
+  [this transaction-number statements]
   (synchronously-apply-to-state! this
                                  add-transaction!
-                                 (transaction-log/last-transaction-number this)
+                                 transaction-number
                                  statements))
 
 (defn transient? [file-transaction-log]
@@ -167,13 +168,13 @@
 
   (with-open [log (create "data/temp/log")]
     (doto log
-      (transaction-log/make-transient!)
-      (transaction-log/add! 1 [[1 :name :set "Bar 1"]
-                               [2 :name :set "Bar 2"]])
-      (transaction-log/add! 2 [[1 :name :set "Baz 1"]])
-      (transaction-log/truncate! 2)
-      (transaction-log/add! 3 [[1 :name :set "Foo 2"]])
-      (transaction-log/make-persistent!))
+      #_(transaction-log/make-transient!)
+      (transaction-log/add! #{[1 :name :set "Bar 1"]
+                              [2 :name :set "Bar 2"]})
+      (transaction-log/add! #{[1 :name :set "Baz 1"]})
+      #_(transaction-log/truncate! 2)
+      (transaction-log/add! #{[1 :name :set "Foo 2"]})
+      #_(transaction-log/make-persistent!))
 
-    (prn (transaction-log/subseq log 2))
-    (prn (transaction-log/last-transaction-number log))))
+    #_(prn (transaction-log/subseq log 2))
+    #_(prn (transaction-log/last-transaction-number log))))

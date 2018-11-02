@@ -14,3 +14,12 @@
 (defmulti inclusive-reverse-subsequence
   (fn [index key]
     (type index)))
+
+(defmulti last-stored-transaction-number
+  (fn [index]
+    (type index)))
+
+(defmethod last-stored-transaction-number
+  Object
+  [this]
+  nil)

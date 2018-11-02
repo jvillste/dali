@@ -177,7 +177,7 @@
                     (keys indexes)))))
 
 (defn first-unindexed-transacion-number-for-index [index]
-  (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
+  (if-let [last-indexed-transaction-number (index/last-stored-transaction-number (:index index))]
     (inc last-indexed-transaction-number)
     0))
 
@@ -221,6 +221,16 @@
   (add-transactions-to-indexes indexes
                                (transaction-log/subseq transaction-log
                                                        (first-unindexed-transacion-number-for-index-map indexes))))
+
+(defn update-indexes-2! [db]
+  (doseq [[transaction-number statements] (transaction-log/subseq (:transaction-log db)
+                                                                  (first-unindexed-transacion-number db))]
+    (doseq [index (vals (:indexes db))]
+      (add-transaction-to-index! index
+                                 (:indexes db)
+                                 transaction-number
+                                 statements)))
+  db)
 
 (defn update-indexes [db]
   (update db :indexes update-indexes! (:transaction-log db)))
