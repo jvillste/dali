@@ -70,8 +70,8 @@
   (db-common/entities-from-avtec-datoms (avtec-datoms client-db attribute value)))
 
 (defn transaction [client-db]
-  (db-common/squash-transactions (map second (transaction-log/subseq (-> client-db :local-db :transaction-log)
-                                                                     0))))
+  (db-common/squash-statements (mapcat second (transaction-log/subseq (-> client-db :local-db :transaction-log)
+                                                                      0))))
 
 (defn commit [client-db]
   (client/transact (:client client-db)

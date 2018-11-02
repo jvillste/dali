@@ -87,52 +87,54 @@
       (fun-trace/untrace-ns 'argumentica.db.common)
       (fun-trace/untrace-ns 'argumentica.sorted-map-transaction-log)
       (fun-trace/untrace-ns 'argumentica.sorted-set-index)
-      (let [db {:transaction-log (sorted-map-transaction-log/create)
-                :indexes (common/index-definitions-to-indexes sorted-set-index/creator
-                                                              common/base-index-definitions)}]
+      (let [db (common/db-from-index-definitions common/base-index-definitions
+                                                 sorted-set-index/creator
+                                                 (sorted-map-transaction-log/create))]
 
-        (common/transact! db #{[1 :name :set "1 name 1 in base"]})
+        (testing "Transacting two statements in to the database"
+          (common/transact! db #{[1 :name :set "1 name 1 in base"]})
 
-        (common/transact! db #{[2 :name :set "2 name 1 in base"]})
+          (common/transact! db #{[2 :name :set "2 name 1 in base"]})
 
-        (fun-trace/log (deep-deref db))
 
-        (is (= '([1 :name 0 :set "1 name 1 in base"])
-               (common/datoms db :eatcv [1 :name])))
+          (is (= '([1 :name 0 :set "1 name 1 in base"])
+                 (common/datoms db :eatcv [1 :name])))
 
-        (is (= '([2 :name 1 :set "2 name 1 in base"])
-               (common/datoms db :eatcv [2 :name])))
+          (is (= '([2 :name 1 :set "2 name 1 in base"])
+                 (common/datoms db :eatcv [2 :name]))))
 
         (let [db-value (common/deref db)
               branch (branch/create db-value)]
 
           (is (= 1 (:last-transaction-number db-value)))
 
-          (common/transact! branch #{[1 :name :set "1 name 1 in branch"]})
+          (testing "transacting a branch"
+            (common/transact! branch #{[1 :name :set "1 name 1 in branch"]})
 
-          (is (= '([1 :name 0 :set "1 name 1 in base"]
-                   [1 :name 0 :set "1 name 1 in branch"])
-                 (index/inclusive-subsequence (-> branch :indexes :eatcv :index)
-                                              [1 :name])))
+            (is (= '([1 :name 0 :set "1 name 1 in base"]
+                     [1 :name 0 :set "1 name 1 in branch"])
+                   (common/datoms branch :eatcv [1 :name])))
 
-          (is (= '([1 :name 0 :set "1 name 1 in base"]
-                   [1 :name 0 :set "1 name 1 in branch"])
-                 (common/datoms branch :eatcv [1 :name])))
+            (is (= '([2 :name 1 :set "2 name 1 in base"])
+                   (common/datoms branch :eatcv [2 :name])))
 
-          (is (= '([2 :name 1 :set "2 name 1 in base"])
-                 (common/datoms branch :eatcv [2 :name])))
+            (is (= #{"1 name 1 in branch"}
+                   (common/values-from-eatcv-datoms (common/datoms-from-index  (-> branch :indexes :eatcv :index)
+                                                                               [1 :name])))))
 
-          (is (= #{"1 name 1 in branch"}
-                 (common/values-from-eatcv-datoms (common/datoms-from-index  (-> branch :indexes :eatcv :index)
-                                                                             [1 :name]))))
+          (testing "transacting base database after branching"
+            (common/transact! db #{[2 :name :set "2 name 2 in base"]})
 
-          (common/transact! db #{[2 :name :set "2 name 2 in base"]})
+            (is (= #{"2 name 1 in base"}
+                   (common/values-from-eatcv-datoms (common/datoms branch :eatcv [2 :name]))))
 
-          (is (= #{"2 name 1 in base"}
-                 (common/values-from-eatcv-datoms (common/datoms branch :eatcv [2 :name]))))
+            (is (= #{"2 name 1 in base"}
+                   (common/values-from-eatcv-datoms (common/datoms db-value :eatcv [2 :name]))))
 
-          (is (= #{"2 name 1 in base"}
-                 (common/values-from-eatcv-datoms (common/datoms db-value :eatcv [2 :name]))))
+            (is (= #{"2 name 2 in base"}
+                   (common/values-from-eatcv-datoms (common/datoms db :eatcv [2 :name])))))
 
-          (is (= #{"2 name 2 in base"}
-                 (common/values-from-eatcv-datoms (common/datoms db :eatcv [2 :name]))))))))
+          (common/transact! branch #{[1 :name :set "1 name 2 in branch"]})
+
+          (is (= '([1 :name :set "1 name 2 in branch"])
+                 (common/squash-transaction-log (:transaction-log branch))))))))

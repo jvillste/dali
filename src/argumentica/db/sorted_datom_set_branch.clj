@@ -16,7 +16,6 @@
 (defmethod index/add!
   SortedDatomSetBranch
   [this value]
-  (println "adding " value)
   (index/add! (:branch-datom-set this)
               value))
 

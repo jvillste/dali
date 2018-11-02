@@ -206,5 +206,6 @@ If the transaction numbers are kept in the index map, it must be stored in an at
 
 # TODO
 
+* branch parent can be a branch. this needs to be added to the kiss test
 * branch/create should take create-index as a parameter
 * sorted-datom-set-branch is not needed because it's generic code and not specific to sorted-set

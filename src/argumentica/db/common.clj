@@ -547,6 +547,9 @@
 
                                [[1 :friend :set 2]]]))))
 
+(defn squash-transaction-log [transaction-log]
+  (squash-statements (mapcat second (transaction-log/subseq transaction-log
+                                                            0))))
 
 #_(deftype Entity [indexes entity-id transaction-number]
   Object
