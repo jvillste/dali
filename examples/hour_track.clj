@@ -2,7 +2,7 @@
   (:require [argumentica.btree-index :as btree-index]
             [argumentica.db.branch :as branch]
             [argumentica.db.client-db :as client-db]
-            [argumentica.db.common :as common]
+            [argumentica.db.common :as db-common]
             [argumentica.db.file-transaction-log :as file-transaction-log]
             [argumentica.index :as index]
             [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
@@ -145,9 +145,9 @@
 
 
 (defn text [string]
-  (text/text string
-             [0 0 0 255]
-             font))
+  (visuals/text string
+                {:color [0 0 0 255]
+                 :font font}))
 
 (defn button-mouse-event-handler [handler node event]
   (when (= :mouse-clicked
@@ -158,7 +158,7 @@
 (defn button [message handler]
   (-> (layouts/box 10
                    (visuals/rectangle [200 200 200 255] 30 30)
-                   (text/text message [0 0 0 255] font))
+                   (text message))
       (assoc :mouse-event-handler [button-mouse-event-handler handler])))
 
 
@@ -201,9 +201,7 @@
 (defn property-view [id name value on-text-change]
   (layouts/horizontally-2 {:margin 10
                            :centered true}
-                          (text/text name
-                                     [0 0 0 255]
-                                     font)
+                          (text name)
                           (layouts/with-maximum-size 500 nil
                             (text-editor id
                                          (or value "")
