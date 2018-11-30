@@ -92,9 +92,11 @@
                                                  (sorted-map-transaction-log/create))]
 
         (testing "Transacting two statements in to the database"
-          (common/transact! db #{[1 :name :set "1 name 1 in base"]})
+          (common/transact! db #{[1 :name :set "1 name 1 in base"]
+                                 [1 :type :set :person]})
 
-          (common/transact! db #{[2 :name :set "2 name 1 in base"]})
+          (common/transact! db #{[2 :name :set "2 name 1 in base"]
+                                 [2 :type :set :person]})
 
 
           (is (= '([1 :name 0 :set "1 name 1 in base"])
@@ -105,6 +107,8 @@
 
         (let [db-value (common/deref db)
               branch (branch/create db-value)]
+
+          (is (= #{1 2} (common/entities branch :type :person)))
 
           (is (= 1 (:last-transaction-number db-value)))
 

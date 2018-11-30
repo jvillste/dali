@@ -12,7 +12,6 @@
             [fungl.atom-registry :as atom-registry]
             [fungl.cache :as cache]
             [fungl.component.button :as button]
-            [fungl.component.text :as text]
             [fungl.component.text-area :as text-area]
             [fungl.layouts :as layouts]
             [argumentica.db.common :as common])
@@ -47,7 +46,9 @@
 (defn button [message handler & arguments]
   (button/button (layouts/box 10
                               (visuals/rectangle [255 255 0 255] 30 30)
-                              (text/text message [0 0 0 255] font))
+                              (visuals/text message
+                                            {:color [0 0 0 255]
+                                             :font font}))
                  handler
                  arguments))
 
@@ -112,9 +113,9 @@
                            :color [255 255 0 255]}})
 
 (defn text [string]
-  (text/text string
-             [0 0 0 255]
-             font))
+  (visuals/text string
+                {:color [0 0 0 255]
+                 :font font}))
 
 (defn gain-focus-on-click [node event]
   (if (= (:type event)
@@ -163,14 +164,14 @@
                                                              :mouse-event-handler [gain-focus-on-click]
                                                              :argument-node true)
                                                       (layouts/with-maximum-size 70 70
-                                                        (layouts/center (text/text (get-in node-styles [(:type node-entity) :symbol])
-                                                                                   [0 0 0 255]
-                                                                                   symbol-font)))))
+                                                        (layouts/center (visuals/text (get-in node-styles [(:type node-entity) :symbol])
+                                                                                      {:color [0 0 0 255]
+                                                                                       :font symbol-font})))))
 
                                        (layouts/vertically-2 {}
-                                                             (text/text (str (:entity/id node-entity))
-                                                                        [0 0 0 255]
-                                                                        font)
+                                                             (visuals/text (str (:entity/id node-entity))
+                                                                           {:color [0 0 0 255]
+                                                                            :font font})
                                                              (layouts/with-maximum-size 500 nil
                                                                (bare-text-editor [:node-text (:entity/id node-entity)]
                                                                                  (:text node-entity)
@@ -187,7 +188,7 @@
 (defn create-scene-graph [client-db-atom]
   (let [state-atom (atom-registry/get! [:state client-db-atom] {:create (fn [] {})})]
     (animation/swap-state! animation/set-wake-up 1000)
-    
+
     (layouts/superimpose (visuals/rectangle [255 255 255 255]
                                             0 0)
                          (layouts/with-margins 20 20 20 20
@@ -201,7 +202,7 @@
 
                                                            (cache/call! button "Create question" create-button-handler :question state-atom client-db-atom)
                                                            (cache/call! button "Create answer" create-button-handler :answer state-atom client-db-atom)
-                                                           
+
                                                            (for [node-entity (map (fn [entity-id]
                                                                                     (client-db/entity @client-db-atom
                                                                                                       entity-id))
@@ -217,7 +218,7 @@
                                                                         (fn []
                                                                           (println "selecting")
                                                                           (swap! state-atom assoc :selected-node (:entity/id node-entity)))))
-                                                           
+
 
                                                            #_(paragraph :client "Uncommitted transaction")
                                                            #_(for [[index line] (map-indexed vector (client-db/transaction @client-db-atom))]
@@ -229,7 +230,7 @@
                                                                                                                                      0))]
                                                              (paragraph [:client index] (pr-str line)))
 
-                                                           
+
                                                            (cache/call! button "Commit" commit-button-handler client-db-atom)
 
                                                            #_(cache/call! button "Refresh" refresh-button-handler client-db-atom))))))
@@ -248,8 +249,8 @@
   (server-api/transact server-state-atom
                        [[entity-id :friend :set entity-id-2]
                         [entity-id-2 :name :set "Baz"]])
-  
-  
+
+
   (-> (client-db/entity (client-db/create (client/->InProcessClient server-state-atom))
                         entity-id)
       :entity/id
@@ -258,6 +259,3 @@
 
 (defn start []
   (application/start-window (argument-demo)))
-
-
-

@@ -381,7 +381,7 @@
                                                        (fn [other-value]
                                                          (= other-value
                                                             value))
-                                                       nil)))
+                                                       (transaction-log/last-transaction-number (:transaction-log db)))))
 
 (defn all-avtec-datoms-from-avtec-2 [avtec attribute value value-predicate latest-transaction-number]
   (take-while (avt-matches attribute
@@ -448,8 +448,8 @@
 
   ([db entity-id attribute transaction-number]
    (values-from-eatcv-datoms (datoms db
-                                         :eatcv
-                                         [entity-id attribute transaction-number nil nil]))))
+                                     :eatcv
+                                     [entity-id attribute]))))
 
 (defn value
   ([db entity-id attribute]
@@ -648,12 +648,15 @@
               (index/inclusive-subsequence eatcv
                                            [entity-id nil nil nil nil])))
 
-(defn entity-to-sec [db schema entity-id]
+(defn entity-attributes [db entity-id]
   (->> (entity-datoms-from-eatcv (-> db :indexes :eatcv :index)
                                  entity-id)
        (map second)
        (into #{})
-       (#(conj % :entity/id))
+       (#(conj % :entity/id))))
+
+(defn entity-to-sec [db schema entity-id]
+  (->> (entity-attributes db entity-id)
        (map (fn [attribute]
               [attribute (entity-value db schema entity-id attribute)]))
        (filter (fn [[attribute value]]
