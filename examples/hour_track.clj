@@ -247,7 +247,7 @@
 (defn root-view [db]
   (let [state-atom (atom-registry/get! :root-state
                                        {:create (fn []
-                                                  {:branch (branch/create (common/deref db))
+                                                  {:branch (branch/create (db-common/deref db))
                                                    :db db})})
         branch (:branch @state-atom)]
     (animation/swap-state! animation/set-wake-up 2000)
