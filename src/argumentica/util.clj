@@ -52,36 +52,21 @@
     `(def ~(with-meta target-symbol {:doc (:doc metadata) :arglists `(quote ~(:arglists metadata))})
        ~source-symbol)))
 
-;; from https://dev.clojure.org/jira/browse/CLJ-1550
-(defn package-name [^Class class]
-  (let [class (.getName class)
-        index (clojure.string/last-index-of class \.)]
-    (when (pos? index)
-      (subs class 0 index))))
 
-(defn class-to-ns-name [^Class class]
-  (-> (package-name class)
-      (string/replace #"_" "-")))
-
-(defn class-to-map-constructor [^Class class]
-  (find-var (symbol (str (class-to-ns-name class)
-                         "/"
-                         (str "map->" (.getSimpleName class))))))
-
-(defn map-record-values [record function]
-  ((class-to-map-constructor (type record))
-   (map/map-vals record
-                 function)))
+(defn map-values [the-map function]
+  (reduce (fn [result key] (update result key function))
+          the-map
+          (keys the-map)))
 
 (defn deep-deref [value]
   (cond (instance? clojure.lang.Atom value)
         (atom (deep-deref (deref value)))
 
         (record? value)
-        (map-record-values value
+        (map-values value
                            deep-deref)
         (map? value)
-        (map/map-vals value
+        (map-values value
                       deep-deref)
 
         (vector? value)
