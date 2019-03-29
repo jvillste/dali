@@ -13,7 +13,7 @@
             [clojure.test.check.properties :as properties]))
 
 (defn create-sorted-set []
-  (sorted-set-by comparator/cc-cmp))
+  (sorted-set-by comparator/compare-datoms))
 
 (defn create-node []
   {:values (create-sorted-set)})

@@ -72,13 +72,12 @@
 
 (s/defschema DatomTransactionNumber
   (s/=> s/Int
-
         Datom))
 
 (s/defschema IndexDefinition
   {:key s/Keyword
    :statement-to-datoms StatementToDatoms
-   :datom-transaction-number DatomTransactionNumber})
+   :datom-transaction-number-index s/Int})
 
 (s/defschema Index
   (merge IndexDefinition

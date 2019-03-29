@@ -15,11 +15,11 @@
   (fn [index key]
     (type index)))
 
-(defmulti last-stored-transaction-number
+#_(defmulti last-stored-transaction-number
   (fn [index]
     (type index)))
 
-(defmethod last-stored-transaction-number
+#_(defmethod last-stored-transaction-number
   Object
   [this]
   nil)

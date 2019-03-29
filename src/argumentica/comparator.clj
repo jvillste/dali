@@ -1,5 +1,6 @@
 (ns argumentica.comparator
-  (:use clojure.test))
+  (:use clojure.test)
+  (:require [argumentica.util :as util]))
 
 ;; from https://clojure.org/guides/comparators
 
@@ -84,62 +85,114 @@
             (recur (inc i))
             c))))))
 
+(defn compare-extremes [x y]
+  (cond (and (= ::max x)
+             (not= ::max y))
+        1
 
-(defn cc-cmp
+        (and (not= ::max x)
+             (= ::max y))
+        -1
+
+        (and (= ::min x)
+             (not= ::min y))
+        -1
+
+        (and (not= ::min x)
+             (= ::min y))
+        1
+
+        :default
+        nil))
+
+(deftest test-compare-with-extremes
+  (is (= 1 (compare-extremes ::max 1 ))))
+
+(defn compare-datoms
   [x y]
-  (let [x-cls (comparison-class x)
-        y-cls (comparison-class y)
-        c (compare x-cls y-cls)]
-    (cond (not= c 0) c  ; different classes
+  (if-let [result (compare-extremes x y)]
+    result
+    (let [x-cls (comparison-class x)
+          y-cls (comparison-class y)
+          c (compare x-cls y-cls)]
+      (cond (not= c 0) c                ; different classes
 
-          ;; Compare sets to each other as sequences, with elements in
-          ;; sorted order.
-          (= x-cls "clojure.lang.IPersistentSet")
-          (cmp-seq-lexi cc-cmp (sort cc-cmp x) (sort cc-cmp y))
+            ;; Compare sets to each other as sequences, with elements in
+            ;; sorted order.
+            (= x-cls "clojure.lang.IPersistentSet")
+            (cmp-seq-lexi compare-datoms (sort compare-datoms x) (sort compare-datoms y))
 
-          ;; Compare maps to each other as sequences of [key val]
-          ;; pairs, with pairs in order sorted by key.
-          (= x-cls "clojure.lang.IPersistentMap")
-          (cmp-seq-lexi cc-cmp
-                        (sort-by key cc-cmp (seq x))
-                        (sort-by key cc-cmp (seq y)))
+            ;; Compare maps to each other as sequences of [key val]
+            ;; pairs, with pairs in order sorted by key.
+            (= x-cls "clojure.lang.IPersistentMap")
+            (cmp-seq-lexi compare-datoms
+                          (sort-by key compare-datoms (seq x))
+                          (sort-by key compare-datoms (seq y)))
 
-          (= x-cls "java.util.Arrays")
-          (cmp-array-lexi cc-cmp x y)
+            (= x-cls "java.util.Arrays")
+            (cmp-array-lexi compare-datoms x y)
 
-          ;; Make a special check for two vectors, since cmp-vec-lexi
-          ;; should allocate less memory comparing them than
-          ;; cmp-seq-lexi.  Both here and for comparing sequences, we
-          ;; must use cc-cmp recursively on the elements, because if
-          ;; we used compare we would lose the ability to compare
-          ;; elements with different types.
-          (and (vector? x) (vector? y)) (cmp-vec-lexi cc-cmp x y)
+            ;; Make a special check for two vectors, since cmp-vec-lexi
+            ;; should allocate less memory comparing them than
+            ;; cmp-seq-lexi.  Both here and for comparing sequences, we
+            ;; must use compare-datoms recursively on the elements, because if
+            ;; we used compare we would lose the ability to compare
+            ;; elements with different types.
+            (and (vector? x) (vector? y)) (cmp-vec-lexi compare-datoms x y)
 
-          ;; This will compare any two sequences, if they are not both
-          ;; vectors, e.g. a vector and a list will be compared here.
-          (= x-cls "clojure.lang.Sequential")
-          (cmp-seq-lexi cc-cmp x y)
+            ;; This will compare any two sequences, if they are not both
+            ;; vectors, e.g. a vector and a list will be compared here.
+            (= x-cls "clojure.lang.Sequential")
+            (cmp-seq-lexi compare-datoms x y)
 
-          :else (compare x y))))
+            :else (compare x y)))))
 
-(defn complement-comparator-result [comparator-result])
+(defmacro run-compare-datoms-test [collection]
+  `(is (= ~collection (sort-by identity
+                               compare-datoms
+                               ~collection))))
 
-(defn eatcv-comparator [[e1 a1 t1 c1 v1] [e2 a2 t2 c2 v2]]
-  )
+(deftest test-compare-datoms
+  (run-compare-datoms-test [::min ::max])
+  (run-compare-datoms-test [10000 ::max])
+  (run-compare-datoms-test [::min 10000])
+  (run-compare-datoms-test [::min "zzzzz"])
+  (run-compare-datoms-test ["zzzzz" ::max])
 
-(defn datom-comparator [transaction-number-index]
-  (fn [x y]
-    (cc-cmp x y)))
+  (run-compare-datoms-test [[1 :name 1 :set "Name 1"]
+                            [1 :name 2 :set "Name 1"]])
 
-(map-indexed vector
-             [1 2 3])
+  (run-compare-datoms-test [[1 :name nil nil nil]
+                            [1 :name 2 :set "Name 1"]])
 
-(deftest test-datom-comparator
-  (is (> 0
-         ((datom-comparator 2)
-          [:entity-1 :name 1 :set "Foo"]
-          [:entity-1 :name 2 :set "Foo"]))))
+  (run-compare-datoms-test [[1 :name 2 :set "Name 1"]
+                            [1 :name ::max ::max ::max]])
 
-(comment
-  (- 1)
-  (compare 1 2))
+  (run-compare-datoms-test [[1 :name 2 ::min ::min]
+                            [1 :name 2 :set "Bar"]])
+
+  (let [sorted-set (sorted-set-by compare-datoms
+                                  [1 :name 1 :set "Foo"]
+                                  [1 :name 2 :set "Bar"]
+                                  [1 :age 2 :set 30]
+                                  [1 :name 3 :set "Baz"])]
+    (is (= '([1 :name 2 :set "Bar"]
+             [1 :name 3 :set "Baz"])
+           (subseq sorted-set
+                   >=
+                   [1 :name 2 ::min ::min])))
+
+    (is (= '([1 :age 2 :set 30]
+             [1 :name 1 :set "Foo"]
+             [1 :name 2 :set "Bar"])
+           (subseq sorted-set
+                   <=
+                   [1 :name 2 ::max ::max])))
+
+    (is (= '([1 :age 2 :set 30]
+             [1 :name 1 :set "Foo"]
+             [1 :name 2 :set "Bar"]
+             [1 :name 3 :set "Baz"])
+           (subseq sorted-set
+                   >=
+                   [0 :name 0 ::min ::min])))))

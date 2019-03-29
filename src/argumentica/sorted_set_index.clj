@@ -6,7 +6,7 @@
 (defrecord SortedSetIndex [sorted-set-atom])
 
 (defn create []
-  (->SortedSetIndex (atom (sorted-set-by comparator/cc-cmp))))
+  (->SortedSetIndex (atom (sorted-set-by comparator/compare-datoms))))
 
 (defn creator [_name]
   (create))
@@ -42,8 +42,11 @@
   (let [sorted-set-index (create)]
     (doto sorted-set-index
       (index/add! [1 :name 1 :set "Foo"])
-      (index/add! [1 :name 2 :set "Bar"]))
-    
-    (is (= [[1 :name 2 :set "Bar"]]
+      (index/add! [1 :name 2 :set "Bar"])
+      (index/add! [1 :age 2 :set 30])
+      (index/add! [1 :name 3 :set "Baz"]))
+
+    (is (= '([1 :name 2 :set "Bar"]
+             [1 :name 3 :set "Baz"])
            (index/inclusive-subsequence sorted-set-index
-                                        [1 :name 2 nil nil])))))
+                                        [1 :name 2 ::comparator/min ::comparator/min])))))

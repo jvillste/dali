@@ -57,6 +57,19 @@
   (get statement 4))
 
 
+(defn eacv-entity [statement]
+  (get statement 0))
+
+(defn eacv-attribute [statement]
+  (get statement 1))
+
+(defn eacv-command [statement]
+  (get statement 2))
+
+(defn eacv-value [statement]
+  (get statement 3))
+
+
 (defn eatcv-to-eatcv-datoms [_db e a t c v]
   [[e a t c v]])
 
@@ -68,10 +81,10 @@
 
 (def base-index-definitions [{:key :eatcv
                               :eatcv-to-datoms eatcv-to-eatcv-datoms
-                              :datom-transaction-number eatcv-transaction-number}
+                              :datom-transaction-number-index 2}
                              {:key :avtec
                               :eatcv-to-datoms eatcv-to-avtec-datoms
-                              :datom-transaction-number avtec-transaction-number}])
+                              :datom-transaction-number-index 2}])
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
@@ -177,7 +190,7 @@
                     (keys indexes)))))
 
 (defn first-unindexed-transacion-number-for-index [index]
-  (if-let [last-indexed-transaction-number (index/last-stored-transaction-number (:index index))]
+  (if-let [last-indexed-transaction-number (:last-indexed-transaction-number index)]
     (inc last-indexed-transaction-number)
     0))
 
@@ -310,20 +323,57 @@
               true))
           (map vector pattern datom)))
 
-(defn datoms-from-index [index pattern]
-  (take-while (partial pattern-matches? pattern)
-              (index/inclusive-subsequence index
-                                           pattern)))
+;; from https://stackoverflow.com/questions/27262268/idiom-for-padding-sequences
+(defn pad [n coll val]
+  (take n (concat coll (repeat val))))
+
+(defn datoms-from-index
+  ([index pattern]
+   (datoms-from-index index pattern nil))
+
+  ([index pattern last-transaction-number]
+   (let [datom-length (count (first (index/inclusive-subsequence (:index index)
+                                                                 ::comparator/min)))
+         first-pattern (pad datom-length
+                            pattern
+                            ::comparator/min)
+         last-pattern (let [last-pattern (pad datom-length
+                                              pattern
+                                              ::comparator/max)]
+                        (if last-transaction-number
+                          (assoc (vec last-pattern)
+                                 (-> index :datom-transaction-number-index)
+                                 last-transaction-number)
+                          last-pattern))]
+     (take-while (fn [datom]
+                   (>= 0 (comparator/compare-datoms datom last-pattern)))
+                 (index/inclusive-subsequence (:index index)
+                                              first-pattern)))))
+
+
 
 (defn datoms [db index-key pattern]
-  (take-while (let [datom-transaction-number (-> db :indexes index-key :datom-transaction-number)]
-                (fn [datom]
-                  (if-let [last-transaction-number (:last-transaction-number db)]
-                    (<= (datom-transaction-number datom)
-                        last-transaction-number)
-                    true)))
-              (datoms-from-index (get-in db [:indexes index-key :index])
-                                 pattern)))
+  (datoms-from-index (get-in db [:indexes index-key])
+                     pattern
+                     (:last-transaction-number db))
+  
+  #_(let [datom-length (count (first (index/inclusive-subsequence 
+                                                                ::comparator/min)))
+        first-pattern (pad datom-length
+                           pattern
+                           ::comparator/min)
+        last-pattern (let [last-pattern (pad datom-length
+                                             pattern
+                                             ::comparator/max)]
+                       (if-let [last-transaction-number (:last-transaction-number db)]
+                         (assoc (vec last-pattern)
+                                (-> db :indexes index-key :datom-transaction-number-index)
+                                last-transaction-number)
+                         last-pattern))]
+    (take-while (fn [datom]
+                  (>= 0 (comparator/compare-datoms datom last-pattern)))
+                (index/inclusive-subsequence (get-in db [:indexes index-key :index])
+                                             first-pattern))))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -372,7 +422,7 @@
                            <=
                            latest-transaction-number)
               (index/inclusive-subsequence avtec
-                                           [attribute value 0 nil nil])))
+                                           [attribute value 0 ::comparator/min ::comparator/min])))
 
 (defn entities [db attribute value]
   (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
@@ -430,14 +480,12 @@
 
 (defn values-from-eatcv
   ([eatcv entity-id attribute]
-   (values-from-eatcv eatcv
-                      entity-id
-                      attribute
-                      nil))
-
-  ([eatcv entity-id attribute transaction-number]
    (values-from-eatcv-datoms (datoms-from-index eatcv
-                                              [entity-id attribute transaction-number nil nil]))))
+                                                [entity-id attribute])))
+
+  #_([eatcv entity-id attribute transaction-number]
+     (values-from-eatcv-datoms (datoms-from-index eatcv
+                                                  [entity-id attribute transaction-number]))))
 
 (defn values
   ([db entity-id attribute]
@@ -469,7 +517,7 @@
   [e a c v])
 
 (defn squash-statements [statements]
-  (sort comparator/cc-cmp (reduce (fn [result-statements statement]
+  (sort comparator/compare-datoms (reduce (fn [result-statements statement]
                                     (case (statement-command statement)
                                       :add (conj (set/select (fn [result-statement]
                                                                (not (and (= (statement-entity statement)
@@ -724,7 +772,7 @@
 (defn index-to-index-definition [index]
   (select-keys index
                [:eatcv-to-datoms
-                :datom-transaction-number
+                :datom-transaction-number-index
                 :key]))
 
 (defn index-definition-to-indexes [index-definition create-index]
