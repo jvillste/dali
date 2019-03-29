@@ -315,8 +315,8 @@
       (if (= splitter-value
              value)
         nil
-        (if (neg? (comparator/cc-cmp value
-                                     splitter-value))
+        (if (neg? (comparator/compare-datoms value
+                                             splitter-value))
           child-index
           (recur (rest splitter-values)
                  (inc child-index))))

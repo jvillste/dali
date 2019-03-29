@@ -28,7 +28,7 @@
                btree/add
                value))
 
-(defmethod index/last-stored-transaction-number
+#_(defmethod index/last-stored-transaction-number
   BtreeIndex
   [this]
   (:last-indexed-transaction-number (btree this)))
