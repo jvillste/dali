@@ -12,8 +12,10 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties]))
 
-(defn create-sorted-set []
-  (sorted-set-by comparator/compare-datoms))
+(defn create-sorted-set [& keys]
+  (apply sorted-set-by
+         comparator/compare-datoms
+         keys))
 
 (defn create-node []
   {:values (create-sorted-set)})
@@ -134,7 +136,7 @@
   (is (= {:lesser-values #{1 2}
           :greater-values #{4 5}
           :median-value 3}
-         (split-sorted-set (sorted-set 1 2 3 4 5)))))
+         (split-sorted-set (create-sorted-set 1 2 3 4 5)))))
 
 (defn distribute-children [btree old-node-id new-node-id]
   (if-let [child-ids (get-in btree [:nodes old-node-id :child-ids])]
@@ -201,9 +203,9 @@
           :root-id 1
           :usages {3 0},
           :next-usage-number 1}
-         (split-child {:nodes {0 {:values (sorted-set 1 2 3)},
-                               1 {:values (sorted-set 3), :child-ids [0 2]},
-                               2 {:values (sorted-set 4 5)}},
+         (split-child {:nodes {0 {:values (create-sorted-set 1 2 3)},
+                               1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                               2 {:values (create-sorted-set 4 5)}},
                        :next-node-id 3,
                        :root-id 1}
                       1
@@ -224,15 +226,15 @@
           :root-id 5
           :usages {9 0},
           :next-usage-number 1}
-         (split-child {:nodes {0 {:values (sorted-set 0)}
-                               1 {:values (sorted-set 1), :child-ids [0 2]}
-                               2 {:values (sorted-set 2)}
-                               3 {:values (sorted-set 4)}
-                               4 {:values (sorted-set 6)}
-                               5 {:values (sorted-set 3), :child-ids [1 6]}
-                               6 {:values (sorted-set 5 7 9), :child-ids [3 4 7 8]}
-                               7 {:values (sorted-set 8)}
-                               8 {:values (sorted-set 10 11)}}
+         (split-child {:nodes {0 {:values (create-sorted-set 0)}
+                               1 {:values (create-sorted-set 1), :child-ids [0 2]}
+                               2 {:values (create-sorted-set 2)}
+                               3 {:values (create-sorted-set 4)}
+                               4 {:values (create-sorted-set 6)}
+                               5 {:values (create-sorted-set 3), :child-ids [1 6]}
+                               6 {:values (create-sorted-set 5 7 9), :child-ids [3 4 7 8]}
+                               7 {:values (create-sorted-set 8)}
+                               8 {:values (create-sorted-set 10 11)}}
                        :next-node-id 9,
                        :root-id 5}
                       5
@@ -273,31 +275,31 @@
           :usages {0 0, 1 1, 2 2},
           :next-usage-number 3
           :root-id 1}
-         (split-root {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
+         (split-root {:nodes {0 {:values (create-sorted-set 1 2 3 4 5)}}
                       :next-node-id 1
                       :next-usage-number 1
                       :usages (priority-map/priority-map 0 0)
                       :root-id 0})))
 
-  (is (= {:nodes {0 {:values (sorted-set 0)}
-                  1 {:values (sorted-set 1)
+  (is (= {:nodes {0 {:values (create-sorted-set 0)}
+                  1 {:values (create-sorted-set 1)
                      :child-ids [0 2]}
-                  2 {:values (sorted-set 2)}
-                  3 {:values (sorted-set 4)}
-                  4 {:values (sorted-set 6 7)}
-                  5 {:values (sorted-set 3)
+                  2 {:values (create-sorted-set 2)}
+                  3 {:values (create-sorted-set 4)}
+                  4 {:values (create-sorted-set 6 7)}
+                  5 {:values (create-sorted-set 3)
                      :child-ids [1 6]}
-                  6 {:values (sorted-set 5)
+                  6 {:values (create-sorted-set 5)
                      :child-ids [3 4]}},
           :next-node-id 7,
           :usages {0 0, 1 0, 4 0, 3 0, 2 0, 5 0, 6 1}
           :root-id 5
           :next-usage-number 2}
-         (split-root {:nodes {0 {:values (sorted-set 0)}
-                              1 {:values (sorted-set 1 3 5), :child-ids [0 2 3 4]}
-                              2 {:values (sorted-set 2)}
-                              3 {:values (sorted-set 4)}
-                              4 {:values (sorted-set 6 7)}},
+         (split-root {:nodes {0 {:values (create-sorted-set 0)}
+                              1 {:values (create-sorted-set 1 3 5), :child-ids [0 2 3 4]}
+                              2 {:values (create-sorted-set 2)}
+                              3 {:values (create-sorted-set 4)}
+                              4 {:values (create-sorted-set 6 7)}},
                       :usages (priority-map/priority-map 0 0
                                                          1 0
                                                          2 0
@@ -440,23 +442,23 @@
 
 (deftest test-splitter-besides-child
   (is (= 3
-         (splitter-besides-child {:values (sorted-set 3)
+         (splitter-besides-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  0
                                  false)))
   (is (= nil
-         (splitter-besides-child {:values (sorted-set 3)
+         (splitter-besides-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  2
                                  false)))
 
   (is (= nil
-         (splitter-besides-child {:values (sorted-set 3)
+         (splitter-besides-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  0
                                  true)))
   (is (= 3
-         (splitter-besides-child {:values (sorted-set 3)
+         (splitter-besides-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  2
                                  true))))
@@ -486,15 +488,15 @@
 
 
 (deftest test-splitter-after-cursor
-  (let [btree {:nodes {0 {:values (sorted-set 0)}
-                       1 {:values (sorted-set 1)
+  (let [btree {:nodes {0 {:values (create-sorted-set 0)}
+                       1 {:values (create-sorted-set 1)
                           :child-ids [0 2]}
-                       2 {:values (sorted-set 2)}
-                       3 {:values (sorted-set 4)}
-                       4 {:values (sorted-set 6 7 8)}
-                       5 {:values (sorted-set 3)
+                       2 {:values (create-sorted-set 2)}
+                       3 {:values (create-sorted-set 4)}
+                       4 {:values (create-sorted-set 6 7 8)}
+                       5 {:values (create-sorted-set 3)
                           :child-ids [1 6]}
-                       6 {:values (sorted-set 5)
+                       6 {:values (create-sorted-set 5)
                           :child-ids [3 4]}},
                :next-node-id 7,
                :root-id 5}]
@@ -512,10 +514,10 @@
 
 
   (let [btree {:nodes
-               {0 {:values (sorted-set 1 2)},
-                1 {:values (sorted-set 3)
+               {0 {:values (create-sorted-set 1 2)},
+                1 {:values (create-sorted-set 3)
                    :child-ids [0 2]},
-                2 {:values (sorted-set 4 5 6)}}
+                2 {:values (create-sorted-set 4 5 6)}}
                :root-id 1}]
 
     (is (= 3
@@ -541,15 +543,15 @@
 (deftest test-sequence-for-cursor
   (is (= [1 2 3]
          (sequence-for-cursor {:nodes
-                               {0 {:values (sorted-set 1 2)},
-                                1 {:values (sorted-set 3), :child-ids [0 2]},
-                                2 {:values (sorted-set 4 5 6)}}}
+                               {0 {:values (create-sorted-set 1 2)},
+                                1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                2 {:values (create-sorted-set 4 5 6)}}}
                               [1 0])))
   (is (= [4 5 6]
          (sequence-for-cursor {:nodes
-                               {0 {:values (sorted-set 1 2)},
-                                1 {:values (sorted-set 3), :child-ids [0 2]},
-                                2 {:values (sorted-set 4 5 6)}}}
+                               {0 {:values (create-sorted-set 1 2)},
+                                1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                2 {:values (create-sorted-set 4 5 6)}}}
                               [1 2]))))
 
 (defn loaded-node-count [btree]
@@ -571,9 +573,9 @@
 
 (deftest test-first-cursor
   (is (= [1 0]
-         (first-cursor {:nodes {0 {:values (sorted-set 1 2)},
-                                1 {:values (sorted-set 3), :child-ids [0 2]},
-                                2 {:values (sorted-set 4 5 6)}}
+         (first-cursor {:nodes {0 {:values (create-sorted-set 1 2)},
+                                1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                2 {:values (create-sorted-set 4 5 6)}}
                         :root-id 1}))))
 
 
@@ -604,7 +606,7 @@
   (-> (storage/bytes-to-edn byte-array)
       (update :values
               (fn [values]
-                (into (sorted-set)
+                (into (create-sorted-set)
                       values)))))
 
 (defn storage-key [bytes]
@@ -652,9 +654,9 @@
 (deftest test-unload-cursor
 
   (is (thrown? AssertionError
-               (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
-                                       1 {:values (sorted-set 3), :child-ids [0 2]},
-                                       2 {:values (sorted-set 4 5 6)}}
+               (unload-cursor {:nodes {0 {:values (create-sorted-set 1 2)},
+                                       1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                       2 {:values (create-sorted-set 4 5 6)}}
                                :root-id 1
                                :node-storage (hash-map-storage/create)
                                :metadata-storage (hash-map-storage/create)}
@@ -664,9 +666,9 @@
                                        :child-ids [match/any-string
                                                    2]},
                                     2 {:values #{4 5 6}}}}
-                           (unload-cursor {:nodes {0 {:values (sorted-set 1 2)},
-                                                   1 {:values (sorted-set 3), :child-ids [0 2]},
-                                                   2 {:values (sorted-set 4 5 6)}}
+                           (unload-cursor {:nodes {0 {:values (create-sorted-set 1 2)},
+                                                   1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                                   2 {:values (create-sorted-set 4 5 6)}}
                                            :root-id 1
                                            :node-storage (hash-map-storage/create)
                                            :metadata-storage (hash-map-storage/create)}
@@ -742,9 +744,9 @@
 (deftest test-cursors
   (is (= '([1 0]
            [1 2])
-         (let [btree {:nodes {0 {:values (sorted-set 1 2)},
-                              1 {:values (sorted-set 3), :child-ids [0 2]},
-                              2 {:values (sorted-set 4 5 6)}}
+         (let [btree {:nodes {0 {:values (create-sorted-set 1 2)},
+                              1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                              2 {:values (create-sorted-set 4 5 6)}}
                       :root-id 1}]
            (cursors (first-cursor btree)
                     btree))))
@@ -910,7 +912,7 @@
       (is (= {0 {:values #{1 2}},
               1 {:values #{3}, :child-ids [0 2]},
               2 {:values #{4 5 6}}}
-             (:nodes (add {:nodes {0 {:values (sorted-set 1 2 3 4 5)}}
+             (:nodes (add {:nodes {0 {:values (create-sorted-set 1 2 3 4 5)}}
                            :next-node-id 1
                            :root-id 0
                            :full? full?}
@@ -918,18 +920,18 @@
 
     (testing "no splits needed"
       (is (= {:nodes
-              {0 {:values (sorted-set -1 1 2)},
-               1 {:values (sorted-set 3), :child-ids [0 2]},
-               2 {:values (sorted-set 4 5 6)}},
+              {0 {:values (create-sorted-set -1 1 2)},
+               1 {:values (create-sorted-set 3), :child-ids [0 2]},
+               2 {:values (create-sorted-set 4 5 6)}},
               :next-node-id 3,
               :root-id 1,
               :full? full?
               :next-usage-number 1
               :usages {0 0}}
              (add {:nodes
-                   {0 {:values (sorted-set 1 2)},
-                    1 {:values (sorted-set 3), :child-ids [0 2]},
-                    2 {:values (sorted-set 4 5 6)}},
+                   {0 {:values (create-sorted-set 1 2)},
+                    1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                    2 {:values (create-sorted-set 4 5 6)}},
                    :next-node-id 3,
                    :root-id 1,
                    :full? full?}
@@ -946,9 +948,9 @@
                                 :usages {3 4},
                                 :next-usage-number 5}
                                (add {:nodes
-                                     {0 {:values (sorted-set -3 -2 -1 0 1)},
-                                      1 {:values (sorted-set 3), :child-ids [0 2]},
-                                      2 {:values (sorted-set 4 5 6)}},
+                                     {0 {:values (create-sorted-set -3 -2 -1 0 1)},
+                                      1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                      2 {:values (create-sorted-set 4 5 6)}},
                                      :next-usage-number 3
                                      :next-node-id 3,
                                      :root-id 1,
@@ -996,10 +998,10 @@
 
 (deftest test-cursor-and-btree-for-value
   (let [btree-atom (atom {:nodes
-                          {0 {:values (sorted-set 1 2)},
-                           1 {:values (sorted-set 3)
+                          {0 {:values (create-sorted-set 1 2)},
+                           1 {:values (create-sorted-set 3)
                               :child-ids [0 2]},
-                           2 {:values (sorted-set 4 5 6)}}
+                           2 {:values (create-sorted-set 4 5 6)}}
                           :root-id 1
                           :node-storage (hash-map-storage/create)
                           :metadata-storage (hash-map-storage/create)
@@ -1272,15 +1274,15 @@
                      the-child-id))))))))
 
 (deftest test-sequence-after-splitter
-  (let [btree-atom (atom {:nodes {0 {:values (sorted-set 0)}
-                                  1 {:values (sorted-set 1)
+  (let [btree-atom (atom {:nodes {0 {:values (create-sorted-set 0)}
+                                  1 {:values (create-sorted-set 1)
                                      :child-ids [0 2]}
-                                  2 {:values (sorted-set 2)}
-                                  3 {:values (sorted-set 4)}
-                                  4 {:values (sorted-set 6 7 8)}
-                                  5 {:values (sorted-set 3)
+                                  2 {:values (create-sorted-set 2)}
+                                  3 {:values (create-sorted-set 4)}
+                                  4 {:values (create-sorted-set 6 7 8)}
+                                  5 {:values (create-sorted-set 3)
                                      :child-ids [1 6]}
-                                  6 {:values (sorted-set 5)
+                                  6 {:values (create-sorted-set 5)
                                      :child-ids [3 4]}},
                           :next-node-id 7,
                           :root-id 5
@@ -1314,10 +1316,10 @@
 
 (deftest test-sequence-for-value
   (let [btree-atom (atom {:nodes
-                          {0 {:values (sorted-set 1 2)},
-                           1 {:values (sorted-set 3)
+                          {0 {:values (create-sorted-set 1 2)},
+                           1 {:values (create-sorted-set 3)
                               :child-ids [0 2]},
-                           2 {:values (sorted-set 4 5 6)}}
+                           2 {:values (create-sorted-set 4 5 6)}}
                           :root-id 1
                           :node-storage (hash-map-storage/create)
                           :metadata-storage (hash-map-storage/create)
@@ -1336,7 +1338,8 @@
       3   [3]
       -10 [1 2 3]
       5   [5 6]
-      50  nil)))
+      50  nil
+      ::comparator/min [1 2 3])))
 
 (defn lazy-value-sequence [btree-atom sequence]
   (if-let [sequence (if (first (rest sequence))
@@ -1358,10 +1361,10 @@
 
 (deftest test-inclusive-subsequence
   (let [btree-atom (atom {:nodes
-                          {0 {:values (sorted-set 1 2)},
-                           1 {:values (sorted-set 3)
+                          {0 {:values (create-sorted-set 1 2)},
+                           1 {:values (create-sorted-set 3)
                               :child-ids [0 2]},
-                           2 {:values (sorted-set 4 5 6)}}
+                           2 {:values (create-sorted-set 4 5 6)}}
                           :root-id 1
                           :next-node-id 3
                           :usages {}
@@ -1408,7 +1411,7 @@
                     values (take 200
                                  (repeatedly (fn [] (rand-int maximum))))
                     smallest (rand maximum)]
-                (is (= (subseq (apply sorted-set
+                (is (= (subseq (apply create-sorted-set
                                       values)
                                >=
                                smallest)
