@@ -135,31 +135,6 @@
                         eacv-statements)
   db)
 
-(defn add-transaction-to-index [index indexes transaction-number statements]
-  (if (or (nil? (:last-indexed-transaction-number index))
-          (< (:last-indexed-transaction-number index)
-             transaction-number))
-    (do (assert (every? (fn [statement]
-                          (= 4 (count statement)))
-                        statements)
-                "Statement must have four values")
-
-        (doseq [[e a c v] statements]
-          (doseq [datom ((:eatcv-to-datoms index)
-                         indexes
-                         e
-                         a
-                         transaction-number
-                         c
-                         v)]
-            (index/add! (:index index)
-                        datom)))
-
-        (assoc index
-               :last-indexed-transaction-number
-               transaction-number))
-    index))
-
 (defn add-transaction-to-index! [index indexes transaction-number statements]
   (assert (every? (fn [statement]
                     (= 4 (count statement)))
@@ -176,6 +151,16 @@
                    v)]
       (index/add! (:index index)
                   datom))))
+
+(defn add-transaction-to-index [index indexes transaction-number statements]
+  (if (or (nil? (:last-indexed-transaction-number index))
+          (< (:last-indexed-transaction-number index)
+             transaction-number))
+    (do (add-transaction-to-index! index indexes transaction-number statements)
+        (assoc index
+               :last-indexed-transaction-number
+               transaction-number))
+    index))
 
 (defn apply-to-indexes [db function & arguments]
   (update db :indexes
@@ -355,25 +340,7 @@
 (defn datoms [db index-key pattern]
   (datoms-from-index (get-in db [:indexes index-key])
                      pattern
-                     (:last-transaction-number db))
-  
-  #_(let [datom-length (count (first (index/inclusive-subsequence 
-                                                                ::comparator/min)))
-        first-pattern (pad datom-length
-                           pattern
-                           ::comparator/min)
-        last-pattern (let [last-pattern (pad datom-length
-                                             pattern
-                                             ::comparator/max)]
-                       (if-let [last-transaction-number (:last-transaction-number db)]
-                         (assoc (vec last-pattern)
-                                (-> db :indexes index-key :datom-transaction-number-index)
-                                last-transaction-number)
-                         last-pattern))]
-    (take-while (fn [datom]
-                  (>= 0 (comparator/compare-datoms datom last-pattern)))
-                (index/inclusive-subsequence (get-in db [:indexes index-key :index])
-                                             first-pattern))))
+                     (:last-transaction-number db)))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -483,33 +450,20 @@
    (values-from-eatcv-datoms (datoms-from-index eatcv
                                                 [entity-id attribute])))
 
-  #_([eatcv entity-id attribute transaction-number]
-     (values-from-eatcv-datoms (datoms-from-index eatcv
-                                                  [entity-id attribute transaction-number]))))
+  ([eatcv entity-id attribute last-transaction-number]
+   (values-from-eatcv-datoms (datoms-from-index eatcv
+                                                [entity-id attribute]
+                                                last-transaction-number))))
 
-(defn values
-  ([db entity-id attribute]
-   (values db
-           entity-id
-           attribute
-           (last-transaction-number db)))
+(defn values [db entity-id attribute]
+  (values-from-eatcv-datoms (datoms db
+                                    :eatcv
+                                    [entity-id attribute])))
 
-  ([db entity-id attribute transaction-number]
-   (values-from-eatcv-datoms (datoms db
-                                     :eatcv
-                                     [entity-id attribute]))))
-
-(defn value
-  ([db entity-id attribute]
-   (first (values db
-                  entity-id
-                  attribute)))
-
-  ([db entity-id attribute transaction-number]
-   (first (values db
-                  entity-id
-                  attribute
-                  transaction-number))))
+(defn value [db entity-id attribute]
+  (first (values db
+                 entity-id
+                 attribute)))
 
 
 
@@ -841,16 +795,19 @@
 
 (defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
   (if (string? v)
-    (let [old-tokens (clojure.core/set (mapcat tokenize (values {:indexes indexes} e a (dec t))))]
+    (let [old-tokens (clojure.core/set (mapcat tokenize (values {:indexes indexes
+                                                                 :last-transaction-number (dec t)}
+                                                                e
+                                                                a)))]
       (case c
 
         :retract
         (for [token (set/difference old-tokens
                                     (clojure.core/set (mapcat tokenize
                                                               (values-from-eatcv-datoms (concat (datoms {:indexes indexes}
-                                                                                                            :eatcv
-                                                                                                            [e a nil nil nil])
-                                                                                                    [[e a t c v]])))))]
+                                                                                                        :eatcv
+                                                                                                        [e a nil nil nil])
+                                                                                                [[e a t c v]])))))]
           [a token t e :retract])
 
         :add

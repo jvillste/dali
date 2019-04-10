@@ -159,6 +159,9 @@
   (run-compare-datoms-test [::min "zzzzz"])
   (run-compare-datoms-test ["zzzzz" ::max])
 
+  (run-compare-datoms-test [::min [1 2]])
+  (run-compare-datoms-test [[1 2] ::max])
+
   (run-compare-datoms-test [[1 :name 1 :set "Name 1"]
                             [1 :name 2 :set "Name 1"]])
 
@@ -176,6 +179,20 @@
                                   [1 :name 2 :set "Bar"]
                                   [1 :age 2 :set 30]
                                   [1 :name 3 :set "Baz"])]
+
+    (is (= '([1 :age 2 :set 30]
+             [1 :name 1 :set "Foo"]
+             [1 :name 2 :set "Bar"]
+             [1 :name 3 :set "Baz"])
+           (subseq sorted-set
+                   >=
+                   ::min)))
+
+    (is (= nil
+           (subseq sorted-set
+                   >=
+                   ::max)))
+
     (is (= '([1 :name 2 :set "Bar"]
              [1 :name 3 :set "Baz"])
            (subseq sorted-set

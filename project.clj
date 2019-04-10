@@ -4,13 +4,13 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [com.datomic/datomic-free "0.9.5697"]
+                 #_[com.datomic/datomic-free "0.9.5697"]
                  [org.clojure/math.combinatorics "0.1.4"]
                  #_[datascript "0.15.5"]
                  #_[com.google.guava/guava "21.0"]
                  [aysylu/loom "1.0.2"]
                  [spootnik/net "0.3.3-beta14"]
-                 [org.clojure/core.async "0.4.490"]
+                 #_[org.clojure/core.async "0.4.490"]
                  #_[org.clojure/algo.monads "0.1.6"]
                  [me.raynes/fs "1.4.6"]
                  [cor "0.1.0-SNAPSHOT"]
@@ -26,7 +26,6 @@
                  [prismatic/schema "1.1.9"]
                  [org.clojure/tools.trace "0.7.10"]]
   :test-paths ["src/clj" "test"]
-  :aot [argumentica.EdnComparator]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
   :resource-paths ["resources"]
   :aliases {"test" ["clean"]}

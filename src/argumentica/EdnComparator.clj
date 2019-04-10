@@ -5,8 +5,8 @@
               :prefix "method-"))
 
 (defn method-compare [this x y]
-  (comparator/cc-cmp (storage/bytes-to-edn x)
-                     (storage/bytes-to-edn y)))
+  (comparator/compare-datoms (storage/bytes-to-edn x)
+                             (storage/bytes-to-edn y)))
 
 (comment
   (.compare (argumentica.EdnComparator.)

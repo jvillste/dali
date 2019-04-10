@@ -5,8 +5,11 @@
 
 (defrecord SortedSetIndex [sorted-set-atom])
 
+(defn- create-sorted-set []
+  (sorted-set-by comparator/compare-datoms))
+
 (defn create []
-  (->SortedSetIndex (atom (sorted-set-by comparator/compare-datoms))))
+  (->SortedSetIndex (atom (create-sorted-set))))
 
 (defn creator [_name]
   (create))
@@ -49,4 +52,15 @@
     (is (= '([1 :name 2 :set "Bar"]
              [1 :name 3 :set "Baz"])
            (index/inclusive-subsequence sorted-set-index
-                                        [1 :name 2 ::comparator/min ::comparator/min])))))
+                                        [1 :name 2 ::comparator/min ::comparator/min])))
+
+    (is (= '([1 :age 2 :set 30]
+             [1 :name 1 :set "Foo"]
+             [1 :name 2 :set "Bar"]
+             [1 :name 3 :set "Baz"])
+           (index/inclusive-subsequence sorted-set-index
+                                        ::comparator/min)))))
+
+(defn clear! [sorted-set-index]
+  (reset! (:sorted-set-atom sorted-set-index)
+          (create-sorted-set)))

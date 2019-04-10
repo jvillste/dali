@@ -3,7 +3,8 @@
             [argumentica.db.client :as client]
             [argumentica.sorted-set-index :as sorted-set-index]
             [argumentica.db.server-btree-index :as server-btree-index]
-            [argumentica.db.server-btree-index :as server-btree-index]))
+            [argumentica.db.server-btree-index :as server-btree-index]
+            [argumentica.db.sorted-datom-set-branch :as sorted-datom-set-branch]))
 
 (defrecord PeerIndex [local-index
                       remote-index])
@@ -22,7 +23,7 @@
           (index/inclusive-subsequence (get-in this [:local-index])
                                        first-datom)))
 
-(defn create [client index-key eatcv-to-datoms]
+#_(defn create [client index-key eatcv-to-datoms]
   (let [latest-root (client/latest-root client
                                         index-key)]
     {:client client
@@ -33,6 +34,19 @@
                                                                       index-key
                                                                       latest-root)})
      :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)}))
+
+(defn create [client index-definition base-transaction-number]
+  (let [latest-root (client/latest-root client
+                                        (:index-key index-definition))]
+    (merge index-definition
+           {:client client
+            :index (sorted-datom-set-branch/create (server-btree-index/create client
+                                                                              (:index-key index-definition)
+                                                                              latest-root)
+                                                   base-transaction-number
+                                                   (:transaction-number-index index-definition)
+                                                   (sorted-set-index/create))
+            :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number)})))
 
 
 (defn update-root [peer-index]

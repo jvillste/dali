@@ -6,7 +6,13 @@
             [argumentica.sorted-set-index :as sorted-set-index]
             [argumentica.transaction-log :as transaction-log]
             [clojure.test :refer :all]
-            [argumentica.comparator :as comparator]))
+            [argumentica.comparator :as comparator]
+            [argumentica.btree-db :as btree-db]
+            [argumentica.btree-index :as btree-index]
+            [argumentica.db.server-api :as server-api]
+            [argumentica.db.client :as client]
+            [argumentica.db.server-btree-db :as server-btree-db]
+            [argumentica.btree :as btree]))
 
 (defn transact! [transaction-log indexes-atom statements]
   (transaction-log/add! transaction-log
@@ -157,3 +163,101 @@
 
           (is (= '([1 :name :set "1 name 2 in branch"])
                  (branch/squash branch)))))))
+
+(deftest test-client-and-server
+  (let [index-definitions common/base-index-definitions
+        server-db (-> (common/db-from-index-definitions index-definitions
+                                                        (fn [_index-name] (btree-index/create-memory-btree-index 21))
+                                                        (sorted-map-transaction-log/create))
+                      (common/transact #{[:entity-1 :name :set "Name in first root"]})
+                      (btree-db/store-index-roots-after-maximum-number-of-transactions 0)
+                      (common/transact #{[:entity-1 :name :set "Name after first root"]}))
+        server-state-atom (atom (server-api/create-state server-db))
+        client (client/->InProcessClient server-state-atom)
+        server-btree-db (server-btree-db/create client index-definitions)]
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"])
+           (server-btree-db/inclusive-subsequence server-btree-db
+                                                  :eatcv
+                                                  ::comparator/min)))
+    (client/transact client
+                     #{[:entity-1 :name :set "Name after creation"]})
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"])
+           (index/inclusive-subsequence (get-in server-btree-db [:indexes :eatcv :index])
+                                        ::comparator/min)))
+
+    (server-btree-db/update! server-btree-db)
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"]
+             [:entity-1 :name 2 :set "Name after creation"])
+           (index/inclusive-subsequence (get-in server-btree-db [:indexes :eatcv :index])
+                                        ::comparator/min)))
+
+    (is (= #{[:entity-1 :name 1 :set "Name after first root"]
+             [:entity-1 :name 2 :set "Name after creation"]}
+           @(-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom)))
+
+    (swap! server-state-atom
+           update
+           :db
+           btree-db/store-index-roots-after-maximum-number-of-transactions 0)
+
+    (server-btree-db/update! server-btree-db)
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"]
+             [:entity-1 :name 2 :set "Name after creation"])
+           (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
+                                        ::comparator/min)))
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"]
+             [:entity-1 :name 2 :set "Name after creation"])
+           (server-btree-db/inclusive-subsequence server-btree-db :eatcv ::comparator/min)))
+
+
+    (is (= '([:entity-1 :name 0 :set "Name in first root"]
+             [:entity-1 :name 1 :set "Name after first root"]
+             [:entity-1 :name 2 :set "Name after creation"])
+           (common/datoms server-btree-db :eatcv [])))
+
+    (let [client-branch (branch/create (common/deref server-btree-db))]
+      (is (= '([:entity-1 :name 0 :set "Name in first root"]
+               [:entity-1 :name 1 :set "Name after first root"]
+               [:entity-1 :name 2 :set "Name after creation"])
+             (common/datoms client-branch :eatcv [])))
+
+      (common/transact! client-branch
+                        #{[:entity-1 :name :set "Name 1 in client"]})
+
+      (is (= '([:entity-1 :name 0 :set "Name in first root"]
+               [:entity-1 :name 1 :set "Name after first root"]
+               [:entity-1 :name 2 :set "Name after creation"]
+               [:entity-1 :name 3 :set "Name 1 in client"])
+             (common/datoms client-branch :eatcv [:entity-1])))
+
+      (common/transact! client-branch
+                        #{[:entity-1 :name :set "Name 2 in client"]})
+
+      (is (= '([:entity-1 :name :set "Name 2 in client"])
+             (branch/squash client-branch)))
+
+      (client/transact client
+                       (set (branch/squash client-branch)))
+
+      (is (= '([:entity-1 :name 0 :set "Name in first root"]
+               [:entity-1 :name 1 :set "Name after first root"]
+               [:entity-1 :name 2 :set "Name after creation"])
+             (common/datoms server-btree-db :eatcv [:entity-1 :name])))
+
+      (server-btree-db/update! server-btree-db)
+
+      (is (= '([:entity-1 :name 0 :set "Name in first root"]
+               [:entity-1 :name 1 :set "Name after first root"]
+               [:entity-1 :name 2 :set "Name after creation"]
+               [:entity-1 :name 3 :set "Name 2 in client"])
+             (common/datoms server-btree-db :eatcv [:entity-1 :name]))))))

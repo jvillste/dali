@@ -366,7 +366,7 @@
                                                           (map (partial add-transaction-number-to-eacv
                                                                         transaction-number)
                                                                (:statements transaction))))
-                                                 (sorted-set-by comparator/cc-cmp)))
+                                                 (sorted-set-by comparator/compare-datoms)))
         (cond-> is-new-branch
           (-> (update :next-branch-number inc)
               (assoc-in [:branches (:number new-branch)] new-branch)))

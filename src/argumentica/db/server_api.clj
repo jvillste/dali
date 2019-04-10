@@ -11,6 +11,7 @@
   {:db db})
 
 (defn ^:cor/api transact [state-atom statements]
+  (prn "transaction-log-subseq" (-> @state-atom :db :transaction-log))
   ;; TODO: can not use swap! for transactions because transacting is not idempotent, use for example a go block
   (swap! state-atom
          update :db
@@ -22,6 +23,7 @@
   nil)
 
 (defn ^:cor/api transaction-log-subseq [state-atom first-transaction-number]
+  (prn "transaction-log-subseq" (-> @state-atom :db :transaction-log)) ;; TODO: remove-me
   (transaction-log/subseq (-> @state-atom :db :transaction-log)
                           first-transaction-number))
 

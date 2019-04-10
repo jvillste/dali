@@ -9,121 +9,132 @@
             [clojure.test :refer :all]
             [argumentica.index :as index]
             [argumentica.btree :as btree]
-            [clojure.string :as string]))
+            [clojure.string :as string]
+            [argumentica.comparator :as comparator]
+            [argumentica.transaction-log :as transaction-log]))
 
 (deftest test-full-text
-  (let [index-definition {:eatcv db-common/eatcv-to-eatcv-datoms
-                          :full-text (partial db-common/eatcv-to-full-text-avtec (fn [string]
-                                                                                   (->> (string/split string #" ")
-                                                                                        (map string/lower-case))))}
-        server-db (-> (db-common/db-from-index-definition index-definition
-                                                          (fn [_index-name] (btree-index/create-memory-btree-index 21))
-                                                          (sorted-map-transaction-log/create))
-                      (db-common/transact [[:entity-1 :name :set "Name 1"]])
+  (let [index-definitions [{:key :eatcv
+                            :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms
+                            :datom-transaction-number-index 2}
+                           {:key :full-text
+                            :eatcv-to-datoms (partial db-common/eatcv-to-full-text-avtec (fn [string]
+                                                                                           (->> (string/split string #" ")
+                                                                                                (map string/lower-case))))
+                            :datom-transaction-number-index 2}]
+        server-db (-> (db-common/db-from-index-definitions index-definitions
+                                                           (fn [_index-name] (btree-index/create-memory-btree-index 21))
+                                                           (sorted-map-transaction-log/create))
+                      (db-common/transact #{[:entity-1 :name :set "Name 1"]})
                       (btree-db/store-index-roots-after-maximum-number-of-transactions 0)
-                      (db-common/transact [[:entity-1 :name :set "Name 2"]])
-                      (db-common/transact [[:entity-1 :name :set "Name 3"]]))
+                      (db-common/transact #{[:entity-1 :name :set "Name 2"]})
+                      (db-common/transact #{[:entity-1 :name :set "Name 3"]}))
         server-state-atom (atom (server-api/create-state server-db))
         client (client/->InProcessClient server-state-atom)
-        server-btree-db (server-btree-db/create client index-definition)]
+        server-btree-db (server-btree-db/create client index-definitions)]
     (is (= 2
            (-> server-db :indexes :eatcv :last-indexed-transaction-number)))
 
     (is (= '([:name "1" 0 :entity-1 :add]
              [:name "name" 0 :entity-1 :add])
-           (btree/inclusive-subsequence (-> server-btree-db :indexes :full-text :index :remote-index :btree-index-atom)
+           (btree/inclusive-subsequence (-> server-btree-db :indexes :full-text :index :base-sorted-datom-set :btree-index-atom)
                                         nil)))
 
     (is (= #{[:name "1" 1 :entity-1 :retract]
              [:name "2" 1 :entity-1 :add]
              [:name "2" 2 :entity-1 :retract]
              [:name "3" 2 :entity-1 :add]}
-           @(-> server-btree-db :indexes :full-text :index :local-index :sorted-set-atom)))
+           @(-> server-btree-db :indexes :full-text :index :branch-datom-set :sorted-set-atom)))
 
     (is (= '([:name "1" 0 :entity-1 :add]
-             [:name "name" 0 :entity-1 :add]
              [:name "1" 1 :entity-1 :retract]
              [:name "2" 1 :entity-1 :add]
              [:name "2" 2 :entity-1 :retract]
-             [:name "3" 2 :entity-1 :add])
+             [:name "3" 2 :entity-1 :add]
+             [:name "name" 0 :entity-1 :add])
            (server-btree-db/inclusive-subsequence server-btree-db
                                                   :full-text
-                                                  nil)))))
+                                                  ::comparator/min)))))
 
 (deftest test-create
-  (let [index-definition {:eatcv db-common/eatcv-to-eatcv-datoms
-                          :avtec db-common/eatcv-to-avtec-datoms}
-        server-db (-> (db-common/db-from-index-definition index-definition
-                                                          (fn [_index-name] (btree-index/create-memory-btree-index 21))
-                                                          (sorted-map-transaction-log/create))
-                      (db-common/transact [[:entity-1 :name :set "Name 1"]])
+  (let [index-definitions db-common/base-index-definitions
+        server-db (-> (db-common/db-from-index-definitions index-definitions
+                                                           (fn [_index-name] (btree-index/create-memory-btree-index 21))
+                                                           (sorted-map-transaction-log/create))
+                      (db-common/transact #{[:entity-1 :name :set "Name 1"]})
                       (btree-db/store-index-roots-after-maximum-number-of-transactions 0)
-                      (db-common/transact [[:entity-1 :name :set "Name 2"]]))
+                      (db-common/transact #{[:entity-1 :name :set "Name 2"]}))
         server-state-atom (atom (server-api/create-state server-db))
         client (client/->InProcessClient server-state-atom)
-        server-btree-db (server-btree-db/create client index-definition)]
+        server-btree-db (server-btree-db/create client index-definitions)]
     (is (= 1
            (-> server-db :indexes :eatcv :last-indexed-transaction-number)))
 
     (is (= '([:entity-1 :name 0 :set "Name 1"])
-           (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :index :remote-index :btree-index-atom)
-                                        nil)))
+           (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
+                                        ::comparator/min)))
 
     (is (= #{[:entity-1 :name 1 :set "Name 2"]}
-           @(-> server-btree-db :indexes :eatcv :index :local-index :sorted-set-atom)))
+           (-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom deref)))
 
     (is (= '([:entity-1 :name 0 :set "Name 1"]
              [:entity-1 :name 1 :set "Name 2"])
            (server-btree-db/inclusive-subsequence server-btree-db
                                                   :eatcv
-                                                  nil)))
+                                                  ::comparator/min)))
+
+    (is (= 2 (server-btree-db/first-unindexed-transaction server-btree-db)))
+
+
     (client/transact client
-                     [[:entity-1 :name :set "Name 3"]])
+                     #{[:entity-1 :name :set "Name 3"]})
 
     (is (= '([:entity-1 :name 0 :set "Name 1"]
              [:entity-1 :name 1 :set "Name 2"])
            (server-btree-db/inclusive-subsequence server-btree-db
                                                   :eatcv
-                                                  nil)))
+                                                  ::comparator/min)))
 
-    (let [server-btree-db-2 (server-btree-db/update-indexes server-btree-db)]
-      (is (= '([:entity-1 :name 0 :set "Name 1"]
-               [:entity-1 :name 1 :set "Name 2"]
-               [:entity-1 :name 2 :set "Name 3"])
-             (server-btree-db/inclusive-subsequence server-btree-db-2
-                                                    :eatcv
-                                                    nil)))
+    (is (= 2 (server-btree-db/first-unindexed-transaction server-btree-db)))
 
-      (is (= #{[:entity-1 :name 1 :set "Name 2"]
-               [:entity-1 :name 2 :set "Name 3"]}
-             @(-> server-btree-db-2 :indexes :eatcv :index :local-index :sorted-set-atom)))
+    (server-btree-db/update! server-btree-db)
 
-      (swap! server-state-atom
-             update
-             :db
-             btree-db/store-index-roots-after-maximum-number-of-transactions 0)
+    (is (= '([:entity-1 :name 0 :set "Name 1"]
+             [:entity-1 :name 1 :set "Name 2"]
+             [:entity-1 :name 2 :set "Name 3"])
+           (server-btree-db/inclusive-subsequence server-btree-db
+                                                  :eatcv
+                                                  ::comparator/min)))
 
-      (is 2 (-> @server-state-atom :db :indexes :eatcv :index :btree-index-atom deref :latest-root :metadata :last-transaction-number))
+    (is (= #{[:entity-1 :name 1 :set "Name 2"]
+             [:entity-1 :name 2 :set "Name 3"]}
+           @(-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom)))
 
-      (let [server-btree-db-3 (server-btree-db/update-indexes server-btree-db)]
-        (is (= #{}
-               @(-> server-btree-db-3 :indexes :eatcv :index :local-index :sorted-set-atom)))
+    (swap! server-state-atom
+           update
+           :db
+           btree-db/store-index-roots-after-maximum-number-of-transactions 0)
 
-        (is (= (client/latest-root client :eatcv)
-               (-> server-btree-db-3 :indexes :eatcv :index :remote-index :btree-index-atom deref :latest-root)))
+    (server-btree-db/update! server-btree-db)
 
-        (is (= (:storage-key (client/latest-root client :eatcv))
-               (-> server-btree-db-3 :indexes :eatcv :index :remote-index :btree-index-atom deref :root-id)))
+    (is (= #{}
+           @(-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom)))
 
-        (is (= '([:entity-1 :name 0 :set "Name 1"]
-                 [:entity-1 :name 1 :set "Name 2"]
-                 [:entity-1 :name 2 :set "Name 3"])
-               (btree/inclusive-subsequence (-> server-btree-db-3 :indexes :eatcv :index :remote-index :btree-index-atom)
-                                            nil)))
-        (is (= '([:entity-1 :name 0 :set "Name 1"]
-                 [:entity-1 :name 1 :set "Name 2"]
-                 [:entity-1 :name 2 :set "Name 3"])
-               (server-btree-db/inclusive-subsequence server-btree-db-3 :eatcv nil)))))))
+    (is (= (client/latest-root client :eatcv)
+           (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom deref :latest-root)))
+
+    (is (= (:storage-key (client/latest-root client :eatcv))
+           (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom deref :root-id)))
+
+    (is (= '([:entity-1 :name 0 :set "Name 1"]
+             [:entity-1 :name 1 :set "Name 2"]
+             [:entity-1 :name 2 :set "Name 3"])
+           (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
+                                        ::comparator/min)))
+    (is (= '([:entity-1 :name 0 :set "Name 1"]
+             [:entity-1 :name 1 :set "Name 2"]
+             [:entity-1 :name 2 :set "Name 3"])
+           (server-btree-db/inclusive-subsequence server-btree-db :eatcv ::comparator/min)))))
 
 #_(deftest test2-server-btree-db
     (let [server-state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))
@@ -139,37 +150,37 @@
       (swap! server-state-atom
              update :db
              btree-db/store-index-roots)
-      
+
       (is (= nil
              (server-btree-db/value server-btree-db
                                     entity-id
                                     :name)))
 
-      (let [server-btree-db-2 (server-btree-db/update-indexes server-btree-db)]
+      (let [server-btree-db (server-btree-db/update-indexes server-btree-db)]
         (is (= '([#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name 0 :set "Foo"]
                  [#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name 1 :set "Bar"])
-               (server-btree-db/datoms server-btree-db-2
+               (server-btree-db/datoms server-btree-db
                                        entity-id
                                        :name)))
 
         (is (= "Bar"
-               (server-btree-db/value server-btree-db-2
+               (server-btree-db/value server-btree-db
                                       entity-id
                                       :name)))
 
         (server-api/transact server-state-atom
                              [[entity-id :name :set "Baz"]])
 
-        
-        (let [server-btree-db-3 (server-btree-db/update-indexes server-btree-db)]
-          
+
+        (let [server-btree-db (server-btree-db/update-indexes server-btree-db)]
+
           (is (= '([#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name 0 :set "Foo"]
                    [#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name 1 :set "Bar"]
                    [#uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb" :name 2 :set "Baz"])
-                 (server-btree-db/datoms server-btree-db-3
+                 (server-btree-db/datoms server-btree-db
                                          entity-id
                                          :name)))
           (is (= "Baz"
-                 (server-btree-db/value server-btree-db-3
+                 (server-btree-db/value server-btree-db
                                         entity-id
                                         :name)))))))
