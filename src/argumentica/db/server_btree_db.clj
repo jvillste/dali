@@ -37,7 +37,6 @@
                 index-map)))))
 
 (defn last-indexed-transaction-number-for-index-map [index-map]
-  (prn "last-indexed-transaction-number-for-index-map" (-> index-map :index :index-atom deref :last-indexed-transaction-number)) ;; TODO: remove-me
  (-> index-map :index :index-atom deref :last-indexed-transaction-number))
 
 (defn first-unindexed-transacion-number-for-index-map [index-map]
@@ -62,7 +61,6 @@
                                 transaction-number))))
 
 (defn add-transactions-to-indexes! [indexes transactions]
-  (prn "add-transactions-to-indexes!" transactions) ;; TODO: remove-me
   (doseq [[transaction-number statements] transactions]
     (doseq [index-map (vals indexes)]
       (add-transaction-to-index-map! index-map
@@ -70,14 +68,19 @@
                                      transaction-number
                                      statements))))
 
-(defn update-indexes! [server-btree-db]
-  (add-transactions-to-indexes! (:indexes server-btree-db)
-                                (transaction-log/subseq (:transaction-log server-btree-db)
-                                                        (first-unindexed-transaction server-btree-db))))
+(defn- update-indexes [server-btree-db]
+  (let [first-unindexed-transaction (first-unindexed-transaction server-btree-db)
+        transactions (transaction-log/subseq (:transaction-log server-btree-db)
+                                             first-unindexed-transaction)
+        last-transaction-number (first (last transactions))]
+    (add-transactions-to-indexes! (:indexes server-btree-db)
+                                  transactions)
+    (assoc server-btree-db :last-transaction-number (or last-transaction-number
+                                                        (dec first-unindexed-transaction)))))
 
-(defn update! [server-btree-db]
+(defn- deref-db [server-btree-db]
   (update-index-roots! server-btree-db)
-  (update-indexes! server-btree-db))
+  (update-indexes server-btree-db))
 
 (defn inclusive-subsequence [server-btree-db index-key first-datom]
   (index/inclusive-subsequence (get-in server-btree-db [:indexes index-key :index])
@@ -104,7 +107,9 @@
           {}
           index-definitions))
 
-(defrecord ServerBtreeDb [client transaction-log indexes])
+(defrecord ServerBtreeDb [client transaction-log indexes]
+  clojure.lang.IDeref
+  (deref [this] (deref-db this)))
 
 (extend ServerBtreeDb
   db/ReadableDB
@@ -112,12 +117,10 @@
 
 
 (defn create [client index-definitions]
-  (let [db {:client client
-            :transaction-log (server-transaction-log/->ServerTransactionLog client)
-            :indexes (index-definitions-to-indexes index-definitions
-                                                   client)}]
-    (update-indexes! db)
-    db))
+  (map->ServerBtreeDb (update-indexes {:client client
+                                       :transaction-log (server-transaction-log/->ServerTransactionLog client)
+                                       :indexes (index-definitions-to-indexes index-definitions
+                                                                              client)})))
 
 (defn datoms [server-btree-db entity-id attribute]
   (concat (common/eat-datoms-from-eatcv (get-in server-btree-db [:indexes :eatcv :remote-index :index])

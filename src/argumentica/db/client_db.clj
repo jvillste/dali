@@ -29,9 +29,7 @@
   (update client-db :local-db db-common/transact statements))
 
 (defn refresh [client-db]
-  (update client-db
-          :server-btree-db
-          server-btree-db/update-indexes))
+  (deref (:server-btree-db client-db)))
 
 (defn inclusive-subsequence [client-db index-key first-datom]
   (concat (index/inclusive-subsequence (get-in client-db [:server-btree-db :indexes index-key :index])

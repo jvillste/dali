@@ -37,14 +37,14 @@
 
     (is (= '([:name "1" 0 :entity-1 :add]
              [:name "name" 0 :entity-1 :add])
-           (btree/inclusive-subsequence (-> server-btree-db :indexes :full-text :index :base-sorted-datom-set :btree-index-atom)
+           (btree/inclusive-subsequence (-> server-btree-db :indexes :full-text :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
                                         nil)))
 
     (is (= #{[:name "1" 1 :entity-1 :retract]
              [:name "2" 1 :entity-1 :add]
              [:name "2" 2 :entity-1 :retract]
              [:name "3" 2 :entity-1 :add]}
-           @(-> server-btree-db :indexes :full-text :index :branch-datom-set :sorted-set-atom)))
+           @(-> server-btree-db :indexes :full-text :index :index-atom deref :branch-datom-set :sorted-set-atom)))
 
     (is (= '([:name "1" 0 :entity-1 :add]
              [:name "1" 1 :entity-1 :retract]
@@ -97,7 +97,7 @@
 
     (is (= 2 (server-btree-db/first-unindexed-transaction server-btree-db)))
 
-    (server-btree-db/update! server-btree-db)
+    @server-btree-db
 
     (is (= '([:entity-1 :name 0 :set "Name 1"]
              [:entity-1 :name 1 :set "Name 2"]
@@ -115,7 +115,7 @@
            :db
            btree-db/store-index-roots-after-maximum-number-of-transactions 0)
 
-    (server-btree-db/update! server-btree-db)
+    @server-btree-db
 
     (is (= #{}
            @(-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom)))

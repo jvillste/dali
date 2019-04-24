@@ -52,7 +52,6 @@
                           [1 3 6]
                           compare))))
 
-
 (defmethod index/inclusive-subsequence
   SortedDatomSetBranch
   [this key]
