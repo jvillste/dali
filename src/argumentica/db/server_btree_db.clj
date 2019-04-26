@@ -113,7 +113,11 @@
 
 (extend ServerBtreeDb
   db/ReadableDB
-  {:inclusive-subsequence inclusive-subsequence})
+  {:inclusive-subsequence inclusive-subsequence}
+  db/WriteableDB
+  {:transact (fn [this statements]
+               (client/transact (:client this)
+                                statements))})
 
 
 (defn create [client index-definitions]

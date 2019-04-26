@@ -44,17 +44,17 @@
                             (btree-db/store-index-roots))
         branch (create-branch server-btree-db
                               (common/last-transaction-number server-btree-db))]
-    
+
     (is (= #{"Foo"}
            (values branch :entity-1 :name)))
-    
+
     (let [branch (update branch :branch-sorted-set-db
                          sorted-set-db/set :entity-1 :name "Bar")]
 
       (is (= '([:entity-1 :name 0 :set "Foo"]
                [:entity-1 :name 0 :set "Bar"])
              (datoms branch :entity-1 :name)))
-      
+
       (is (= #{"Bar"}
              (values branch :entity-1 :name)))
 

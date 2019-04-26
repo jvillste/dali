@@ -12,7 +12,8 @@
             [argumentica.db.server-api :as server-api]
             [argumentica.db.client :as client]
             [argumentica.db.server-btree-db :as server-btree-db]
-            [argumentica.btree :as btree]))
+            [argumentica.btree :as btree]
+            [argumentica.db.db :as db]))
 
 (defn transact! [transaction-log indexes-atom statements]
   (transaction-log/add! transaction-log
@@ -77,12 +78,11 @@
                                                  (sorted-map-transaction-log/create))]
 
         (testing "Transacting two statements in to the database"
-          (common/transact! db #{[1 :name :set "1 name 1 in base"]
-                                 [1 :type :set :person]})
+          (db/transact db #{[1 :name :set "1 name 1 in base"]
+                            [1 :type :set :person]})
 
-          (common/transact! db #{[2 :name :set "2 name 1 in base"]
-                                 [2 :type :set :person]})
-
+          (db/transact db #{[2 :name :set "2 name 1 in base"]
+                            [2 :type :set :person]})
 
           (is (= '([1 :name 0 :set "1 name 1 in base"])
                  (common/datoms db :eatcv [1 :name])))
@@ -100,7 +100,7 @@
                (index/inclusive-subsequence (-> db :indexes :avtec :index)
                                             [:type :person 0])))
 
-        (let [db-value (common/deref db)
+        (let [db-value @db
               branch (branch/create db-value)]
 
           (is (= 1 (transaction-log/last-transaction-number (:transaction-log branch))))
@@ -120,7 +120,6 @@
                  (index/inclusive-subsequence (-> branch :indexes :avtec :index)
                                               [:type :person 0 ::comparator/min ::comparator/min])))
 
-
           (is (= 1 (transaction-log/last-transaction-number (:transaction-log branch))))
 
           (is (= #{1 2} (common/entities db :type :person)))
@@ -129,7 +128,9 @@
           (is (= 1 (:last-transaction-number db-value)))
 
           (testing "transacting a branch"
-            (common/transact! branch #{[1 :name :set "1 name 1 in branch"]})
+            (db/transact branch #{[1 :name :set "1 name 1 in branch"]})
+
+            (is (= 2 (transaction-log/last-transaction-number (:transaction-log branch))))
 
             (is (= '([1 :name 0 :set "1 name 1 in base"]
                      [1 :name 2 :set "1 name 1 in branch"])
@@ -140,7 +141,7 @@
                                                                                [1 :name])))))
 
           (testing "transacting base database after branching"
-            (common/transact! db #{[2 :name :set "2 name 2 in base"]})
+            (db/transact db #{[2 :name :set "2 name 2 in base"]})
 
             (is (= #{"2 name 1 in base"}
                    (common/values-from-eatcv-datoms (common/datoms branch :eatcv [2 :name]))))
@@ -151,7 +152,7 @@
             (is (= #{"2 name 2 in base"}
                    (common/values-from-eatcv-datoms (common/datoms db :eatcv [2 :name])))))
 
-          (common/transact! branch #{[1 :name :set "1 name 2 in branch"]})
+          (db/transact branch #{[1 :name :set "1 name 2 in branch"]})
 
 
           (is (= '([0 #{[1 :name :set "1 name 1 in base"] [1 :type :set :person]}]
@@ -161,8 +162,8 @@
                  (transaction-log/subseq (:transaction-log branch)
                                          0)))
 
-          (is (= '([1 :name :set "1 name 2 in branch"])
-                 (branch/squash branch)))))))
+          (is (= #{[1 :name :set "1 name 2 in branch"]}
+                 (branch/squash @branch)))))))
 
 (deftest test-client-and-server
   (let [index-definitions common/base-index-definitions
@@ -181,8 +182,8 @@
              [:entity-1 :name 1 :set "Name after first root"])
            (common/datoms db-value-1 :eatcv [])))
 
-    (client/transact client
-                     #{[:entity-1 :name :set "Name after creation"]})
+    (db/transact server-btree-db
+                 #{[:entity-1 :name :set "Name after creation"]})
 
     (is (= '([:entity-1 :name 0 :set "Name in first root"]
              [:entity-1 :name 1 :set "Name after first root"])
@@ -238,11 +239,11 @@
           (common/transact! client-branch
                             #{[:entity-1 :name :set "Name 2 in client"]})
 
-          (is (= '([:entity-1 :name :set "Name 2 in client"])
-                 (branch/squash client-branch)))
+          (is (= #{[:entity-1 :name :set "Name 2 in client"]}
+                 (branch/squash @client-branch)))
 
-          (client/transact client
-                           (set (branch/squash client-branch)))
+          (db/transact server-btree-db
+                       (set (branch/squash @client-branch)))
 
           (is (= '([:entity-1 :name 0 :set "Name in first root"]
                    [:entity-1 :name 1 :set "Name after first root"]
@@ -254,3 +255,31 @@
                    [:entity-1 :name 2 :set "Name after creation"]
                    [:entity-1 :name 3 :set "Name 2 in client"])
                  (common/datoms @server-btree-db :eatcv [:entity-1 :name]))))))))
+
+(deftest test-client-and-server-2
+  (let [db (common/db-from-index-definitions common/base-index-definitions
+                                             sorted-set-index/creator
+                                             (sorted-map-transaction-log/create))]
+    (db/transact db #{[:entity-1 :name :set "Name 1 in db"]})
+
+    (is (= "Name 1 in db" (common/value @db :entity-1 :name)))
+
+    (let [branch (branch/create @db)]
+      (is (= "Name 1 in db" (common/value @branch :entity-1 :name)))
+
+      (db/transact branch #{[:entity-1 :name :set "Name 2 in branch"]})
+
+      (is (= "Name 2 in branch" (common/value @branch :entity-1 :name)))
+      (is (= "Name 1 in db" (common/value @db :entity-1 :name)))
+
+      (db/transact db (branch/squash @branch))
+
+      (is (= "Name 2 in branch" (common/value @db :entity-1 :name)))
+
+      (let [branch (branch/create @db)]
+        (is (= "Name 2 in branch" (common/value @branch :entity-1 :name)))
+
+        (db/transact branch #{[:entity-1 :name :set "Name 3 in branch"]})
+
+        (is (= "Name 3 in branch" (common/value @branch :entity-1 :name)))
+        (is (= "Name 2 in branch" (common/value @db :entity-1 :name)))))))

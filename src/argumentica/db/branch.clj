@@ -5,14 +5,17 @@
             [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
             [argumentica.db.sorted-datom-set-branch :as sorted-datom-set-branch]
             [argumentica.branch-transaction-log :as branch-transaction-log]
-            [argumentica.transaction-log :as transaction-log]))
+            [argumentica.transaction-log :as transaction-log]
+            [argumentica.db.db :as db]))
 
 (defrecord Branch []
   clojure.lang.IDeref
-  (deref [this] (assoc this :last-transaction-number (transaction-log/last-transaction-number (:transaction-log this)))))
+  (deref [this] (assoc this :last-transaction-number (transaction-log/last-transaction-number (:transaction-log this))))
+  db/WriteableDB
+  (transact [this statements]
+    (common/transact! this statements)))
 
 (defn create [base-database-value]
-  ;; TODO: remove-me
   (map->Branch (common/db-from-index-definitions (map common/index-to-index-definition (vals (:indexes base-database-value)))
                                                  (fn [key]
                                                    (sorted-datom-set-branch/create (-> base-database-value :indexes key :index)
@@ -24,5 +27,6 @@
                                                                                 (sorted-map-transaction-log/create)))))
 
 
-(defn squash [branch]
-  (common/squash-transaction-log (-> branch :transaction-log :branch-transaction-log)))
+(defn squash [branch-value]
+  (common/squash-transaction-log (-> branch-value :transaction-log :branch-transaction-log)
+                                 (:last-transaction-number branch-value)))

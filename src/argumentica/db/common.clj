@@ -335,8 +335,6 @@
                  (index/inclusive-subsequence (:index index)
                                               first-pattern)))))
 
-
-
 (defn datoms [db index-key pattern]
   (datoms-from-index (get-in db [:indexes index-key])
                      pattern
@@ -471,7 +469,7 @@
   [e a c v])
 
 (defn squash-statements [statements]
-  (sort comparator/compare-datoms (reduce (fn [result-statements statement]
+  (reduce (fn [result-statements statement]
                                     (case (statement-command statement)
                                       :add (conj (set/select (fn [result-statement]
                                                                (not (and (= (statement-entity statement)
@@ -506,7 +504,7 @@
                                                               result-statements)
                                                   statement)))
                                   #{}
-                                  statements)))
+                                  statements))
 
 
 (deftest test-squash-statements
@@ -559,9 +557,12 @@
 
                                [[1 :friend :set 2]]]))))
 
-(defn squash-transaction-log [transaction-log]
-  (squash-statements (mapcat second (transaction-log/subseq transaction-log
-                                                            0))))
+(defn squash-transaction-log [transaction-log last-transaction-number]
+  (squash-statements (mapcat second (take-while (fn [[transaction-number statements_]]
+                                                  (<= transaction-number
+                                                      last-transaction-number))
+                                                (transaction-log/subseq transaction-log
+                                                                        0)))))
 
 #_(deftype Entity [indexes entity-id transaction-number]
   Object
@@ -768,20 +769,25 @@
                                                                 create-index)
                           :transaction-log transaction-log)))
 
-(defn db-from-index-definitions [index-definitions create-index transaction-log]
-  (create :indexes (index-definitions-to-indexes create-index
-                                                 index-definitions)
-          :transaction-log transaction-log))
+
 
 (defrecord LocalDb [indexes transaction-log]
   db/WriteableDB
   (transact [this statements]
-    (transact this statements))
+    (transact! this statements))
 
   db/ReadableDB
   (inclusive-subsequence [this index-key first-datom]
     (index/inclusive-subsequence (-> this :indexes index-key :index)
-                                 first-datom)))
+                                 first-datom))
+  clojure.lang.IDeref
+  (deref [this] (deref this)))
+
+(defn db-from-index-definitions [index-definitions create-index transaction-log]
+  (map->LocalDb (create :indexes (index-definitions-to-indexes create-index
+                                                               index-definitions)
+                        :transaction-log transaction-log)))
+
 
 (deftype EmptyDb []
   db/WriteableDB
