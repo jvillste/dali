@@ -2,7 +2,8 @@
   (:require [flatland.useful.map :as map]
             [clojure.test :refer :all]
             [argumentica.db.common :as common]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [clojure.string :as string]))
 
 (defn- assign-ids [create-id a-map]
   (-> (assoc a-map :dali/id (or (:dali/id a-map)
@@ -42,9 +43,33 @@
     (:dali/id value)
     value))
 
+(defn- reverse-attribute? [attribute]
+  (string/starts-with? (name attribute)
+                       "<-"))
+
+(defn- forward-attribute [reverse-attribute]
+  (keyword (.substring (name reverse-attribute)
+                       2)))
+
 (defn- one-map-to-statements [a-map]
   (reduce (fn [transaction [attribute value]]
-            (cond (= :dali/id attribute)
+            (cond (and (reverse-attribute? attribute)
+                       (set? value))
+                  (concat transaction
+                          (for [value-in-set value]
+                            [(value-to-transaction-value value-in-set)
+                             (forward-attribute attribute)
+                             :set
+                             (:dali/id a-map)]))
+
+                  (and (reverse-attribute? attribute)
+                       (not (set? value)))
+                  (conj transaction [(value-to-transaction-value value)
+                                     (forward-attribute attribute)
+                                     :set
+                                     (:dali/id a-map)])
+
+                  (= :dali/id attribute)
                   transaction
 
                   (set? value)
@@ -81,15 +106,18 @@
 
 
 (deftest test-map-to-statements
-  (is (= '([0 :child-with-id :set 10]
+  (is (= '([6 :one-parent-is :set 0]
+           [0 :child-with-id :set 10]
            [0 :child :set 3]
            [0 :type :set :parent]
            [0 :children :set 1]
            [0 :children :set 2]
-           [0 :<-parent-is :set 4]
-           [0 :<-parent-is :set 5]
+           [4 :parent-is :set 0]
+           [5 :parent-is :set 0]
            [3 :type :set :child]
            [10 :type :set :child]
+           [6 :type :set :child]
+           [6 :name :set "Child 5"]
            [1 :type :set :child]
            [1 :name :set "Child 2"]
            [2 :type :set :child]
@@ -110,7 +138,9 @@
                              :<-parent-is #{{:type :child
                                              :name "Child 3"}
                                             {:type :child
-                                             :name "Child 4"}}}))))
+                                             :name "Child 4"}}
+                             :<-one-parent-is {:type :child
+                                               :name "Child 5"}}))))
 
 (defn map-to-transaction [a-map]
   (set (map-to-statements (common/create-id-generator)
