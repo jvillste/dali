@@ -10,7 +10,8 @@
             [argumentica.db.db :as db]
             [argumentica.util :as util])
   (:use clojure.test)
-  (:import clojure.lang.MapEntry))
+  (:import clojure.lang.MapEntry
+           java.util.UUID))
 
 (defn eatcv-entity [statement]
   (get statement 0))
@@ -88,37 +89,6 @@
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
-
-(defn map-to-transaction [db transaction-number entity-id eatcv-to-datoms a-map]
-  (reduce (fn [transaction [key value]]
-            (apply conj
-                   transaction
-                   (eatcv-to-datoms db
-                                    entity-id
-                                    key
-                                    transaction-number
-                                    :set
-                                    value)))
-          []
-          a-map))
-
-(deftest test-map-to-transaction
-  (is (= [[2 :name 1 :set "Foo"]
-          [2 :age 1 :set 20]]
-         (map-to-transaction nil
-                             1
-                             2
-                             eatcv-to-eatcv-datoms
-                             {:name "Foo"
-                              :age 20}))))
-
-(defn vectors-to-transaction [& statement-vectors]
-  (clojure.core/set (map (fn [[e a c v]]
-                           {:entity e
-                            :attribute a
-                            :command c
-                            :value c})
-                         statement-vectors)))
 
 (defn create [& {:keys [indexes
                         transaction-log]
@@ -798,6 +768,9 @@
   (inclusive-subsequence [this index-key first-datom]
     []))
 
+(defn tokenize [string]
+  (->> (string/split string #" ")
+       (map string/lower-case)))
 
 (defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
   (if (string? v)
@@ -829,3 +802,18 @@
                     [a token t e :retract])))))
     []))
 
+(def full-text-index-definition {:key :full-text
+                                 :eatcv-to-datoms (partial eatcv-to-full-text-avtec tokenize)
+                                 :datom-transaction-number-index 2})
+
+(defn new-id []
+  (UUID/randomUUID))
+
+(defn create-id-generator []
+  (fn [] (new-id)))
+
+(defn create-test-id-generator []
+  (let [ids-atom (atom (range))]
+    (fn [] (let [id (first @ids-atom)]
+             (swap! ids-atom rest)
+             id))))
