@@ -809,7 +809,11 @@
 (defn new-id []
   (UUID/randomUUID))
 
-(defn create-id-generator []
+(defn add-id [a-map]
+  (assoc a-map
+         :dali/id (new-id)))
+
+(defn ^:dynamic create-id-generator []
   (fn [] (new-id)))
 
 (defn create-test-id-generator []
