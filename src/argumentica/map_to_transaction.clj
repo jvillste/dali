@@ -151,6 +151,21 @@
                         :child-2 {:dali/id :id-2}
                         :child-3 {:dali/id :id-1}})))))
 
+(defn assign-ids-to-maps [create-id maps]
+  (second (map-with-state {}
+                          (fn [keyword-ids-map a-map]
+                            (assign-ids keyword-ids-map
+                                        create-id
+                                        a-map))
+                          maps)))
+
+(deftest test-assign-ids-to-maps
+  (is (= [#:dali{:id 0}
+          #:dali{:id 1}]
+         (assign-ids-to-maps (common/create-test-id-generator)
+                             [{}
+                              {}]))))
+
 (defn- value-to-transaction-value [value]
   (if (map? value)
     (:dali/id value)
@@ -177,7 +192,7 @@
                           (for [value-in-set value]
                             [(value-to-transaction-value value-in-set)
                              (forward-attribute attribute)
-                             :add
+                             :set
                              (:dali/id a-map)]))
 
                   (and (reverse-attribute? attribute)
@@ -194,7 +209,7 @@
                   (concat transaction
                           (for [value-in-set value]
                             [(:dali/id a-map)
-                             attribute
+                            attribute
                              :add
                              (value-to-transaction-value value-in-set)]))
 
@@ -208,64 +223,58 @@
           a-map))
 
 (deftest test-one-map-to-statements
-  (is (= '[[0 :type :set :parent]
-           [0 :child :set 1]]
-         (one-map-to-statements {:type :parent
-                                 :child {:type :child, :dali/id 1},
-                                 :dali/id 0}))))
+  (is (= [[1 :type :set :parent]]
+         (one-map-to-statements {:dali/id 1
+                                 :type :parent})))
 
-(defn- map-to-statements [id-generator a-map]
-  (let [a-map-with-ids (assign-ids id-generator a-map)]
-    (concat (one-map-to-statements a-map-with-ids)
-            (mapcat (partial map-to-statements id-generator)
-                    (filter map? (vals a-map-with-ids)))
-            (mapcat (partial map-to-statements id-generator)
-                    (mapcat (partial filter map?) (filter set? (vals a-map-with-ids)))))))
+  (is (= [[2 :parent :set 1]]
+         (one-map-to-statements {:dali/id 1 :<-parent {:dali/id 2}})))
 
+  (is (= [[3 :parent :set 1]
+          [2 :parent :set 1]]
+         (one-map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
+                                                        {:dali/id 3}}}))))
 
-(deftest test-map-to-statements
-  (is (= '([6 :one-parent-is :set 0]
-           [0 :child-with-id :set 10]
-           [0 :child :set 3]
-           [0 :type :set :parent]
-           [0 :children :add 1]
-           [0 :children :add 2]
-           [4 :parent-is :add 0]
-           [5 :parent-is :add 0]
-           [3 :type :set :child]
-           [10 :type :set :child]
-           [6 :type :set :child]
-           [6 :name :set "Child 5"]
-           [1 :type :set :child]
-           [1 :name :set "Child 2"]
-           [2 :type :set :child]
+(defn- map-with-ids-to-statements [a-map-with-ids]
+  (concat (one-map-to-statements a-map-with-ids)
+          (mapcat map-with-ids-to-statements
+                  (filter map? (vals a-map-with-ids)))
+          (mapcat map-with-ids-to-statements
+                  (mapcat (partial filter map?)
+                          (filter set? (vals a-map-with-ids))))))
+
+(deftest test-map-with-ids-to-statements
+  (is (= '([1 :child :set 2]
+           [2 :type :set :child])
+         (sort (map-with-ids-to-statements {:dali/id 1
+                                            :child {:dali/id 2
+                                                    :type :child}}))))
+
+  (is (= '([1 :children :add 2]
+           [1 :children :add 3]
            [2 :name :set "Child 1"]
-           [4 :type :set :child]
-           [4 :name :set "Child 4"]
-           [5 :type :set :child]
-           [5 :name :set "Child 3"])
-         (map-to-statements (common/create-test-id-generator)
-                            {:type :parent
-                             :children #{{:type :child
-                                          :name "Child 1"}
-                                         {:type :child
-                                          :name "Child 2"}}
-                             :child {:type :child},
-                             :child-with-id {:type :child
-                                             :dali/id 10}
-                             :<-parent-is #{{:type :child
-                                             :name "Child 3"}
-                                            {:type :child
-                                             :name "Child 4"}}
-                             :<-one-parent-is {:type :child
-                                               :name "Child 5"}}))))
+           [3 :name :set "Child 2"])
+         (sort (map-with-ids-to-statements {:dali/id 1
+                                            :children #{{:dali/id 2
+                                                         :name "Child 1"}
+                                                        {:dali/id 3
+                                                         :name "Child 2"}}}))))
 
-(defn map-to-transaction [a-map]
-  (set (map-to-statements (common/create-id-generator)
-                          a-map)))
+  (is (= '([2 :parent :set 1])
+         (sort (map-with-ids-to-statements {:dali/id 1
+                                            :<-parent {:dali/id 2}}))))
 
-(defn maps-to-transaction [& maps]
-  (apply set/union (map map-to-transaction maps)))
+  (is (= '([2 :parent :set 1]
+           [3 :parent :set 1])
+         (sort (map-with-ids-to-statements {:dali/id 1
+                                            :<-parent #{{:dali/id 2}
+                                                        {:dali/id 3}}})))))
+
+(defn maps-to-transaction[& maps]
+  (apply set/union (map (fn [map-with-ids]
+                          (set (map-with-ids-to-statements map-with-ids)))
+                        (assign-ids-to-maps (common/create-id-generator)
+                                            maps))))
 
 (deftest test-maps-to-transaction
   (is (= #{[0 :things :add 2]
@@ -281,4 +290,21 @@
                                       tag-2 {:dali/id 200
                                              :title "tag 2"}]
                                   {:things #{{:tags #{tag-1 tag-2}}
-                                             {:tags #{tag-1}}}}))))))
+                                             {:tags #{tag-1}}}})))))
+
+
+  (is (= '([0 :things :add 1]
+           [0 :things :add 3]
+           [1 :tags :add 2]
+           [2 :title :set "tag 1"]
+           [3 :tags :add 2]
+           [3 :tags :add 4]
+           [4 :title :set "tag 2"])
+         (binding [common/create-id-generator common/create-test-id-generator]
+           (sort (maps-to-transaction {:things #{{:tags #{{:dali/id :tag-1}
+                                                          {:dali/id :tag-2}}}
+                                                 {:tags #{{:dali/id :tag-1}}}}}
+                                      {:dali/id :tag-1
+                                       :title "tag 1"}
+                                      {:dali/id :tag-2
+                                       :title "tag 2"}))))))
