@@ -478,39 +478,39 @@
 
 
 (deftest test-squash-statements
-  (is (= [[1 :friend :add 1]]
+  (is (= #{[1 :friend :add 1]}
          (squash-statements [[1 :friend :add 1]])))
 
-  (is (= []
+  (is (= #{}
          (squash-statements [[1 :friend :add 1]
                          [1 :friend :retract 1]])))
 
-  (is (= [[1 :friend :add 1]]
+  (is (= #{[1 :friend :add 1]}
          (squash-statements [[1 :friend :retract 1]
                          [1 :friend :add 1]])))
 
-  (is (= []
+  (is (= #{}
          (squash-statements [[1 :friend :set 1]
                          [1 :friend :retract 1]])))
 
-  (is (= [[1 :friend :retract 1]]
+  (is (= #{[1 :friend :retract 1]}
          (squash-statements [[1 :friend :retract 1]])))
 
 
-  (is (= [[1 :friend :set 2]]
+  (is (= #{[1 :friend :set 2]}
          (squash-statements [[1 :friend :retract 1]
                          [1 :friend :add 1]
                          [1 :friend :add 2]
                          [1 :friend :set 2]])))
 
-  (is (= [[1 :friend :add 1]]
+  (is (= #{[1 :friend :add 1]}
          (squash-statements [[1 :friend :retract 1]
                          [1 :friend :add 1]
                          [1 :friend :add 2]
                          [1 :friend :retract 2]])))
 
-  (is (= '([1 :friend :add 1]
-           [2 :friend :add 1])
+  (is (= #{[1 :friend :add 1]
+           [2 :friend :add 1]}
          (squash-statements [[1 :friend :add 1]
                          [2 :friend :add 1]]))))
 
@@ -520,8 +520,8 @@
                             transactions)))
 
 (deftest test-squash-transactions
-  (is (= '([1 :friend :set 2]
-           [2 :friend :add 1])
+  (is (= #{[1 :friend :set 2]
+           [2 :friend :add 1]}
          (squash-transactions [[[1 :friend :add 1]
                                 [2 :friend :add 1]]
 
