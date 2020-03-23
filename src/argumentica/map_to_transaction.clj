@@ -3,7 +3,8 @@
             [clojure.test :refer :all]
             [argumentica.db.common :as common]
             [clojure.set :as set]
-            [clojure.string :as string]))
+            [clojure.string :as string]
+            [argumentica.comparator :as comparator]))
 
 (def initial-label-sequence-labeler-state {:id-map {}
                                            :id-sequence (range)})
@@ -78,6 +79,7 @@
                        a-map)))
   ([keyword-ids-map create-id a-map]
    (let [keyword-ids-map (if (and (keyword? (:dali/id a-map))
+                                  (nil? (namespace (:dali/id a-map)))
                                   (nil? (get keyword-ids-map (:dali/id a-map))))
                            (assoc keyword-ids-map
                                   (:dali/id a-map)
@@ -103,14 +105,15 @@
 
                                   :default
                                   [keyword-ids-map value]))
-                          (assoc a-map :dali/id (cond (keyword? (:dali/id a-map))
-                                           (get keyword-ids-map (:dali/id a-map))
+                          (assoc a-map :dali/id (cond (and (keyword? (:dali/id a-map))
+                                                           (nil? (namespace (:dali/id a-map))))
+                                                      (get keyword-ids-map (:dali/id a-map))
 
-                                           (not (nil? (:dali/id a-map)))
-                                           (:dali/id a-map)
+                                                      (not (nil? (:dali/id a-map)))
+                                                      (:dali/id a-map)
 
-                                           :default
-                                           (create-id)))))))
+                                                      :default
+                                                      (create-id)))))))
 
 (deftest test-assign-ids
   (is (= {:child {:type :child, :dali/id 1},
@@ -132,6 +135,11 @@
            (assign-ids (common/create-test-id-generator)
                        {:dali/id :id-1
                         :foo 1})))
+
+    (testing "fully qualified keywords are left untouched"
+      (is (= {:dali/id :foo/bar}
+             (assign-ids (common/create-test-id-generator)
+                         {:dali/id :foo/bar}))))
 
     (is (= {:children #{{:dali/id 1, :bar 2}
                         {:dali/id 1, :foo 1}}
@@ -161,10 +169,18 @@
 
 (deftest test-assign-ids-to-maps
   (is (= [#:dali{:id 0}
-          #:dali{:id 1}]
+           #:dali{:id 1}
+           #:dali{:id 100}
+           #:dali{:id 2}
+           #:dali{:id 2}
+           #:dali{:id :bar/foo}]
          (assign-ids-to-maps (common/create-test-id-generator)
                              [{}
-                              {}]))))
+                              {}
+                              {:dali/id 100}
+                              {:dali/id :foo}
+                              {:dali/id :foo}
+                              {:dali/id :bar/foo}]))))
 
 (defn- value-to-transaction-value [value]
   (if (map? value)
@@ -209,7 +225,7 @@
                   (concat transaction
                           (for [value-in-set value]
                             [(:dali/id a-map)
-                            attribute
+                             attribute
                              :add
                              (value-to-transaction-value value-in-set)]))
 
@@ -255,7 +271,7 @@
            [2 :name :set "Child 1"]
            [3 :name :set "Child 2"])
          (sort (map-with-ids-to-statements {:dali/id 1
-                                            :children #{{:dali/id 2
+                                            :children #{{:dali/id :child-1
                                                          :name "Child 1"}
                                                         {:dali/id 3
                                                          :name "Child 2"}}}))))
@@ -266,15 +282,18 @@
 
   (is (= '([2 :parent :set 1]
            [3 :parent :set 1])
-         (sort (map-with-ids-to-statements {:dali/id 1
+         (sort comparator/compare-datoms
+               (map-with-ids-to-statements {:dali/id 1
                                             :<-parent #{{:dali/id 2}
                                                         {:dali/id 3}}})))))
 
 (defn maps-to-transaction[& maps]
-  (apply set/union (map (fn [map-with-ids]
-                          (set (map-with-ids-to-statements map-with-ids)))
-                        (assign-ids-to-maps (common/create-id-generator)
-                                            maps))))
+  (assert (map? (first maps)))
+  (apply set/union
+         (map (fn [map-with-ids]
+                (set (map-with-ids-to-statements map-with-ids)))
+              (assign-ids-to-maps (common/create-id-generator)
+                                  maps))))
 
 (deftest test-maps-to-transaction
   (is (= #{[0 :things :add 2]
@@ -291,7 +310,6 @@
                                              :title "tag 2"}]
                                   {:things #{{:tags #{tag-1 tag-2}}
                                              {:tags #{tag-1}}}})))))
-
 
   (is (= '([0 :things :add 1]
            [0 :things :add 3]

@@ -606,7 +606,7 @@
        (entity-value-from-values nil {} :name ["Foo"]))))
 
 (defn entity-value [db schema entity-id attribute]
-  (if (= attribute :entity/id)
+  (if (= attribute :dali/id)
     entity-id
     (entity-value-from-values db
                               schema
@@ -626,7 +626,7 @@
                                  entity-id)
        (map second)
        (into #{})
-       (#(conj % :entity/id))))
+       (#(conj % :dali/id))))
 
 (defn entity-to-sec [db schema entity-id]
   (->> (entity-attributes db entity-id)
@@ -646,7 +646,7 @@
   (seq [this] (entity-to-sec db schema entity-id))
 
   clojure.lang.Associative
-  (equiv [this other-object] (= entity-id (:entity/id other-object)))
+  (equiv [this other-object] (= entity-id (:dali/id other-object)))
   (containsKey [this attribute] (entity-value db schema entity-id attribute))
   (entryAt [this attribute]     (some->> (entity-value db schema entity-id attribute)
                                          (clojure.lang.MapEntry. attribute)))
@@ -678,10 +678,10 @@
   (map/map-vals entity
                 (fn [value]
                   (if (entity? value)
-                    (:entity/id value)
+                    (:dali/id value)
                     (if (and (set? value)
                              (entity? (first value)))
-                      (into #{} (map :entity/id value))
+                      (into #{} (map :dali/id value))
                       value)))))
 
 (deftest test-entity-to-map
