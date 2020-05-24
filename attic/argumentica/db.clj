@@ -39,7 +39,7 @@
 (defn accumulate-values [values statement]
   (case (command statement)
     :add (conj values (value statement))
-    :retract (disj values (value statement))
+    :remove (disj values (value statement))
     :set  #{(value statement)}
     values))
 
@@ -132,7 +132,7 @@
   (is (= #{"1 frend 2"}
          (get-eatcv-values (sorted-set [1 :friend 1 :add "1 frend 1"]
                                        [1 :friend 2 :add  "1 frend 2"]
-                                       [1 :friend 3 :retract "1 frend 1"])
+                                       [1 :friend 3 :remove "1 frend 1"])
                            1
                            :friend))
       "retract")
@@ -890,7 +890,7 @@
                       :friend)))
 
     (let [db (-> db
-                 (transact-statements-over [:master] [[1] :friend :retract "friend 1"]))]
+                 (transact-statements-over [:master] [[1] :friend :remove "friend 1"]))]
 
       (is (= #{"friend 2"}
              (get-value db

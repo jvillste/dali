@@ -17,7 +17,7 @@
                          :friend)))
     
     (let [db (-> db
-                 (db/transact-statements-over [:master] [[1] :friend :retract "friend 1"]))]
+                 (db/transact-statements-over [:master] [[1] :friend :remove "friend 1"]))]
       
       (is (= #{"friend 2"}
              (db/get-value db

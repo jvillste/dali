@@ -9,7 +9,7 @@ Datomic like database that can be branched and merged like a git repository.
   * attribute
   * transaction number ( unique in branch )
   * value
-  * command ( one of "add", "retract" or "set" )
+  * command ( one of "add", "remove" or "set" )
   
 ## Transaction
 

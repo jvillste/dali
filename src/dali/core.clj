@@ -31,7 +31,7 @@
   (dereference-database [this]))
 
 (s/defschema Command
-  (s/enum :add :retract :set))
+  (s/enum :add :remove :set))
 
 (s/defschema Statement
   [(s/one s/Any "entity")

@@ -40,16 +40,16 @@
            (btree/inclusive-subsequence (-> server-btree-db :indexes :full-text :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
                                         nil)))
 
-    (is (= #{[:name "1" 1 :entity-1 :retract]
+    (is (= #{[:name "1" 1 :entity-1 :remove]
              [:name "2" 1 :entity-1 :add]
-             [:name "2" 2 :entity-1 :retract]
+             [:name "2" 2 :entity-1 :remove]
              [:name "3" 2 :entity-1 :add]}
            @(-> server-btree-db :indexes :full-text :index :index-atom deref :branch-datom-set :sorted-set-atom)))
 
     (is (= '([:name "1" 0 :entity-1 :add]
-             [:name "1" 1 :entity-1 :retract]
+             [:name "1" 1 :entity-1 :remove]
              [:name "2" 1 :entity-1 :add]
-             [:name "2" 2 :entity-1 :retract]
+             [:name "2" 2 :entity-1 :remove]
              [:name "3" 2 :entity-1 :add]
              [:name "name" 0 :entity-1 :add])
            (server-btree-db/inclusive-subsequence server-btree-db

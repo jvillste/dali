@@ -39,14 +39,14 @@
     (let [old-tokens (set (mapcat tokenize (db-common/values db e a (dec t))))]
       (case c
 
-        :retract
+        :remove
         (for [token (set/difference old-tokens
                                     (set (mapcat tokenize
                                                  (db-common/values-from-eatcv-datoms (concat (db-common/datoms db
                                                                                                                :eatcv
                                                                                                                [e a nil nil nil])
                                                                                              [[e a t c v]])))))]
-          [a token t e :retract])
+          [a token t e :remove])
 
         :add
         (for [token (set/difference (set (tokenize v))
@@ -58,7 +58,7 @@
           (concat (for [token (set/difference new-tokens old-tokens)]
                     [a token t e :add])
                   (for [token (set/difference old-tokens new-tokens)]
-                    [a token t e :retract])))))
+                    [a token t e :remove])))))
     []))
 
 (defn create-directory-btree-index [base-path node-size index-name]
@@ -100,12 +100,12 @@
                (db/transact [[:entity-1 :name :set "First Name"]])
                (db/transact [[:entity-1 :name :set "Second Name"]])
                (db/transact [[:entity-1 :name :add "Third Name"]])
-               (db/transact [[:entity-1 :name :retract "Second Name"]]))]
+               (db/transact [[:entity-1 :name :remove "Second Name"]]))]
     (is (= '([:name "first" 0 :entity-1 :add]
-             [:name "first" 1 :entity-1 :retract]
+             [:name "first" 1 :entity-1 :remove]
              [:name "name" 0 :entity-1 :add]
              [:name "second" 1 :entity-1 :add]
-             [:name "second" 3 :entity-1 :retract]
+             [:name "second" 3 :entity-1 :remove]
              [:name "third" 2 :entity-1 :add])
            (db/inclusive-subsequence db :full-text nil)))))
 

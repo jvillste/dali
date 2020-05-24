@@ -242,7 +242,7 @@
 (defn accumulate-values [values statement]
   (case (eatcv-command statement)
     :add (conj values (eatcv-value statement))
-    :retract (disj values (eatcv-value statement))
+    :remove (disj values (eatcv-value statement))
     :set  #{(eatcv-value statement)}
     values))
 
@@ -360,7 +360,7 @@
 (defn accumulate-entities [entities avtec-datom]
   (case (avtec-command avtec-datom)
     :add (conj entities (avtec-entity avtec-datom))
-    :retract (disj entities (avtec-entity avtec-datom))
+    :remove (disj entities (avtec-entity avtec-datom))
     :set  (conj entities (avtec-entity avtec-datom))
     entities))
 
@@ -466,11 +466,11 @@
                                                                             (statement-attribute result-statement))
                                                                          (= (statement-value statement)
                                                                             (statement-value result-statement))
-                                                                         (= :retract
+                                                                         (= :remove
                                                                             (statement-command result-statement)))))
                                                              result-statements)
                                                  statement)
-                                      :retract (let [removed-statements (set/select (fn [result-statement]
+                                      :remove (let [removed-statements (set/select (fn [result-statement]
                                                                                       (and (= (statement-entity statement)
                                                                                               (statement-entity result-statement))
                                                                                            (= (statement-attribute statement)
@@ -501,31 +501,31 @@
 
   (is (= #{}
          (squash-statements [[1 :friend :add 1]
-                         [1 :friend :retract 1]])))
+                         [1 :friend :remove 1]])))
 
   (is (= #{[1 :friend :add 1]}
-         (squash-statements [[1 :friend :retract 1]
+         (squash-statements [[1 :friend :remove 1]
                          [1 :friend :add 1]])))
 
   (is (= #{}
          (squash-statements [[1 :friend :set 1]
-                         [1 :friend :retract 1]])))
+                         [1 :friend :remove 1]])))
 
-  (is (= #{[1 :friend :retract 1]}
-         (squash-statements [[1 :friend :retract 1]])))
+  (is (= #{[1 :friend :remove 1]}
+         (squash-statements [[1 :friend :remove 1]])))
 
 
   (is (= #{[1 :friend :set 2]}
-         (squash-statements [[1 :friend :retract 1]
+         (squash-statements [[1 :friend :remove 1]
                          [1 :friend :add 1]
                          [1 :friend :add 2]
                          [1 :friend :set 2]])))
 
   (is (= #{[1 :friend :add 1]}
-         (squash-statements [[1 :friend :retract 1]
+         (squash-statements [[1 :friend :remove 1]
                          [1 :friend :add 1]
                          [1 :friend :add 2]
-                         [1 :friend :retract 2]])))
+                         [1 :friend :remove 2]])))
 
   (is (= #{[1 :friend :add 1]
            [2 :friend :add 1]}
@@ -805,14 +805,14 @@
                                                                 a)))]
       (case c
 
-        :retract
+        :remove
         (for [token (set/difference old-tokens
                                     (clojure.core/set (mapcat tokenize
                                                               (values-from-eatcv-datoms (concat (datoms {:indexes indexes}
                                                                                                         :eatcv
                                                                                                         [e a nil nil nil])
                                                                                                 [[e a t c v]])))))]
-          [a token t e :retract])
+          [a token t e :remove])
 
         :add
         (for [token (set/difference (clojure.core/set (tokenize v))
@@ -824,7 +824,7 @@
           (concat (for [token (set/difference new-tokens old-tokens)]
                     [a token t e :add])
                   (for [token (set/difference old-tokens new-tokens)]
-                    [a token t e :retract])))))
+                    [a token t e :remove])))))
     []))
 
 (def full-text-index-definition {:key :full-text
