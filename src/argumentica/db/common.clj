@@ -1,6 +1,7 @@
 (ns argumentica.db.common
   (:require [clojure.string :as string]
             [clojure.set :as set]
+            [clojure.pprint :as pprint]
             [flatland.useful.map :as map]
             (argumentica [transaction-log :as transaction-log]
                          [sorted-map-transaction-log :as sorted-map-transaction-log]
@@ -80,12 +81,16 @@
 (def base-index-definition {:eatcv eatcv-to-eatcv-datoms
                             :avtec eatcv-to-avtec-datoms})
 
-(def base-index-definitions [{:key :eatcv
-                              :eatcv-to-datoms eatcv-to-eatcv-datoms
-                              :datom-transaction-number-index 2}
-                             {:key :avtec
-                              :eatcv-to-datoms eatcv-to-avtec-datoms
-                              :datom-transaction-number-index 2}])
+(def eatcv-index-definition {:key :eatcv
+            :eatcv-to-datoms eatcv-to-eatcv-datoms
+            :datom-transaction-number-index 2})
+
+(def avtec-index-definition {:key :avtec
+                             :eatcv-to-datoms eatcv-to-avtec-datoms
+                             :datom-transaction-number-index 2})
+
+(def base-index-definitions [eatcv-index-definition
+                             avtec-index-definition])
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
@@ -282,6 +287,19 @@
 (defn pad [n coll val]
   (take n (concat coll (repeat val))))
 
+(defn datoms-starting-from-index [index pattern]
+  (let [datom-length (count (first (index/inclusive-subsequence (:index index)
+                                                                ::comparator/min)))
+        first-pattern (pad datom-length
+                           pattern
+                           ::comparator/min)]
+    (index/inclusive-subsequence (:index index)
+                                 first-pattern)))
+
+(defn datoms-from [db index-key pattern]
+  (datoms-starting-from-index (get-in db [:indexes index-key])
+                               pattern))
+
 (defn datoms-from-index
   ([index pattern]
    (datoms-from-index index pattern nil))
@@ -304,6 +322,8 @@
                    (>= 0 (comparator/compare-datoms datom last-pattern)))
                  (index/inclusive-subsequence (:index index)
                                               first-pattern)))))
+
+
 
 (defn datoms [db index-key pattern]
   (datoms-from-index (get-in db [:indexes index-key])
@@ -348,8 +368,6 @@
   (reduce accumulate-entities
           #{}
           datoms))
-
-
 
 (defn avtec-datoms-from-avtec [avtec attribute value value-predicate latest-transaction-number]
   (take-while (avt-matches attribute
@@ -752,6 +770,13 @@
                                  first-datom))
   clojure.lang.IDeref
   (deref [this] (deref this)))
+
+(defmethod print-method LocalDb [local-db ^java.io.Writer writer]
+  (print-dup (into {} local-db)
+             writer))
+
+(defmethod clojure.pprint/simple-dispatch LocalDb [local-db]
+  (pprint/pprint (into {} local-db)))
 
 (defn db-from-index-definitions [index-definitions create-index transaction-log]
   (map->LocalDb (create :indexes (index-definitions-to-indexes create-index

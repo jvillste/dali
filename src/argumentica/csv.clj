@@ -3,7 +3,8 @@
             [clj-time.core :as clj-time]
             [clj-time.coerce :as coerce]
             [clojure.edn :as edn]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [clojure.string :as string])
   (:use clojure.test))
 
 (defn transduce-lines
@@ -28,28 +29,34 @@
                       result)))
            (reducing-function value)))))))
 
+(defn strip-quotes [quote string]
+  (if (and (string/starts-with? string quote)
+           (string/ends-with? string "\""))
+    (.substring string 1 (dec (.length string)))
+    string))
 
-(defn read-value [string]
-  (if (= "" string)
-    ""
-    (let [value (try (edn/read-string string)
-                     (catch Exception e
-                       nil))]
-      (if (number? value)
-        value
-        string))))
+(deftest test-strip-quotes
+  (is (= "a" (strip-quotes "\"" "\"a\"")))
+  (is (= "a" (strip-quotes "\"" "a"))))
 
-(defn split-line [separator string]
-  (clojure.string/split string  separator))
+(defn maybe-parse-number [string]
+  (try
+    (Integer/parseInt string)
+    (catch Exception e
+      (try
+        (Double/parseDouble string)
+        (catch Exception e
+          string)))))
 
-(defn read-line [separator line]
-  (map read-value
-       (split-line separator line)))
+(defn read-line [separator quote line]
+  (map (partial strip-quotes quote)
+       (clojure.string/split line
+                             (re-pattern separator))))
 
-(defn read-headers [file-name separator]
+(defn read-headers [file-name separator quote]
   (first (transduce-lines file-name
                           (comp (take 1)
-                                (map (partial read-line separator))
+                                (map (partial read-line separator quote))
                                 (map (fn [values]
                                        (map keyword
                                             values))))
@@ -59,17 +66,20 @@
 (defn pad [n coll val]
   (take n (concat coll (repeat val))))
 
-(def default-options {:separator #";"})
+(def default-options {:separator ";"
+                      :quote "\""})
 
 (defn transduce-maps-with-headers [file-name options headers transducer reducer initial-value]
   (let [options (merge default-options options)]
     (transduce-lines file-name
                      (comp (drop 1)
-                           (map (partial read-line (:separator options)))
+                           (map (partial read-line
+                                         (:separator options)
+                                         (:quote options)))
                            (map (fn [values]
                                   (dissoc (apply hash-map (interleave headers (pad (count headers)
-                                                                            values
-                                                                            nil)))
+                                                                                   values
+                                                                                   nil)))
                                           nil)))
                            transducer)
                      reducer
@@ -78,21 +88,13 @@
 (defn transduce-maps [file-name options transducer reducer initial-value]
   (transduce-maps-with-headers file-name
                                options
-                               (read-headers file-name (:separator options))
+                               (read-headers file-name (:separator options) (:quote options))
                                transducer
                                reducer
                                initial-value))
 
 
 (comment
-
-
-  (transduce-lines "/Users/jukka/Downloads/title.basics.tsv"
-                   (comp (map (partial split-line #"\t"))
-                         #_(map (partial read-line "\t"))
-                         (take 2))
-                   conj
-                   [])
 
   (transduce-maps "/Users/jukka/Downloads/title.basics.tsv"
                   {:separator #"\t"}

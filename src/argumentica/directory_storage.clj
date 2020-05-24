@@ -1,6 +1,7 @@
 (ns argumentica.directory-storage
   (:require (argumentica [btree :as btree]
-                         [storage :as storage]))
+                         [storage :as storage])
+            [me.raynes.fs :as fs])
   (:import [java.nio.file Files Paths OpenOption LinkOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
@@ -41,13 +42,8 @@
   [this key]
   (file-exists? (key-path this key)))
 
-(defn create-directories [path]
-  (Files/createDirectories (string-to-path path)
-                           (into-array FileAttribute [])))
-
-
 (defn create [directory-path]
-  (create-directories directory-path)
+  (fs/mkdirs directory-path)
   (->DirectoryStorage directory-path))
 
 (comment (String. (btree/get-from-storage (DirectoryStorage. "src/argumentica")
