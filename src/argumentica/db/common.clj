@@ -172,6 +172,69 @@
             (transaction-log/subseq transaction-log
                                     (first-unindexed-transacion-number-for-index index))))
 
+;; from https://stackoverflow.com/questions/27262268/idiom-for-padding-sequences
+(defn pad [n coll val]
+  (take n (concat coll (repeat val))))
+
+(defn datoms-from-index
+  ([index pattern]
+   (datoms-from-index index pattern nil))
+
+  ([index pattern last-transaction-number]
+   (let [datom-length (count (first (index/inclusive-subsequence (:index index)
+                                                                 ::comparator/min)))
+         first-pattern (pad datom-length
+                            pattern
+                            ::comparator/min)
+         last-pattern (let [last-pattern (pad datom-length
+                                              pattern
+                                              ::comparator/max)]
+                        (if last-transaction-number
+                          (assoc (vec last-pattern)
+                                 (-> index :datom-transaction-number-index)
+                                 last-transaction-number)
+                          last-pattern))]
+     (take-while (fn [datom]
+                   (>= 0 (comparator/compare-datoms datom last-pattern)))
+                 (index/inclusive-subsequence (:index index)
+                                              first-pattern)))))
+
+(defn accumulate-values [values statement]
+  (case (eatcv-command statement)
+    :add (conj values (eatcv-value statement))
+    :remove (disj values (eatcv-value statement))
+    values))
+
+(defn values-from-eatcv-datoms [statements]
+  (reduce accumulate-values
+          #{}
+          statements))
+
+(defn values-from-eatcv
+  ([eatcv entity-id attribute]
+   (values-from-eatcv-datoms (datoms-from-index eatcv
+                                                [entity-id attribute])))
+
+  ([eatcv entity-id attribute last-transaction-number]
+   (values-from-eatcv-datoms (datoms-from-index eatcv
+                                                [entity-id attribute]
+                                                last-transaction-number))))
+
+(defn- remove-statements [eatcv-index entity attribute]
+  (for [value (values-from-eatcv eatcv-index entity attribute)]
+    [entity attribute :remove value]))
+
+(defn expand-set-statements [eatcv-index statements]
+  (into #{}
+        (mapcat (fn [[e a c v]]
+                  (if (= :set c)
+                    (vec (concat [[e a :add v]]
+                                 (remove-statements eatcv-index
+                                                    e
+                                                    a)))
+                    [[e a c v]]))
+                statements)))
+
 (defn add-transactions-to-indexes [indexes transactions]
   (reduce (fn [indexes [transaction-number statements]]
             (map/map-vals indexes
@@ -209,12 +272,16 @@
   (update db :indexes update-indexes! (:transaction-log db)))
 
 (defn transact [db statements]
-  (-> db
-      (add-log-entry statements)
-      (update-indexes)))
+  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
+                                          statements)]
+    (-> db
+        (add-log-entry statements)
+        (update-indexes))))
 
 (defn transact! [db statements]
-  (let [transaction-number (transaction-log/add! (:transaction-log db)
+  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
+                                          statements)
+        transaction-number (transaction-log/add! (:transaction-log db)
                                                  statements)]
     (add-transaction-to-indexes! (:indexes db)
                                  transaction-number
@@ -238,18 +305,6 @@
                           (<= t latest-transaction-number)))
                    (index/inclusive-subsequence avtec
                                                 [attribute pattern nil nil nil]))))
-
-(defn accumulate-values [values statement]
-  (case (eatcv-command statement)
-    :add (conj values (eatcv-value statement))
-    :remove (disj values (eatcv-value statement))
-    :set  #{(eatcv-value statement)}
-    values))
-
-(defn values-from-eatcv-datoms [statements]
-  (reduce accumulate-values
-          #{}
-          statements))
 
 (defn take-while-and-n-more [pred n coll]
     (let [[head tail] (split-with pred coll)]
@@ -283,10 +338,6 @@
               true))
           (map vector pattern datom)))
 
-;; from https://stackoverflow.com/questions/27262268/idiom-for-padding-sequences
-(defn pad [n coll val]
-  (take n (concat coll (repeat val))))
-
 (defn datoms-starting-from-index [index pattern]
   (let [datom-length (count (first (index/inclusive-subsequence (:index index)
                                                                 ::comparator/min)))
@@ -299,31 +350,6 @@
 (defn datoms-from [db index-key pattern]
   (datoms-starting-from-index (get-in db [:indexes index-key])
                                pattern))
-
-(defn datoms-from-index
-  ([index pattern]
-   (datoms-from-index index pattern nil))
-
-  ([index pattern last-transaction-number]
-   (let [datom-length (count (first (index/inclusive-subsequence (:index index)
-                                                                 ::comparator/min)))
-         first-pattern (pad datom-length
-                            pattern
-                            ::comparator/min)
-         last-pattern (let [last-pattern (pad datom-length
-                                              pattern
-                                              ::comparator/max)]
-                        (if last-transaction-number
-                          (assoc (vec last-pattern)
-                                 (-> index :datom-transaction-number-index)
-                                 last-transaction-number)
-                          last-pattern))]
-     (take-while (fn [datom]
-                   (>= 0 (comparator/compare-datoms datom last-pattern)))
-                 (index/inclusive-subsequence (:index index)
-                                              first-pattern)))))
-
-
 
 (defn datoms [db index-key pattern]
   (datoms-from-index (get-in db [:indexes index-key])
@@ -419,27 +445,10 @@
                            attribute
                            latest-transaction-number)))
 
-(defn values-from-eatcv [eatcv entity-id attribute latest-transaction-number]
-  (values-from-eatcv-datoms (eat-datoms-from-eatcv eatcv
-                                                       entity-id
-                                                       attribute
-                                                       latest-transaction-number)))
-
-
 (defn last-transaction-number [db]
   (if-let [transaction-log (:transaction-log db)]
     (transaction-log/last-transaction-number transaction-log)
     nil))
-
-(defn values-from-eatcv
-  ([eatcv entity-id attribute]
-   (values-from-eatcv-datoms (datoms-from-index eatcv
-                                                [entity-id attribute])))
-
-  ([eatcv entity-id attribute last-transaction-number]
-   (values-from-eatcv-datoms (datoms-from-index eatcv
-                                                [entity-id attribute]
-                                                last-transaction-number))))
 
 (defn values [db entity-id attribute]
   (values-from-eatcv-datoms (datoms db
