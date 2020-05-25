@@ -78,6 +78,9 @@
 (defn eatcv-to-avtec-datoms [_db e a t c v]
   [[a v t e c]])
 
+(defn eatcv-to-avetc-datoms [_db e a t c v]
+  [[a v e t c]])
+
 (def base-index-definition {:eatcv eatcv-to-eatcv-datoms
                             :avtec eatcv-to-avtec-datoms})
 
@@ -88,6 +91,10 @@
 (def avtec-index-definition {:key :avtec
                              :eatcv-to-datoms eatcv-to-avtec-datoms
                              :datom-transaction-number-index 2})
+
+(def avetc-index-definition {:key :avetc
+                             :eatcv-to-datoms eatcv-to-avetc-datoms
+                             :datom-transaction-number-index 3})
 
 (def base-index-definitions [eatcv-index-definition
                              avtec-index-definition])
