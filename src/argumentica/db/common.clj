@@ -9,7 +9,8 @@
             [argumentica.db.db]
             [argumentica.comparator :as comparator]
             [argumentica.db.db :as db]
-            [argumentica.util :as util])
+            [argumentica.util :as util]
+            [clojure.math.combinatorics :as combinatorics])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -123,16 +124,22 @@
                   statements)
           "Statement must have four values")
 
-  (doseq [[e a c v] statements]
-    (doseq [datom ((:eatcv-to-datoms index)
-                   indexes
-                   e
-                   a
-                   transaction-number
-                   c
-                   v)]
+  (if-let [statements-to-datoms (:statements-to-datoms index)]
+    (doseq [datom (statements-to-datoms indexes
+                                        transaction-number
+                                        statements)]
       (index/add! (:index index)
-                  datom))))
+                  datom))
+    (doseq [[e a c v] statements]
+      (doseq [datom ((:eatcv-to-datoms index)
+                     indexes
+                     e
+                     a
+                     transaction-number
+                     c
+                     v)]
+        (index/add! (:index index)
+                    datom)))))
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
   (if (or (nil? (:last-indexed-transaction-number index))
@@ -461,6 +468,23 @@
   (values-from-eatcv-datoms (datoms db
                                     :eatcv
                                     [entity-id attribute])))
+
+(defn values-from-eatcv
+  ([eatcv-index entity-id attribute]
+   (values-from-eatcv-datoms (datoms-from-index eatcv-index
+                                                [entity-id attribute])))
+
+  ([eatcv-index entity-id attribute last-transaction-number]
+   (values-from-eatcv-datoms (datoms-from-index eatcv-index
+                                                [entity-id attribute]
+                                                last-transaction-number))))
+
+(defn value-from-eatcv
+  ([eatcv-index entity-id attribute]
+   (first (values-from-eatcv eatcv-index entity-id attribute)))
+
+  ([eatcv-index entity-id attribute last-transaction-number]
+   (first (values-from-eatcv eatcv-index entity-id attribute last-transaction-number))))
 
 (defn value [db entity-id attribute]
   (first (values db
@@ -846,6 +870,41 @@
 (def full-text-index-definition {:key :full-text
                                  :eatcv-to-datoms (partial eatcv-to-full-text-avtec tokenize)
                                  :datom-transaction-number-index 2})
+
+(defn composite-index-definition [key & attributes]
+  {:key key
+   :statements-to-datoms (let [attributes-set (clojure.core/set attributes)]
+                           (fn [indexes transaction-number statements]
+                             (apply concat
+                                    (for [affected-entity-id (->> statements
+                                                                  (filter (fn [statement]
+                                                                            (contains? attributes-set
+                                                                                       (eacv-attribute statement))))
+                                                                  (map eacv-entity)
+                                                                  (dedupe))]
+
+                                      (let [values (fn [transaction-number]
+                                                     (for [attribute attributes]
+                                                       (values-from-eatcv (:eatcv indexes)
+                                                                          affected-entity-id
+                                                                          attribute
+                                                                          transaction-number)))
+
+                                            old-combinations (clojure.core/set (apply combinatorics/cartesian-product (values (dec transaction-number))))
+                                            new-combinations (clojure.core/set (apply combinatorics/cartesian-product (values transaction-number)))]
+
+                                        (concat (for [combination (set/difference old-combinations
+                                                                                  new-combinations)]
+                                                  (vec (concat combination
+                                                               [transaction-number
+                                                                :remove])))
+
+                                                (for [combination (set/difference new-combinations
+                                                                                  old-combinations)]
+                                                  (vec (concat combination
+                                                               [transaction-number
+                                                                :add])))))))))
+   :datom-transaction-number-index (count attributes)})
 
 (defn new-id []
   (UUID/randomUUID))

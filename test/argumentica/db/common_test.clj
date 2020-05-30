@@ -4,7 +4,9 @@
                          [sorted-set-db :as sorted-set-db]
                          [btree :as btree]
                          [index :as index]
-                         [sorted-map-transaction-log :as sorted-map-transaction-log]))
+                         [sorted-map-transaction-log :as sorted-map-transaction-log])
+            [argumentica.btree-index :as btree-index]
+            [argumentica.sorted-set-index :as sorted-set-index])
   (:use clojure.test))
 
 
@@ -37,6 +39,51 @@
                                          1
                                          :friend
                                          1)))))
+
+(defn create-db-with-composite-index []
+  (common/db-from-index-definitions [common/eatcv-index-definition
+                                     (common/composite-index-definition :composite :attribute-1 :attribute-2)]
+                                    (fn [index-key]
+                                      #_(btree-index/create-memory-btree-index 101)
+                                      (sorted-set-index/create))
+                                    (sorted-map-transaction-log/create)))
+
+(defn test-composite-index [& transactions]
+  (-> (reduce common/transact
+              (create-db-with-composite-index)
+              transactions)
+      (common/datoms-from :composite [])))
+
+(deftest create-in-memory-db
+  (is (= nil
+         (test-composite-index #{[:entity-1 :attribute-1 :add :value-1]})))
+
+  (is (= nil
+         (test-composite-index #{[:entity-1 :attribute-2 :add :value-1]})))
+
+  (is (= '([:value-1 :value-2 0 :add])
+         (test-composite-index #{[:entity-1 :attribute-1 :add :value-1]
+                                 [:entity-1 :attribute-2 :add :value-2]})))
+
+  (is (= '([:value-1 :value-2 1 :add])
+         (test-composite-index #{[:entity-1 :attribute-1 :add :value-1]}
+                               #{[:entity-1 :attribute-2 :add :value-2]})))
+
+  (is (= '([:value-1 :value-2 0 :add]
+           [:value-1 :value-2 1 :remove])
+         (test-composite-index #{[:entity-1 :attribute-1 :add :value-1]
+                                 [:entity-1 :attribute-2 :add :value-2]}
+                               #{[:entity-1 :attribute-2 :remove :value-2]}))))
+(comment
+  (test-composite-index #{[:entity-1 :attribute-1 :add :value-1]})
+
+  (do (println 1)
+      4)
+
+  ) ;; TODO: remove-me
+
+(deftest test-composite-index
+  )
 
 #_(deftest read-only-index-test
   (let [metadata-storage (hash-map-storage/create)
