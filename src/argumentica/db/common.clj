@@ -82,12 +82,9 @@
 (defn eatcv-to-avetc-datoms [_db e a t c v]
   [[a v e t c]])
 
-(def base-index-definition {:eatcv eatcv-to-eatcv-datoms
-                            :avtec eatcv-to-avtec-datoms})
-
 (def eatcv-index-definition {:key :eatcv
-            :eatcv-to-datoms eatcv-to-eatcv-datoms
-            :datom-transaction-number-index 2})
+                             :eatcv-to-datoms eatcv-to-eatcv-datoms
+                             :datom-transaction-number-index 2})
 
 (def avtec-index-definition {:key :avtec
                              :eatcv-to-datoms eatcv-to-avtec-datoms
@@ -307,7 +304,7 @@
 
 (defn set [db entity attribute value]
   (transact! db
-            [[entity attribute :set value]]))
+             [[entity attribute :set value]]))
 
 (defn entities-by-string-value [avtec attribute pattern latest-transaction-number]
   (map (fn [datom]
@@ -321,8 +318,8 @@
                                                 [attribute pattern nil nil nil]))))
 
 (defn take-while-and-n-more [pred n coll]
-    (let [[head tail] (split-with pred coll)]
-      (concat head (take n tail))))
+  (let [[head tail] (split-with pred coll)]
+    (concat head (take n tail))))
 
 (defn value-from-eatcv-statements-in-reverse [statements-in-reverse]
   (let [first-statement (first statements-in-reverse)]
@@ -341,8 +338,8 @@
 
 
 #_(defn datoms [db]
-  (index/inclusive-subsequence (-> db :indexes :eatcv :index)
-                               [nil nil nil nil nil]))
+    (index/inclusive-subsequence (-> db :indexes :eatcv :index)
+                                 [nil nil nil nil nil]))
 
 (defn pattern-matches? [pattern datom]
   (every? (fn [[pattern-value datom-value]]
@@ -358,12 +355,45 @@
         first-pattern (pad datom-length
                            pattern
                            ::comparator/min)]
-    (index/inclusive-subsequence (:index index)
-                                 first-pattern)))
+    (or (index/inclusive-subsequence (:index index)
+                                     first-pattern)
+        [])))
 
 (defn datoms-from [db index-key pattern]
   (datoms-starting-from-index (get-in db [:indexes index-key])
-                               pattern))
+                              pattern))
+
+(defn proposition [datom]
+  (vec (drop-last 2 datom)))
+
+(defn command [datom]
+  (last datom))
+
+(defn- accumulate-propositions [propositions datom]
+  (case (command datom)
+    :add (conj propositions (proposition datom))
+    :remove (disj propositions (proposition datom))
+    propositions))
+
+(defn transaction-number [datom]
+  (first (take-last 2 datom)))
+
+(defn propositions [last-transaction-numer datoms]
+  (sort (reduce accumulate-propositions
+                #{}
+                (take-while (fn [datom]
+                              (if last-transaction-numer
+                                (>= last-transaction-numer
+                                    (transaction-number datom))
+                                true))
+                            datoms))))
+
+(defn propositions-from-index [db index-key pattern last-transaction-number]
+  (->> (datoms-starting-from-index (get-in db [:indexes index-key])
+                                   pattern)
+       (partition-by proposition)
+       (mapcat (partial propositions
+                        last-transaction-number))))
 
 (defn datoms [db index-key pattern]
   (datoms-from-index (get-in db [:indexes index-key])
@@ -498,41 +528,41 @@
 
 (defn squash-statements [statements]
   (reduce (fn [result-statements statement]
-                                    (case (statement-command statement)
-                                      :add (conj (set/select (fn [result-statement]
-                                                               (not (and (= (statement-entity statement)
-                                                                            (statement-entity result-statement))
-                                                                         (= (statement-attribute statement)
-                                                                            (statement-attribute result-statement))
-                                                                         (= (statement-value statement)
-                                                                            (statement-value result-statement))
-                                                                         (= :remove
-                                                                            (statement-command result-statement)))))
-                                                             result-statements)
-                                                 statement)
-                                      :remove (let [removed-statements (set/select (fn [result-statement]
-                                                                                      (and (= (statement-entity statement)
-                                                                                              (statement-entity result-statement))
-                                                                                           (= (statement-attribute statement)
-                                                                                              (statement-attribute result-statement))
-                                                                                           (= (statement-value statement)
-                                                                                              (statement-value result-statement))))
-                                                                                    result-statements)]
+            (case (statement-command statement)
+              :add (conj (set/select (fn [result-statement]
+                                       (not (and (= (statement-entity statement)
+                                                    (statement-entity result-statement))
+                                                 (= (statement-attribute statement)
+                                                    (statement-attribute result-statement))
+                                                 (= (statement-value statement)
+                                                    (statement-value result-statement))
+                                                 (= :remove
+                                                    (statement-command result-statement)))))
+                                     result-statements)
+                         statement)
+              :remove (let [removed-statements (set/select (fn [result-statement]
+                                                             (and (= (statement-entity statement)
+                                                                     (statement-entity result-statement))
+                                                                  (= (statement-attribute statement)
+                                                                     (statement-attribute result-statement))
+                                                                  (= (statement-value statement)
+                                                                     (statement-value result-statement))))
+                                                           result-statements)]
 
-                                                 (if (empty? removed-statements)
-                                                   (conj result-statements
-                                                         statement)
-                                                   (set/difference result-statements
-                                                                   removed-statements)))
-                                      :set  (conj (set/select (fn [result-statement]
-                                                                (not (and (= (statement-entity statement)
-                                                                             (statement-entity result-statement))
-                                                                          (= (statement-attribute statement)
-                                                                             (statement-attribute result-statement)))))
-                                                              result-statements)
-                                                  statement)))
-                                  #{}
-                                  statements))
+                        (if (empty? removed-statements)
+                          (conj result-statements
+                                statement)
+                          (set/difference result-statements
+                                          removed-statements)))
+              :set  (conj (set/select (fn [result-statement]
+                                        (not (and (= (statement-entity statement)
+                                                     (statement-entity result-statement))
+                                                  (= (statement-attribute statement)
+                                                     (statement-attribute result-statement)))))
+                                      result-statements)
+                          statement)))
+          #{}
+          statements))
 
 
 (deftest test-squash-statements
@@ -541,15 +571,15 @@
 
   (is (= #{}
          (squash-statements [[1 :friend :add 1]
-                         [1 :friend :remove 1]])))
+                             [1 :friend :remove 1]])))
 
   (is (= #{[1 :friend :add 1]}
          (squash-statements [[1 :friend :remove 1]
-                         [1 :friend :add 1]])))
+                             [1 :friend :add 1]])))
 
   (is (= #{}
          (squash-statements [[1 :friend :set 1]
-                         [1 :friend :remove 1]])))
+                             [1 :friend :remove 1]])))
 
   (is (= #{[1 :friend :remove 1]}
          (squash-statements [[1 :friend :remove 1]])))
@@ -557,20 +587,20 @@
 
   (is (= #{[1 :friend :set 2]}
          (squash-statements [[1 :friend :remove 1]
-                         [1 :friend :add 1]
-                         [1 :friend :add 2]
-                         [1 :friend :set 2]])))
+                             [1 :friend :add 1]
+                             [1 :friend :add 2]
+                             [1 :friend :set 2]])))
 
   (is (= #{[1 :friend :add 1]}
          (squash-statements [[1 :friend :remove 1]
-                         [1 :friend :add 1]
-                         [1 :friend :add 2]
-                         [1 :friend :remove 2]])))
+                             [1 :friend :add 1]
+                             [1 :friend :add 2]
+                             [1 :friend :remove 2]])))
 
   (is (= #{[1 :friend :add 1]
            [2 :friend :add 1]}
          (squash-statements [[1 :friend :add 1]
-                         [2 :friend :add 1]]))))
+                             [2 :friend :add 1]]))))
 
 
 (defn squash-transactions [transactions]
@@ -593,59 +623,59 @@
                                                                         0)))))
 
 #_(deftype Entity [indexes entity-id transaction-number]
-  Object
-  (toString [this]   (pr-str entity-id))
-  (hashCode [this]   (hash this))
+    Object
+    (toString [this]   (pr-str entity-id))
+    (hashCode [this]   (hash this))
 
-  clojure.lang.Seqable
-  (seq [this] (seq []))
+    clojure.lang.Seqable
+    (seq [this] (seq []))
 
-  clojure.lang.Associative
-  (equiv [this other-object] (= this other-object))
-  (containsKey [this attribute] (value (-> indexes :eatcv :index)
-                                       entity-id
-                                       attribute
-                                       transaction-number))
-  (entryAt [this attribute]     (some->> (value (-> indexes :eatcv :index)
-                                                entity-id
-                                                attribute
-                                                transaction-number)
-                                         (clojure.lang.MapEntry. attribute)))
+    clojure.lang.Associative
+    (equiv [this other-object] (= this other-object))
+    (containsKey [this attribute] (value (-> indexes :eatcv :index)
+                                         entity-id
+                                         attribute
+                                         transaction-number))
+    (entryAt [this attribute]     (some->> (value (-> indexes :eatcv :index)
+                                                  entity-id
+                                                  attribute
+                                                  transaction-number)
+                                           (clojure.lang.MapEntry. attribute)))
 
-  (empty [this]         (throw (UnsupportedOperationException.)))
-  (assoc [this k v]     (throw (UnsupportedOperationException.)))
-  (cons  [this [k v]]   (throw (UnsupportedOperationException.)))
-  (count [this]         (throw (UnsupportedOperationException.)))
+    (empty [this]         (throw (UnsupportedOperationException.)))
+    (assoc [this k v]     (throw (UnsupportedOperationException.)))
+    (cons  [this [k v]]   (throw (UnsupportedOperationException.)))
+    (count [this]         (throw (UnsupportedOperationException.)))
 
-  clojure.lang.ILookup
-  (valAt [this attribute] (value (-> indexes :eatcv :index)
-                                 entity-id
-                                 attribute
-                                 transaction-number))
-  (valAt [this attribute not-found] (or (value (-> indexes :eatcv :index)
-                                               entity-id
-                                               attribute
-                                               transaction-number)
-                                        not-found))
+    clojure.lang.ILookup
+    (valAt [this attribute] (value (-> indexes :eatcv :index)
+                                   entity-id
+                                   attribute
+                                   transaction-number))
+    (valAt [this attribute not-found] (or (value (-> indexes :eatcv :index)
+                                                 entity-id
+                                                 attribute
+                                                 transaction-number)
+                                          not-found))
 
-  clojure.lang.IFn
-  (invoke [this attribute] (value (-> indexes :eatcv :index)
-                                  entity-id
-                                  attribute
-                                  transaction-number))
-  (invoke [this attribute not-found] (or (value (-> indexes :eatcv :index)
-                                                entity-id
-                                                attribute
-                                                transaction-number)
-                                         not-found)))
+    clojure.lang.IFn
+    (invoke [this attribute] (value (-> indexes :eatcv :index)
+                                    entity-id
+                                    attribute
+                                    transaction-number))
+    (invoke [this attribute not-found] (or (value (-> indexes :eatcv :index)
+                                                  entity-id
+                                                  attribute
+                                                  transaction-number)
+                                           not-found)))
 (declare ->Entity)
 
 (defn entity-value-from-values [db schema attribute values]
   (cond (and (-> schema attribute :multivalued?)
              (-> schema attribute :reference?))
         (into #{} (map (fn [value]
-                        (->Entity db schema value))
-                      values))
+                         (->Entity db schema value))
+                       values))
 
         (and (not (-> schema attribute :multivalued?))
              (-> schema attribute :reference?))
@@ -661,7 +691,7 @@
 
 (deftest test-entity-value-from-values
   (is (= "Foo"
-       (entity-value-from-values nil {} :name ["Foo"]))))
+         (entity-value-from-values nil {} :name ["Foo"]))))
 
 (defn entity-value [db schema entity-id attribute]
   (if (= attribute :dali/id)
@@ -896,13 +926,15 @@
                                         (concat (for [combination (set/difference old-combinations
                                                                                   new-combinations)]
                                                   (vec (concat combination
-                                                               [transaction-number
+                                                               [affected-entity-id
+                                                                transaction-number
                                                                 :remove])))
 
                                                 (for [combination (set/difference new-combinations
                                                                                   old-combinations)]
                                                   (vec (concat combination
-                                                               [transaction-number
+                                                               [affected-entity-id
+                                                                transaction-number
                                                                 :add])))))))))
    :datom-transaction-number-index (count attributes)})
 
