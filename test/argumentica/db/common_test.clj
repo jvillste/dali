@@ -9,20 +9,25 @@
             [argumentica.sorted-set-index :as sorted-set-index])
   (:use clojure.test))
 
+(defn create-eav-db [& transactions]
+  (reduce common/transact
+          (common/db-from-index-definitions [common/eav-index-definition]
+                                            (fn [index-key] (sorted-set-index/create))
+                                            (sorted-map-transaction-log/create))
+          transactions))
 
 (deftest test-transact
-  (is (= '([1 :friend 0 :add 2]
-           [1 :friend 1 :add 3]
-           [1 :friend 1 :remove 2]
-           [2 :friend 0 :add 1])
-         (let [db (-> (sorted-set-db/create)
-                      (common/transact [[1 :friend :set 2]
-                                        [2 :friend :set 1]])
-                      (common/transact [[1 :friend :set 3]]))]
-           (index/inclusive-subsequence (-> db :indexes :eatcv :index)
+  (is (= '([1 :friend 2 0 :add]
+           [1 :friend 2 1 :remove]
+           [1 :friend 3 1 :add]
+           [2 :friend 1 0 :add])
+         (let [db (create-eav-db #{[1 :friend :set 2]
+                                   [2 :friend :set 1]}
+                                 #{[1 :friend :set 3]})]
+           (index/inclusive-subsequence (-> db :indexes :eav :index)
                                         [1 :friend nil nil nil])))))
 
-(deftest test-eat-datoms-from-eatcv
+#_(deftest test-eat-datoms-from-eatcv
   (let [db (-> (sorted-set-db/create)
                (sorted-set-db/transact [[1 :friend :set 2]
                                         [2 :friend :set 1]])
@@ -42,8 +47,108 @@
                                          :friend
                                          1)))))
 
+(deftest test-datoms-from-index
+  (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
+                                [:entity-1 :attribute-2 :set :value-2]}
+                              #{[:entity-1 :attribute-1 :set :value-3]}))]
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-1 :value-1 1 :remove]
+             [:entity-1 :attribute-1 :value-3 1 :add]
+             [:entity-1 :attribute-2 :value-2 0 :add])
+           (common/datoms-from-index (-> db :indexes :eav)
+                                     [])))
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-2 :value-2 0 :add])
+           (common/datoms-from-index (-> db :indexes :eav)
+                                     []
+                                     0)))
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-2 :value-2 0 :add])
+           (common/datoms-from-index (-> db :indexes :eav)
+                                     [:entity-1 :attribute-1]
+                                     0)))
+
+    (is (= '([:entity-1 :attribute-2 :value-2 0 :add])
+           (common/datoms-from-index (-> db :indexes :eav)
+                                     [:entity-1 :attribute-2]
+                                     0)))))
+
+
+(deftest test-matching-datoms-from-index
+  (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
+                                [:entity-1 :attribute-2 :set :value-2]}
+                              #{[:entity-1 :attribute-1 :set :value-3]}))]
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-1 :value-1 1 :remove]
+             [:entity-1 :attribute-1 :value-3 1 :add]
+             [:entity-1 :attribute-2 :value-2 0 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              [])))
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-2 :value-2 0 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              []
+                                              0)))
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-1]
+                                              0)))
+
+    (is (= '([:entity-1 :attribute-1 :value-1 0 :add]
+             [:entity-1 :attribute-1 :value-1 1 :remove]
+             [:entity-1 :attribute-1 :value-3 1 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-1]
+                                              1)))
+
+    (is (= '([:entity-1 :attribute-2 :value-2 0 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-2]
+                                              0)))
+
+    (is (= '([:entity-1 :attribute-2 :value-2 0 :add])
+           (common/matching-datoms-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-2]
+                                              1)))))
+
+(deftest test-values-from-eav
+  (let [db (-> (create-eav-db #{[1 :friend :set 2]
+                                [2 :friend :set 1]}
+                              #{[1 :friend :set 3]}))]
+
+    (is (= '(2)
+           (common/values-from-eav (-> db :indexes :eav)
+                                   1
+                                   :friend
+                                   0)))
+
+    (is (= '(3)
+           (common/values-from-eav (-> db :indexes :eav)
+                                   1
+                                   :friend
+                                   1))))
+
+  (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
+                                [:entity-1 :attribute-2 :set :value-2]}))]
+
+    (is (= '(:value-1)
+           (common/values-from-eav (-> db :indexes :eav)
+                                   :entity-1
+                                   :attribute-1)))
+
+    (is (= '(:value-2)
+           (common/values-from-eav (-> db :indexes :eav)
+                                   :entity-1
+                                   :attribute-2)))))
+
 (defn create-db-with-composite-index []
-  (common/db-from-index-definitions [common/eatcv-index-definition
+  (common/db-from-index-definitions [common/eav-index-definition
                                      (common/composite-index-definition :composite :attribute-1 :attribute-2)]
                                     (fn [index-key]
                                       #_(btree-index/create-memory-btree-index 101)
@@ -81,9 +186,9 @@
   (-> (reduce common/transact
               (create-db-with-composite-index)
               transactions)
-      (common/propositions-from-index :composite pattern last-transaction-number)))
+      (common/propositions-from-db :composite pattern last-transaction-number)))
 
-(deftest test-propositions-from-index
+(deftest test-propositions-from-db
   (is (= '()
          (propositions-from-composite-index nil [] #{})))
 

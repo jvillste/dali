@@ -44,7 +44,7 @@
                                         nil)))
 
     (is (= '([1 :name 0 :set "foo"])
-           (common/datoms-from-index (-> @indexes-atom :eatcv)
+           (common/matching-datoms-from-index (-> @indexes-atom :eatcv)
                                      [1 :name])))
 
     (is (= #{"foo"}
@@ -137,7 +137,7 @@
                    (common/datoms branch :eatcv [1 :name])))
 
             (is (= #{"1 name 1 in branch"}
-                   (common/values-from-eatcv-datoms (common/datoms-from-index  (-> branch :indexes :eatcv)
+                   (common/values-from-eatcv-datoms (common/matching-datoms-from-index  (-> branch :indexes :eatcv)
                                                                                [1 :name])))))
 
           (testing "transacting base database after branching"

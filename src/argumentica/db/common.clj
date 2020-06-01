@@ -10,7 +10,8 @@
             [argumentica.comparator :as comparator]
             [argumentica.db.db :as db]
             [argumentica.util :as util]
-            [clojure.math.combinatorics :as combinatorics])
+            [clojure.math.combinatorics :as combinatorics]
+            [argumentica.log :as log])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -90,9 +91,12 @@
                              :eatcv-to-datoms eatcv-to-avtec-datoms
                              :datom-transaction-number-index 2})
 
+
+(def eav-index-definition {:key :eav
+                           :eatcv-to-datoms (fn [_db e a t c v] [[e a v t c]])})
+
 (def avetc-index-definition {:key :avetc
-                             :eatcv-to-datoms eatcv-to-avetc-datoms
-                             :datom-transaction-number-index 3})
+                             :eatcv-to-datoms eatcv-to-avetc-datoms})
 
 (def base-index-definitions [eatcv-index-definition
                              avtec-index-definition])
@@ -183,33 +187,6 @@
             (transaction-log/subseq transaction-log
                                     (first-unindexed-transacion-number-for-index index))))
 
-;; from https://stackoverflow.com/questions/27262268/idiom-for-padding-sequences
-(defn pad [n coll val]
-  (take n (concat coll (repeat val))))
-
-(defn datoms-from-index
-  ([index pattern]
-   (datoms-from-index index pattern nil))
-
-  ([index pattern last-transaction-number]
-   (let [datom-length (count (first (index/inclusive-subsequence (:index index)
-                                                                 ::comparator/min)))
-         first-pattern (pad datom-length
-                            pattern
-                            ::comparator/min)
-         last-pattern (let [last-pattern (pad datom-length
-                                              pattern
-                                              ::comparator/max)]
-                        (if last-transaction-number
-                          (assoc (vec last-pattern)
-                                 (-> index :datom-transaction-number-index)
-                                 last-transaction-number)
-                          last-pattern))]
-     (take-while (fn [datom]
-                   (>= 0 (comparator/compare-datoms datom last-pattern)))
-                 (index/inclusive-subsequence (:index index)
-                                              first-pattern)))))
-
 (defn accumulate-values [values statement]
   (case (eatcv-command statement)
     :add (conj values (eatcv-value statement))
@@ -221,90 +198,10 @@
           #{}
           statements))
 
-(defn values-from-eatcv
-  ([eatcv entity-id attribute]
-   (values-from-eatcv-datoms (datoms-from-index eatcv
-                                                [entity-id attribute])))
-
-  ([eatcv entity-id attribute last-transaction-number]
-   (values-from-eatcv-datoms (datoms-from-index eatcv
-                                                [entity-id attribute]
-                                                last-transaction-number))))
-
-(defn- remove-statements [eatcv-index entity attribute]
-  (for [value (values-from-eatcv eatcv-index entity attribute)]
-    [entity attribute :remove value]))
-
-(defn expand-set-statements [eatcv-index statements]
-  (into #{}
-        (mapcat (fn [[e a c v]]
-                  (if (= :set c)
-                    (vec (concat [[e a :add v]]
-                                 (remove-statements eatcv-index
-                                                    e
-                                                    a)))
-                    [[e a c v]]))
-                statements)))
-
-(defn add-transactions-to-indexes [indexes transactions]
-  (reduce (fn [indexes [transaction-number statements]]
-            (map/map-vals indexes
-                          (fn [index]
-                            (add-transaction-to-index index
-                                                      indexes
-                                                      transaction-number
-                                                      statements))))
-          indexes
-          transactions))
-
-(defn add-transaction-to-indexes! [indexes transaction-number statements]
-  (doseq [index (vals indexes)]
-    (add-transaction-to-index! index
-                               indexes
-                               transaction-number
-                               statements)))
-
-(defn update-indexes! [indexes transaction-log]
-  (add-transactions-to-indexes indexes
-                               (transaction-log/subseq transaction-log
-                                                       (first-unindexed-transacion-number-for-index-map indexes))))
-
-(defn update-indexes-2! [db]
-  (doseq [[transaction-number statements] (transaction-log/subseq (:transaction-log db)
-                                                                  (first-unindexed-transacion-number db))]
-    (doseq [index (vals (:indexes db))]
-      (add-transaction-to-index! index
-                                 (:indexes db)
-                                 transaction-number
-                                 statements)))
-  db)
-
-(defn update-indexes [db]
-  (update db :indexes update-indexes! (:transaction-log db)))
-
-(defn transact [db statements]
-  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
-                                          statements)]
-    (-> db
-        (add-log-entry statements)
-        (update-indexes))))
-
-(defn transact! [db statements]
-  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
-                                          statements)
-        transaction-number (transaction-log/add! (:transaction-log db)
-                                                 statements)]
-    (add-transaction-to-indexes! (:indexes db)
-                                 transaction-number
-                                 statements)))
-
 (defn deref [db]
   (assoc db
          :last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))))
 
-(defn set [db entity attribute value]
-  (transact! db
-             [[entity attribute :set value]]))
 
 (defn entities-by-string-value [avtec attribute pattern latest-transaction-number]
   (map (fn [datom]
@@ -350,14 +247,9 @@
           (map vector pattern datom)))
 
 (defn datoms-starting-from-index [index pattern]
-  (let [datom-length (count (first (index/inclusive-subsequence (:index index)
-                                                                ::comparator/min)))
-        first-pattern (pad datom-length
-                           pattern
-                           ::comparator/min)]
-    (or (index/inclusive-subsequence (:index index)
-                                     first-pattern)
-        [])))
+  (or (index/inclusive-subsequence (:index index)
+                                   pattern)
+      []))
 
 (defn datoms-from [db index-key pattern]
   (datoms-starting-from-index (get-in db [:indexes index-key])
@@ -378,27 +270,86 @@
 (defn transaction-number [datom]
   (first (take-last 2 datom)))
 
+(defn- take-until-transaction-number [last-transaction-numer datoms]
+  (take-while (fn [datom]
+                (if last-transaction-numer
+                  (>= last-transaction-numer
+                      (transaction-number datom))
+                  true))
+              datoms))
+
+(defn reduce-propositions [datoms]
+  (sort (reduce accumulate-propositions
+                #{}
+                datoms)))
+
 (defn propositions [last-transaction-numer datoms]
   (sort (reduce accumulate-propositions
                 #{}
-                (take-while (fn [datom]
-                              (if last-transaction-numer
-                                (>= last-transaction-numer
-                                    (transaction-number datom))
-                                true))
-                            datoms))))
+                (take-until-transaction-number last-transaction-numer datoms))))
 
-(defn propositions-from-index [db index-key pattern last-transaction-number]
-  (->> (datoms-starting-from-index (get-in db [:indexes index-key])
+(defn datoms-by-proporistion [index pattern last-transaction-number]
+  (->> (datoms-starting-from-index index
                                    pattern)
+       (partition-by proposition)
+       (map (partial take-until-transaction-number
+                     last-transaction-number))))
+
+(defn datoms-from-index
+  ([index pattern]
+   (datoms-from-index index pattern nil))
+
+  ([index pattern last-transaction-number]
+   (apply concat
+          (datoms-by-proporistion index
+                                  pattern
+                                  last-transaction-number))))
+
+(defn take-while-pattern-matches [pattern propositions]
+  (let [pattern-length (count pattern)]
+    (take-while (fn [proposition]
+                  (= pattern
+                     (take pattern-length proposition)))
+                propositions)))
+
+(defn matching-datoms-from-index
+  ([index pattern]
+   (matching-datoms-from-index index pattern nil))
+
+  ([index pattern last-transaction-number]
+   (take-while-pattern-matches pattern
+                               (datoms-from-index index
+                                                  pattern
+                                                  last-transaction-number))))
+
+(defn propositions-from-index [index pattern last-transaction-number]
+  (mapcat reduce-propositions
+          (datoms-by-proporistion index
+                                  pattern
+                                  last-transaction-number)))
+
+(defn propositions-from-db [db index-key starting-pattern last-transaction-number]
+  (->> (datoms-starting-from-index (get-in db [:indexes index-key])
+                                   starting-pattern)
        (partition-by proposition)
        (mapcat (partial propositions
                         last-transaction-number))))
 
 (defn datoms [db index-key pattern]
-  (datoms-from-index (get-in db [:indexes index-key])
-                     pattern
-                     (:last-transaction-number db)))
+  (matching-datoms-from-index (get-in db [:indexes index-key])
+                              pattern
+                              (:last-transaction-number db)))
+
+
+(defn values-from-eatcv
+  ([eatcv entity-id attribute]
+   (values-from-eatcv-datoms (matching-datoms-from-index eatcv
+                                                         [entity-id attribute])))
+
+  ([eatcv entity-id attribute last-transaction-number]
+   (values-from-eatcv-datoms (matching-datoms-from-index eatcv
+                                                         [entity-id attribute]
+                                                         last-transaction-number))))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -501,13 +452,13 @@
 
 (defn values-from-eatcv
   ([eatcv-index entity-id attribute]
-   (values-from-eatcv-datoms (datoms-from-index eatcv-index
-                                                [entity-id attribute])))
+   (values-from-eatcv-datoms (matching-datoms-from-index eatcv-index
+                                                         [entity-id attribute])))
 
   ([eatcv-index entity-id attribute last-transaction-number]
-   (values-from-eatcv-datoms (datoms-from-index eatcv-index
-                                                [entity-id attribute]
-                                                last-transaction-number))))
+   (values-from-eatcv-datoms (matching-datoms-from-index eatcv-index
+                                                         [entity-id attribute]
+                                                         last-transaction-number))))
 
 (defn value-from-eatcv
   ([eatcv-index entity-id attribute]
@@ -520,8 +471,6 @@
   (first (values db
                  entity-id
                  attribute)))
-
-
 
 (defn datom-to-eacv-statemnt [[e a t c v]]
   [e a c v])
@@ -621,6 +570,89 @@
                                                       last-transaction-number))
                                                 (transaction-log/subseq transaction-log
                                                                         0)))))
+(defn values-from-eav
+  ([eav-index entity-id attribute]
+   (values-from-eav eav-index entity-id attribute nil))
+
+  ([eav-index entity-id attribute last-transaction-number]
+   (map last
+        (take-while-pattern-matches [entity-id attribute]
+                                    (propositions-from-index eav-index
+                                                             [entity-id attribute]
+                                                             last-transaction-number)))))
+
+(defn- remove-statements [eav-index entity attribute]
+  (for [value (values-from-eav eav-index entity attribute)]
+    [entity attribute :remove value]))
+
+(defn expand-set-statements [eav-index statements]
+  (into #{}
+        (mapcat (fn [[e a c v]]
+                  (if (= :set c)
+                    (do (assert (not (nil? eav-index))
+                                "EAV index is needed for using 'set' operations in statements")
+                        (vec (concat [[e a :add v]]
+                                     (remove-statements eav-index
+                                                        e
+                                                        a))))
+                    [[e a c v]]))
+                statements)))
+
+(defn add-transactions-to-indexes [indexes transactions]
+  (reduce (fn [indexes [transaction-number statements]]
+            (map/map-vals indexes
+                          (fn [index]
+                            (add-transaction-to-index index
+                                                      indexes
+                                                      transaction-number
+                                                      statements))))
+          indexes
+          transactions))
+
+(defn add-transaction-to-indexes! [indexes transaction-number statements]
+  (doseq [index (vals indexes)]
+    (add-transaction-to-index! index
+                               indexes
+                               transaction-number
+                               statements)))
+
+(defn update-indexes! [indexes transaction-log]
+  (add-transactions-to-indexes indexes
+                               (transaction-log/subseq transaction-log
+                                                       (first-unindexed-transacion-number-for-index-map indexes))))
+
+(defn update-indexes-2! [db]
+  (doseq [[transaction-number statements] (transaction-log/subseq (:transaction-log db)
+                                                                  (first-unindexed-transacion-number db))]
+    (doseq [index (vals (:indexes db))]
+      (add-transaction-to-index! index
+                                 (:indexes db)
+                                 transaction-number
+                                 statements)))
+  db)
+
+(defn update-indexes [db]
+  (update db :indexes update-indexes! (:transaction-log db)))
+
+(defn transact [db statements]
+  (let [statements (expand-set-statements (get-in db [:indexes :eav])
+                                          statements)]
+    (-> db
+        (add-log-entry statements)
+        (update-indexes))))
+
+(defn transact! [db statements]
+  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
+                                          statements)
+        transaction-number (transaction-log/add! (:transaction-log db)
+                                                 statements)]
+    (add-transaction-to-indexes! (:indexes db)
+                                 transaction-number
+                                 statements)))
+
+(defn set [db entity attribute value]
+  (transact! db
+             [[entity attribute :set value]]))
 
 #_(deftype Entity [indexes entity-id transaction-number]
     Object
@@ -915,13 +947,25 @@
 
                                       (let [values (fn [transaction-number]
                                                      (for [attribute attributes]
-                                                       (values-from-eatcv (:eatcv indexes)
-                                                                          affected-entity-id
-                                                                          attribute
-                                                                          transaction-number)))
+                                                       (do (prn affected-entity-id
+                                                                attribute
+                                                                transaction-number
+                                                                (values-from-eav (:eav indexes)
+                                                                                 affected-entity-id
+                                                                                 attribute
+                                                                                 transaction-number)) ;; TODO: remove-me
 
+                                                           (values-from-eav (:eav indexes)
+                                                                            affected-entity-id
+                                                                            attribute
+                                                                            transaction-number))))
                                             old-combinations (clojure.core/set (apply combinatorics/cartesian-product (values (dec transaction-number))))
                                             new-combinations (clojure.core/set (apply combinatorics/cartesian-product (values transaction-number)))]
+
+                                        (prn attributes
+                                             old-combinations
+                                             new-combinations
+                                             (:eav indexes)) ;; TODO: remove-me
 
                                         (concat (for [combination (set/difference old-combinations
                                                                                   new-combinations)]

@@ -51,7 +51,7 @@
                                         nil)))
 
     (is (= '([1 :name 0 :set "foo"])
-           (common/datoms-from-index  (-> indexes :eatcv :index)
+           (common/matching-datoms-from-index  (-> indexes :eatcv :index)
                                       [1 :name nil nil nil])))
 
     (is (= #{"foo"}
