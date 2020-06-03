@@ -2,6 +2,7 @@
   (:require [argumentica.index :as index]
             [argumentica.comparator :as comparator]
             [argumentica.util :as util]
+            [argumentica.db.common :as common]
             [argumentica.db.common :as common])
   (:use clojure.test))
 
@@ -57,7 +58,7 @@
   [this key]
   (merge-sequences (filter (fn [datom]
                              (>= (:base-transaction-number this)
-                                 (get datom (:datom-transaction-number-index this))))
+                                 (common/transaction-number datom)))
                            (index/inclusive-subsequence (:base-sorted-datom-set this)
                                                         key))
                    (index/inclusive-subsequence (:branch-datom-set this)

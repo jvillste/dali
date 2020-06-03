@@ -4,7 +4,8 @@
             [clj-time.coerce :as coerce]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as string])
+            [clojure.string :as string]
+            [argumentica.util :as util])
   (:use clojure.test))
 
 (defn transduce-lines
@@ -63,9 +64,6 @@
                           conj
                           [])))
 
-(defn pad [n coll val]
-  (take n (concat coll (repeat val))))
-
 (def default-options {:separator ";"
                       :quote "\""})
 
@@ -77,7 +75,7 @@
                                          (:separator options)
                                          (:quote options)))
                            (map (fn [values]
-                                  (dissoc (apply hash-map (interleave headers (pad (count headers)
+                                  (dissoc (apply hash-map (interleave headers (util/pad (count headers)
                                                                                    values
                                                                                    nil)))
                                           nil)))

@@ -76,8 +76,7 @@
 
 (s/defschema IndexDefinition
   {:key s/Keyword
-   :statement-to-datoms StatementToDatoms
-   :datom-transaction-number-index s/Int})
+   :statement-to-datoms StatementToDatoms})
 
 (s/defschema Index
   (merge IndexDefinition

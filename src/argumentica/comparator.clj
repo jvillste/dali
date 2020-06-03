@@ -106,7 +106,13 @@
         nil))
 
 (deftest test-compare-with-extremes
-  (is (= 1 (compare-extremes ::max 1 ))))
+  (is (= 1 (compare-extremes ::max 1 )))
+  (is (= -1 (compare-extremes 1 ::max)))
+
+  (is (= -1 (compare-extremes ::min 1)))
+  (is (= 1 (compare-extremes 1 ::min)))
+
+  (is (= nil (compare-extremes ::min ::min))))
 
 (defn compare-datoms
   [x y]

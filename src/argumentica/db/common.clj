@@ -11,7 +11,8 @@
             [argumentica.db.db :as db]
             [argumentica.util :as util]
             [clojure.math.combinatorics :as combinatorics]
-            [argumentica.log :as log])
+            [argumentica.log :as log]
+            [schema.core :as schema])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -246,9 +247,17 @@
               true))
           (map vector pattern datom)))
 
-(defn datoms-starting-from-index [index pattern]
-  (or (index/inclusive-subsequence (:index index)
-                                   pattern)
+
+(def datoms-starting-from-index-options {(schema/optional-key :reverse?) schema/Bool})
+
+(util/defno datoms-starting-from-index [index pattern {:keys [reverse?] :or {reverse? false}} :- datoms-starting-from-index-options]
+  (or (if reverse?
+        (index/inclusive-reverse-subsequence (:index index)
+                                             (util/pad (count (first (index/inclusive-subsequence (:index index) nil)))
+                                                       pattern
+                                                       ::comparator/max))
+        (index/inclusive-subsequence (:index index)
+                                     pattern))
       []))
 
 (defn datoms-from [db index-key pattern]
@@ -288,9 +297,10 @@
                 #{}
                 (take-until-transaction-number last-transaction-numer datoms))))
 
-(defn datoms-by-proporistion [index pattern last-transaction-number]
+(util/defno datoms-by-proporistion [index pattern last-transaction-number options :- datoms-starting-from-index-options]
   (->> (datoms-starting-from-index index
-                                   pattern)
+                                   pattern
+                                   options)
        (partition-by proposition)
        (map (partial take-until-transaction-number
                      last-transaction-number))))
@@ -322,18 +332,15 @@
                                                   pattern
                                                   last-transaction-number))))
 
-(defn propositions-from-index [index pattern last-transaction-number]
+(defn index [db index-key]
+  (get-in db [:indexes index-key]))
+
+(util/defno propositions-from-index [index pattern last-transaction-number options :- datoms-starting-from-index-options]
   (mapcat reduce-propositions
           (datoms-by-proporistion index
                                   pattern
-                                  last-transaction-number)))
-
-(defn propositions-from-db [db index-key starting-pattern last-transaction-number]
-  (->> (datoms-starting-from-index (get-in db [:indexes index-key])
-                                   starting-pattern)
-       (partition-by proposition)
-       (mapcat (partial propositions
-                        last-transaction-number))))
+                                  last-transaction-number
+                                  options)))
 
 (defn datoms [db index-key pattern]
   (matching-datoms-from-index (get-in db [:indexes index-key])
@@ -947,25 +954,12 @@
 
                                       (let [values (fn [transaction-number]
                                                      (for [attribute attributes]
-                                                       (do (prn affected-entity-id
-                                                                attribute
-                                                                transaction-number
-                                                                (values-from-eav (:eav indexes)
-                                                                                 affected-entity-id
-                                                                                 attribute
-                                                                                 transaction-number)) ;; TODO: remove-me
-
-                                                           (values-from-eav (:eav indexes)
-                                                                            affected-entity-id
-                                                                            attribute
-                                                                            transaction-number))))
+                                                       (values-from-eav (:eav indexes)
+                                                                        affected-entity-id
+                                                                        attribute
+                                                                        transaction-number)))
                                             old-combinations (clojure.core/set (apply combinatorics/cartesian-product (values (dec transaction-number))))
                                             new-combinations (clojure.core/set (apply combinatorics/cartesian-product (values transaction-number)))]
-
-                                        (prn attributes
-                                             old-combinations
-                                             new-combinations
-                                             (:eav indexes)) ;; TODO: remove-me
 
                                         (concat (for [combination (set/difference old-combinations
                                                                                   new-combinations)]
@@ -979,8 +973,7 @@
                                                   (vec (concat combination
                                                                [affected-entity-id
                                                                 transaction-number
-                                                                :add])))))))))
-   :datom-transaction-number-index (count attributes)})
+                                                                :add])))))))))})
 
 (defn new-id []
   (UUID/randomUUID))

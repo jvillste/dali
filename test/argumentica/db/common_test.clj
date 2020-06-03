@@ -4,6 +4,7 @@
                          [sorted-set-db :as sorted-set-db]
                          [btree :as btree]
                          [index :as index]
+                         [comparator :as comparator]
                          [sorted-map-transaction-log :as sorted-map-transaction-log])
             [argumentica.btree-index :as btree-index]
             [argumentica.sorted-set-index :as sorted-set-index])
@@ -26,26 +27,6 @@
                                  #{[1 :friend :set 3]})]
            (index/inclusive-subsequence (-> db :indexes :eav :index)
                                         [1 :friend nil nil nil])))))
-
-#_(deftest test-eat-datoms-from-eatcv
-  (let [db (-> (sorted-set-db/create)
-               (sorted-set-db/transact [[1 :friend :set 2]
-                                        [2 :friend :set 1]])
-               (sorted-set-db/transact [[1 :friend :set 3]]))]
-
-    (is (= [[1 :friend 0 :add 2]]
-           (common/eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
-                                         1
-                                         :friend
-                                         0)))
-
-    (is (= '([1 :friend 0 :add 2]
-             [1 :friend 1 :add 3]
-             [1 :friend 1 :remove 2])
-           (common/eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
-                                         1
-                                         :friend
-                                         1)))))
 
 (deftest test-datoms-from-index
   (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
@@ -75,6 +56,35 @@
            (common/datoms-from-index (-> db :indexes :eav)
                                      [:entity-1 :attribute-2]
                                      0)))))
+
+(deftest test-datoms-starting-from-index
+  (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :add 1]
+                                [:entity-1 :attribute-1 :add 2]
+                                [:entity-1 :attribute-1 :add 3]}))]
+
+    (is (= '([:entity-1 :attribute-1 1 0 :add]
+             [:entity-1 :attribute-1 2 0 :add]
+             [:entity-1 :attribute-1 3 0 :add])
+           (common/datoms-starting-from-index (-> db :indexes :eav)
+                                              [])))
+
+    (is (= '([:entity-1 :attribute-1 2 0 :add]
+             [:entity-1 :attribute-1 3 0 :add])
+           (common/datoms-starting-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-1 2])))
+
+    (is (= '([:entity-1 :attribute-1 3 0 :add]
+             [:entity-1 :attribute-1 2 0 :add]
+             [:entity-1 :attribute-1 1 0 :add])
+           (common/datoms-starting-from-index (-> db :indexes :eav)
+                                              []
+                                              {:reverse? true})))
+
+    (is (= '([:entity-1 :attribute-1 2 0 :add]
+             [:entity-1 :attribute-1 1 0 :add])
+           (common/datoms-starting-from-index (-> db :indexes :eav)
+                                              [:entity-1 :attribute-1 2]
+                                              {:reverse? true})))))
 
 
 (deftest test-matching-datoms-from-index
@@ -183,12 +193,14 @@
                                       #{[:entity-1 :attribute-2 :remove :value-2]}))))
 
 (defn propositions-from-composite-index [last-transaction-number pattern & transactions]
-  (-> (reduce common/transact
-              (create-db-with-composite-index)
-              transactions)
-      (common/propositions-from-db :composite pattern last-transaction-number)))
+  (let [db (reduce common/transact
+                   (create-db-with-composite-index)
+                   transactions)]
+    (common/propositions-from-index (common/index db :composite)
+                                    pattern
+                                    last-transaction-number)))
 
-(deftest test-propositions-from-db
+(deftest test-propositions-from-index
   (is (= '()
          (propositions-from-composite-index nil [] #{})))
 
@@ -222,16 +234,6 @@
                                               #{[:entity-1 :attribute-1 :add :value-1]
                                                 [:entity-1 :attribute-1 :add :value-2]
                                                 [:entity-1 :attribute-2 :add :value-2]})))))
-
-(comment
-  (propositions-from-composite-index nil [] #{[:entity-1 :attribute-1 :add :value-1]
-                                              [:entity-1 :attribute-2 :add :value-2]})
-  (datoms-from-composite-index #{[:entity-1 :attribute-1 :add :value-1]})
-
-  (do (println 1)
-      4)
-
-  ) ;; TODO: remove-me
 
 #_(deftest read-only-index-test
   (let [metadata-storage (hash-map-storage/create)

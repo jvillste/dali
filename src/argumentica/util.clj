@@ -1,7 +1,20 @@
 (ns argumentica.util
   (:use clojure.test)
   (:require [clojure.string :as string]
-            [flatland.useful.map :as map]))
+            [flatland.useful.map :as map]
+            [schema.core :as schema]))
+
+(defn pad [n coll val]
+  (take n (concat coll (repeat val))))
+
+(defmacro defno [name arguments & body]
+  (let [arguments-without-options (vec (drop-last 3 arguments))]
+    `(schema/defn ~name
+       (~arguments-without-options
+        (~name ~@(conj arguments-without-options {})))
+
+       (~arguments
+        ~@body))))
 
 (defn filter-sorted-map-keys [the-sorted-map predicate]
   (apply sorted-map (apply concat (filter (fn [[key _value]]

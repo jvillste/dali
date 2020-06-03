@@ -23,7 +23,7 @@
                  [com.taoensso/nippy "2.14.0"]
                  [org.flatland/useful "0.11.5"]
                  [logga "0.1.0-SNAPSHOT"]
-                 [prismatic/schema "1.1.9"]
+                 [prismatic/schema "1.1.12"]
                  [org.clojure/tools.trace "0.7.10"]]
   :test-paths ["src/clj" "test"]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]

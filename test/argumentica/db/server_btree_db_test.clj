@@ -15,13 +15,11 @@
 
 (deftest test-full-text
   (let [index-definitions [{:key :eatcv
-                            :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms
-                            :datom-transaction-number-index 2}
+                            :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
                            {:key :full-text
                             :eatcv-to-datoms (partial db-common/eatcv-to-full-text-avtec (fn [string]
                                                                                            (->> (string/split string #" ")
-                                                                                                (map string/lower-case))))
-                            :datom-transaction-number-index 2}]
+                                                                                                (map string/lower-case))))}]
         server-db (-> (db-common/db-from-index-definitions index-definitions
                                                            (fn [_index-name] (btree-index/create-memory-btree-index 21))
                                                            (sorted-map-transaction-log/create))
