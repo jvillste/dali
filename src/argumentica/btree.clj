@@ -10,7 +10,8 @@
             [clojure.test :refer :all]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as properties]))
+            [clojure.test.check.properties :as properties]
+            [argumentica.log :as log]))
 
 (defn create-sorted-set [& keys]
   (apply sorted-set-by
@@ -427,67 +428,62 @@
                        :root-id 5}
                       [5 1 2]))))
 
+(def direction? #{:forwards :backwards})
 
+(defn splitter-next-to-child [node child-id direction]
+  (assert (direction? direction))
 
-(defn splitter-besides-child [node child-id before]
   ;; TODO: This is linear time. Could we find the last value in
   ;; the child node and then find the splitter both in logarithmic time?
   (nth (seq (:values node))
        (let [index (find-index (:child-ids node)
                                child-id)]
-         (if before
-           (dec index)
-           index)) 
+         (if (= direction :forwards)
+           index
+           (dec index)))
        nil))
 
-(deftest test-splitter-besides-child
+(deftest test-splitter-next-to-child
   (is (= 3
-         (splitter-besides-child {:values (create-sorted-set 3)
+         (splitter-next-to-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  0
-                                 false)))
+                                 :forwards)))
   (is (= nil
-         (splitter-besides-child {:values (create-sorted-set 3)
+         (splitter-next-to-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  2
-                                 false)))
+                                 :forwards)))
 
   (is (= nil
-         (splitter-besides-child {:values (create-sorted-set 3)
+         (splitter-next-to-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  0
-                                 true)))
+                                 :backwards)))
   (is (= 3
-         (splitter-besides-child {:values (create-sorted-set 3)
+         (splitter-next-to-child {:values (create-sorted-set 3)
                                   :child-ids [0 2]}
                                  2
-                                 true))))
+                                 :backwards))))
 
+(defn splitter-next-to-cursor [btree cursor direction]
+  (assert (direction? direction))
 
-
-(defn drop-until-equal [sequence value]
-  (drop-while #(not= % value)
-              sequence))
-
-
-(defn children-after [parent child-id]
-  (rest (drop-until-equal (:child-ids parent)
-                          child-id)))
-
-(defn splitter-after-cursor [btree cursor]
   (loop [cursor cursor]
     (if-let [parent (node btree
                           (last (drop-last cursor)))]
-      (if (empty? (children-after parent
-                                  (last cursor)))
+      (if (if (= direction :forwards)
+            (= (last cursor)
+               (last (:child-ids parent)))
+            (= (last cursor)
+               (first (:child-ids parent))))
         (recur (drop-last cursor))
-        (splitter-besides-child parent
+        (splitter-next-to-child parent
                                 (last cursor)
-                                false))
+                                direction))
       nil)))
 
-
-(deftest test-splitter-after-cursor
+(deftest test-splitter-next-to-cursor
   (let [btree {:nodes {0 {:values (create-sorted-set 0)}
                        1 {:values (create-sorted-set 1)
                           :child-ids [0 2]}
@@ -501,16 +497,24 @@
                :next-node-id 7,
                :root-id 5}]
     (is (= 3
-           (splitter-after-cursor btree
-                                  [5 1 2])))
+           (splitter-next-to-cursor btree
+                                    [5 1 2]
+                                    :forwards)))
 
     (is (= nil
-           (splitter-after-cursor btree
-                                  [5 6 4])))
+           (splitter-next-to-cursor btree
+                                    [5 6 4]
+                                    :forwards)))
 
     (is (= 5
-           (splitter-after-cursor btree
-                                  [5 6 3]))))
+           (splitter-next-to-cursor btree
+                                    [5 6 3]
+                                    :forwards)))
+
+    (is (= 1
+           (splitter-next-to-cursor btree
+                                    [5 1 2]
+                                    :backwards))))
 
 
   (let [btree {:nodes
@@ -521,24 +525,37 @@
                :root-id 1}]
 
     (is (= 3
-           (splitter-after-cursor btree
-                                  [1 0])))
+           (splitter-next-to-cursor btree
+                                    [1 0]
+                                    :forwards)))
 
     (is (= nil
-           (splitter-after-cursor btree
-                                  [1 2])))))
+           (splitter-next-to-cursor btree
+                                    [1 2]
+                                    :forwards)))))
 
-(defn append-if-not-null [collection value]
-  (if value
-    (concat collection
-            [value])
-    collection))
+(defn order-by-direction [direction values]
+  (if (= :forwards direction)
+    values
+    (reverse values)))
 
-(defn sequence-for-cursor [btree cursor]
-  (append-if-not-null (seq (:values (node btree
-                                          (last cursor))))
-                      (splitter-after-cursor btree
-                                             cursor)))
+(defn combine-splitter-and-values [values splitter direction]
+  (if splitter
+    (if (= :forwards direction)
+      (concat values
+              [splitter])
+      (concat values
+              [splitter]))
+    (seq values)))
+
+(defn sequence-for-cursor [btree cursor direction]
+  (combine-splitter-and-values (order-by-direction direction
+                                                   (seq (:values (node btree
+                                                                       (last cursor)))))
+                               (splitter-next-to-cursor btree
+                                                        cursor
+                                                        direction)
+                               direction))
 
 (deftest test-sequence-for-cursor
   (is (= [1 2 3]
@@ -546,13 +563,24 @@
                                {0 {:values (create-sorted-set 1 2)},
                                 1 {:values (create-sorted-set 3), :child-ids [0 2]},
                                 2 {:values (create-sorted-set 4 5 6)}}}
-                              [1 0])))
+                              [1 0]
+                              :forwards)))
+
+  (is (= [6 5 4 3]
+         (sequence-for-cursor {:nodes
+                               {0 {:values (create-sorted-set 1 2)},
+                                1 {:values (create-sorted-set 3), :child-ids [0 2]},
+                                2 {:values (create-sorted-set 4 5 6)}}}
+                              [1 2]
+                              :backwards)))
+
   (is (= [4 5 6]
          (sequence-for-cursor {:nodes
                                {0 {:values (create-sorted-set 1 2)},
                                 1 {:values (create-sorted-set 3), :child-ids [0 2]},
                                 2 {:values (create-sorted-set 4 5 6)}}}
-                              [1 2]))))
+                              [1 2]
+                              :forwards))))
 
 (defn loaded-node-count [btree]
   (count (keys (:nodes btree))))
@@ -1226,49 +1254,54 @@
                                     (reduce add btree (range 10))
                                     (unload-excess-nodes btree 5)))))))))
 
-(defn btree-and-node-id-besides-splitter [btree-atom splitter direction]
+(defn btree-and-node-id-next-to-splitter [btree-atom splitter direction]
   (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                           splitter)
-
         node-with-the-splitter (node btree
                                      (last cursor))
-        node-id-after-splitter (get (:child-ids node-with-the-splitter)
-                                    ((if (= :after direction)
-                                       inc
-                                       dec)
-                                     (find-index (:values node-with-the-splitter)
-                                                       splitter)))]
-
-    {:node-id-after-splitter node-id-after-splitter
+        node-id-next-to-splitter (get (:child-ids node-with-the-splitter)
+                                      ((if (= :forwards direction)
+                                         inc
+                                         identity)
+                                       (find-index (:values node-with-the-splitter)
+                                                   splitter)))]
+    {:node-id-next-to-splitter node-id-next-to-splitter
      :btree btree
      :cursor (conj cursor
-                   node-id-after-splitter)}))
+                   node-id-next-to-splitter)}))
 
-(defn sequence-after-splitter [btree-atom splitter]
-  (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-besides-splitter btree-atom
-                                                                                          splitter
-                                                                                          :after)]
+(defn sequence-after-splitter [btree-atom splitter direction]
+  (let [{:keys [node-id-next-to-splitter btree cursor]} (btree-and-node-id-next-to-splitter btree-atom
+                                                                                            splitter
+                                                                                            direction)]
 
     (loop [btree btree
            cursor cursor
-           node-id node-id-after-splitter]
+           node-id node-id-next-to-splitter]
       (if (storage-key? node-id)
         (do (load-node-to-atom btree-atom
                                (parent-id cursor)
                                node-id)
-            (let [{:keys [node-id-after-splitter btree cursor]} (btree-and-node-id-besides-splitter btree-atom
-                                                                                                    splitter
-                                                                                                    :after)]
+            (let [{:keys [node-id-next-to-splitter btree cursor]} (btree-and-node-id-next-to-splitter btree-atom
+                                                                                                      splitter
+                                                                                                      direction)]
               (recur btree
                      cursor
-                     node-id-after-splitter)))
+                     node-id-next-to-splitter)))
         (let [the-node (node btree
                              node-id)]
+
           (if (leaf-node? the-node)
-            (append-if-not-null (:values the-node)
-                                (splitter-after-cursor btree
-                                                       cursor))
-            (let [the-child-id (first (:child-ids the-node))]
+            (combine-splitter-and-values (order-by-direction direction
+                                                             (:values the-node))
+                                         (splitter-next-to-cursor btree
+                                                                  cursor
+                                                                  direction)
+                                         direction)
+            (let [the-child-id ((if (= :forwards direction)
+                                  first
+                                  last)
+                                (:child-ids the-node))]
               (recur btree
                      (conj cursor the-child-id)
                      the-child-id))))))))
@@ -1295,23 +1328,39 @@
     (are [splitter sequence]
         (= sequence
            (sequence-after-splitter btree-atom
-                                    splitter))
+                                    splitter
+                                    :forwards))
 
       3   [4 5]
-      8   nil)))
+      8   nil)
+
+    (are [splitter sequence]
+        (= sequence
+           (sequence-after-splitter btree-atom
+                                    splitter
+                                    :backwards))
+
+      3  [2 1]
+      1  [0])))
 
 
-(defn sequence-for-value [btree-atom value]
+(defn sequence-for-value [btree-atom value direction]
   (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                           value)]
     (let [the-node (node btree
                          (last cursor))]
       (if (leaf-node? the-node)
-        (append-if-not-null (subseq (:values the-node)
-                                    >=
-                                    value)
-                            (splitter-after-cursor btree
-                                                   cursor))
+        (combine-splitter-and-values (if (= :forwards direction)
+                                       (subseq (:values the-node)
+                                               >=
+                                               value)
+                                       (rsubseq (:values the-node)
+                                                <=
+                                                value))
+                                     (splitter-next-to-cursor btree
+                                                              cursor
+                                                              direction)
+                                     direction)
         [value]))))
 
 (deftest test-sequence-for-value
@@ -1331,33 +1380,53 @@
     (are [value sequence]
         (= sequence
            (sequence-for-value btree-atom
-                               value))
+                               value
+                               :forwards))
 
-      0   [1 2 3]
-      1   [1 2 3]
-      3   [3]
-      -10 [1 2 3]
-      5   [5 6]
-      50  nil
-      ::comparator/min [1 2 3])))
+        0   [1 2 3]
+        1   [1 2 3]
+        3   [3]
+        -10 [1 2 3]
+        5   [5 6]
+        50  nil
+        ::comparator/min [1 2 3])
 
-(defn lazy-value-sequence [btree-atom sequence]
+    (are [value sequence]
+        (= sequence
+           (sequence-for-value btree-atom
+                               value
+                               :backwards))
+
+        0   nil
+        1   [1]
+        3   [3]
+        -10 nil
+        5   [5 4 3]
+        50  [6 5 4 3]
+        ::comparator/min nil
+        ::comparator/max [6 5 4 3])))
+
+(defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))
                       sequence
                       (if-let [value (first sequence)]
                         (cons value
                               (sequence-after-splitter btree-atom
-                                                       (first sequence)))
+                                                       (first sequence)
+                                                       direction))
                         nil))]
     (lazy-seq (cons (first sequence)
                     (lazy-value-sequence btree-atom
-                                         (rest sequence))))
+                                         (rest sequence)
+                                         direction)))
     nil))
 
 (defn inclusive-subsequence [btree-atom value]
   (lazy-value-sequence btree-atom
                        (sequence-for-value btree-atom
-                                           value)))
+                                           value
+                                           :forwards)
+                       :forwards))
 
 (deftest test-inclusive-subsequence
   (let [btree-atom (atom {:nodes
@@ -1405,20 +1474,84 @@
                                                   values))
                                     (first values)))))))
 
+
+(defn inclusive-reverse-subsequence [btree-atom value]
+  (lazy-value-sequence btree-atom
+                       (sequence-for-value btree-atom
+                                           value
+                                           :backwards)
+                       :backwards))
+
+
+(deftest test-inclusive-reverse-subsequence
+  (let [btree-atom (atom {:nodes
+                          {0 {:values (create-sorted-set 1 2)},
+                           1 {:values (create-sorted-set 3)
+                              :child-ids [0 2]},
+                           2 {:values (create-sorted-set 4 5 6)}}
+                          :root-id 1
+                          :next-node-id 3
+                          :usages {}
+                          :node-storage (hash-map-storage/create)
+                          :metadata-storage (hash-map-storage/create)})]
+
+    (swap! btree-atom
+           unload-btree)
+
+    (is (= 3
+           (count (storage/storage-keys! (:metadata-storage @btree-atom)))))
+
+    (is (= nil
+           (inclusive-reverse-subsequence btree-atom
+                                          0)))
+
+
+    (is (= [2 1]
+           (inclusive-reverse-subsequence btree-atom
+                                          2)))
+
+    (is (= [3 2 1]
+           (inclusive-reverse-subsequence btree-atom
+                                          3)))
+
+    (is (= [4 3 2 1]
+           (inclusive-reverse-subsequence btree-atom
+                                          4)))
+
+    (is (= [6 5 4 3 2 1]
+           (inclusive-reverse-subsequence btree-atom
+                                          7)))
+
+    (let [values (range 200)]
+      (is (= (reverse values)
+             (inclusive-reverse-subsequence (atom (reduce add
+                                                          (create (full-after-maximum-number-of-values 3))
+                                                          values))
+                                            (last values)))))))
+
 (deftest test-btree
   (repeatedly 100
               (let [maximum 1000
                     values (take 200
                                  (repeatedly (fn [] (rand-int maximum))))
-                    smallest (rand maximum)]
+                    first-value (rand maximum)
+                    create-btree-atom (fn []
+                                        (atom (reduce add
+                                                      (create (full-after-maximum-number-of-values 3))
+                                                      values)))]
                 (is (= (subseq (apply create-sorted-set
                                       values)
                                >=
-                               smallest)
-                       (inclusive-subsequence (atom (reduce add
-                                                            (create (full-after-maximum-number-of-values 3))
-                                                            values))
-                                              smallest))))))
+                               first-value)
+                       (inclusive-subsequence (create-btree-atom)
+                                              first-value)))
+
+                (is (= (rsubseq (apply create-sorted-set
+                                       values)
+                                <=
+                                first-value)
+                       (inclusive-reverse-subsequence (create-btree-atom)
+                                                      first-value))))))
 
 #_(defn write-metadata [btree]
     (put-to-storage (:node-storage btree)
