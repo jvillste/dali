@@ -292,11 +292,6 @@
                 #{}
                 datoms)))
 
-(defn propositions [last-transaction-numer datoms]
-  (sort (reduce accumulate-propositions
-                #{}
-                (take-until-transaction-number last-transaction-numer datoms))))
-
 (util/defno datoms-by-proporistion [index pattern last-transaction-number options :- datoms-starting-from-index-options]
   (->> (datoms-starting-from-index index
                                    pattern
@@ -341,6 +336,20 @@
                                   pattern
                                   last-transaction-number
                                   options)))
+
+(def propositions-options (merge datoms-starting-from-index-options
+                                 {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
+
+(util/defno propositions [db index-key pattern options :- propositions-options]
+  (let [propositions (propositions-from-index (index db index-key)
+                                              pattern
+                                              (:last-transaction-number db)
+                                              options)]
+    (if (:take-while-pattern-matches? options)
+      (take-while-pattern-matches pattern
+                                  propositions)
+      propositions)))
+
 
 (defn datoms [db index-key pattern]
   (matching-datoms-from-index (get-in db [:indexes index-key])
@@ -452,11 +461,6 @@
     (transaction-log/last-transaction-number transaction-log)
     nil))
 
-(defn values [db entity-id attribute]
-  (values-from-eatcv-datoms (datoms db
-                                    :eatcv
-                                    [entity-id attribute])))
-
 (defn values-from-eatcv
   ([eatcv-index entity-id attribute]
    (values-from-eatcv-datoms (matching-datoms-from-index eatcv-index
@@ -474,10 +478,7 @@
   ([eatcv-index entity-id attribute last-transaction-number]
    (first (values-from-eatcv eatcv-index entity-id attribute last-transaction-number))))
 
-(defn value [db entity-id attribute]
-  (first (values db
-                 entity-id
-                 attribute)))
+
 
 (defn datom-to-eacv-statemnt [[e a t c v]]
   [e a c v])
@@ -587,6 +588,17 @@
                                     (propositions-from-index eav-index
                                                              [entity-id attribute]
                                                              last-transaction-number)))))
+
+(defn values [db entity-id attribute]
+  (values-from-eav (index db :eav)
+                   entity-id
+                   attribute
+                   (:last-transaction-number db)))
+
+(defn value [db entity-id attribute]
+  (first (values db
+                 entity-id
+                 attribute)))
 
 (defn- remove-statements [eav-index entity attribute]
   (for [value (values-from-eav eav-index entity attribute)]
@@ -742,15 +754,16 @@
                                       entity-id
                                       attribute))))
 
-(defn entity-datoms-from-eatcv [eatcv entity-id]
+(defn entity-datoms-from-eav [eatcv entity-id]
   (take-while (fn [[e a t c v]]
                 (= e entity-id))
               (index/inclusive-subsequence eatcv
                                            [entity-id nil nil nil nil])))
 
 (defn entity-attributes [db entity-id]
-  (->> (entity-datoms-from-eatcv (-> db :indexes :eatcv :index)
-                                 entity-id)
+  (->> (propositions db
+                     :eav
+                     [entity-id])
        (map second)
        (into #{})
        (#(conj % :dali/id))))
@@ -908,39 +921,32 @@
 
 (defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
   (if (string? v)
-    (let [old-tokens (clojure.core/set (mapcat tokenize (values {:indexes indexes
-                                                                 :last-transaction-number (dec t)}
-                                                                e
-                                                                a)))]
+    (let [old-tokens (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
+                                                                         e
+                                                                         a
+                                                                         (dec t))))]
       (case c
 
         :remove
         (for [token (set/difference old-tokens
                                     (clojure.core/set (mapcat tokenize
-                                                              (values-from-eatcv-datoms (concat (datoms {:indexes indexes}
-                                                                                                        :eatcv
-                                                                                                        [e a nil nil nil])
-                                                                                                [[e a t c v]])))))]
-          [a token t e :remove])
+                                                              (values-from-eav (:eav indexes)
+                                                                               e
+                                                                               a
+                                                                               t))))]
+          [a token e t :remove])
 
         :add
         (for [token (set/difference (clojure.core/set (tokenize v))
                                     old-tokens)]
-          [a token t e :add])
-
-        :set
-        (let [new-tokens (clojure.core/set (tokenize v))]
-          (concat (for [token (set/difference new-tokens old-tokens)]
-                    [a token t e :add])
-                  (for [token (set/difference old-tokens new-tokens)]
-                    [a token t e :remove])))))
+          [a token e t :add])))
     []))
 
 (def full-text-index-definition {:key :full-text
                                  :eatcv-to-datoms (partial eatcv-to-full-text-avtec tokenize)
                                  :datom-transaction-number-index 2})
 
-(defn composite-index-definition [key & attributes]
+(defn composite-index-definition [key include-entity-id? & attributes]
   {:key key
    :statements-to-datoms (let [attributes-set (clojure.core/set attributes)]
                            (fn [indexes transaction-number statements]
@@ -964,16 +970,22 @@
                                         (concat (for [combination (set/difference old-combinations
                                                                                   new-combinations)]
                                                   (vec (concat combination
-                                                               [affected-entity-id
-                                                                transaction-number
-                                                                :remove])))
+                                                               (if include-entity-id?
+                                                                 [affected-entity-id
+                                                                  transaction-number
+                                                                  :remove]
+                                                                 [transaction-number
+                                                                  :remove]))))
 
                                                 (for [combination (set/difference new-combinations
                                                                                   old-combinations)]
                                                   (vec (concat combination
-                                                               [affected-entity-id
-                                                                transaction-number
-                                                                :add])))))))))})
+                                                               (if include-entity-id?
+                                                                 [affected-entity-id
+                                                                  transaction-number
+                                                                  :add]
+                                                                 [transaction-number
+                                                                  :add]))))))))))})
 
 (defn new-id []
   (UUID/randomUUID))

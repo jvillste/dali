@@ -656,7 +656,8 @@
   (let [btree-atom (-> indexes :attributes :index-atom)]
     (btree/inclusive-subsequence btree-atom
                                  (first (btree/sequence-for-cursor @btree-atom
-                                                                   (btree/first-cursor @btree-atom)))))
+                                                                   (btree/first-cursor @btree-atom)
+                                                                   :forward))))
 
 
 
