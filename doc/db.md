@@ -10,12 +10,12 @@ Datomic like database that can be branched and merged like a git repository.
   * transaction number ( unique in branch )
   * value
   * command ( one of "add", "remove" or "set" )
-  
+
 ## Transaction
 
 * A set of datoms
 * ordered set of references to zero or more parent transactions
-  
+
 ## Branch
 
 * a sorted set of transactions that reference each other as their first parent
@@ -23,7 +23,7 @@ Datomic like database that can be branched and merged like a git repository.
 
 ## Branch part
 
-* transactions in a branch that have numbers in a given range 
+* transactions in a branch that have numbers in a given range
 
 ## Querying
 

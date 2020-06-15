@@ -39,7 +39,7 @@
 (defn statement-attribute [statement]
   (get statement 1))
 
-(defn statement-command [statement]
+(defn statement-operator [statement]
   (get statement 2))
 
 (defn statement-value [statement]
@@ -345,7 +345,8 @@
                                               pattern
                                               (:last-transaction-number db)
                                               options)]
-    (if (:take-while-pattern-matches? options)
+    (if (or (:take-while-pattern-matches? options)
+            true)
       (take-while-pattern-matches pattern
                                   propositions)
       propositions)))
@@ -485,7 +486,7 @@
 
 (defn squash-statements [statements]
   (reduce (fn [result-statements statement]
-            (case (statement-command statement)
+            (case (statement-operator statement)
               :add (conj (set/select (fn [result-statement]
                                        (not (and (= (statement-entity statement)
                                                     (statement-entity result-statement))
@@ -494,7 +495,7 @@
                                                  (= (statement-value statement)
                                                     (statement-value result-statement))
                                                  (= :remove
-                                                    (statement-command result-statement)))))
+                                                    (statement-operator result-statement)))))
                                      result-statements)
                          statement)
               :remove (let [removed-statements (set/select (fn [result-statement]
@@ -946,9 +947,78 @@
                                  :eatcv-to-datoms (partial eatcv-to-full-text-avtec tokenize)
                                  :datom-transaction-number-index 2})
 
-(defn composite-index-definition [key include-entity-id? & attributes]
+#_(defn- old-tokens [tokenize indexes entity attribute transaction-number]
+  (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
+                                                      entity
+                                                      attribute
+                                                      (dec transaction-number)))))
+
+#_(defn- removed-tokens* [old-tokens tokenize indexes entity attribute transaction-number]
+  (set/difference old-tokens
+                  (clojure.core/set (mapcat tokenize
+                                            (values-from-eav (:eav indexes)
+                                                             entity
+                                                             attribute
+                                                             transaction-number)))))
+
+#_(defn removed-tokens [tokenize indexes transaction-number [entity attribute operator value]]
+  (removed-tokens* (old-tokens tokenize indexes entity attribute transaction-number)
+                   tokenize indexes entity attribute transaction-number))
+
+#_(defn- added-tokens [tokenize indexes transaction-number [entity attribute operator value]]
+  (set/difference (clojure.core/set (tokenize value))
+                  (old-tokens tokenize indexes entity attribute transaction-number)))
+
+#_(defn token-operations [tokenize indexes transaction-number [entity attribute operator value]]
+  (let [old-tokens (old-tokens tokenize indexes entity attribute transaction-number)]
+    (case operator
+
+      :remove
+      (for [token (removed-tokens old-tokens tokenize indexes entity attribute transaction-number)]
+        {:token token
+         :operator :remove})
+
+      :add
+      (for [token (added-tokens tokenize value old-tokens)]
+        {:token token
+         :operator :add}))))
+
+#_(defn statements-to-token-datoms [tokenize propositions indexes transaction-number statements]
+  (for [[e a o v :as statement] statements
+        operation (token-operations tokenize
+                                    indexes
+                                    transaction-number
+                                    statement)
+        proposition (propositions indexes
+                                  operation
+                                  transaction-number
+                                  statement)]
+    (concat proposition
+            [transaction-number
+             (statement-operator statement)])))
+
+#_(defn token-index-definition [key propositions]
   {:key key
-   :statements-to-datoms (let [attributes-set (clojure.core/set attributes)]
+   :statements-to-datoms (partial statements-to-token-datoms
+                                  tokenize
+                                  propositions)})
+
+(defn attributes-from-column-definition [column-definition]
+  (if (keyword? column-definition)
+    [column-definition]
+    (:attributes column-definition)))
+
+(defn value-function-from-column-definition [column-definition]
+  (if-let [value-function (:value-function column-definition)]
+    value-function
+    (fn [value]
+      [value])))
+
+(defn composite-index-definition [key include-entity-id? column-definitions]
+  {:key key
+   :statements-to-datoms (let [attributes (mapcat attributes-from-column-definition
+                                                  column-definitions)
+                               attributes-set (clojure.core/set attributes)]
                            (fn [indexes transaction-number statements]
                              (apply concat
                                     (for [affected-entity-id (->> statements
@@ -959,11 +1029,14 @@
                                                                   (dedupe))]
 
                                       (let [values (fn [transaction-number]
-                                                     (for [attribute attributes]
-                                                       (values-from-eav (:eav indexes)
-                                                                        affected-entity-id
-                                                                        attribute
-                                                                        transaction-number)))
+                                                     (for [column-definition column-definitions]
+                                                       (apply concat
+                                                              (for [attribute (attributes-from-column-definition column-definition)]
+                                                                (mapcat (value-function-from-column-definition column-definition)
+                                                                        (values-from-eav (:eav indexes)
+                                                                                         affected-entity-id
+                                                                                         attribute
+                                                                                         transaction-number))))))
                                             old-combinations (clojure.core/set (apply combinatorics/cartesian-product (values (dec transaction-number))))
                                             new-combinations (clojure.core/set (apply combinatorics/cartesian-product (values transaction-number)))]
 

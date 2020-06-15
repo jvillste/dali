@@ -157,17 +157,20 @@
                                    :entity-1
                                    :attribute-2)))))
 
-(defn create-db-with-composite-index []
-  (common/db-from-index-definitions [common/eav-index-definition
-                                     (common/composite-index-definition :composite :attribute-1 :attribute-2)]
+(defn create-in-memory-db [index-definitions]
+  (common/db-from-index-definitions index-definitions
                                     (fn [index-key]
                                       #_(btree-index/create-memory-btree-index 101)
                                       (sorted-set-index/create))
                                     (sorted-map-transaction-log/create)))
 
+(defn create-db-with-composite-index [& composite-index-definition-arguments]
+  (create-in-memory-db [common/eav-index-definition
+                        (apply common/composite-index-definition composite-index-definition-arguments)]))
+
 (defn datoms-from-composite-index [& transactions]
   (-> (reduce common/transact
-              (create-db-with-composite-index)
+              (create-db-with-composite-index :composite true [:attribute-1 :attribute-2])
               transactions)
       (common/datoms-from :composite [])))
 
@@ -194,7 +197,7 @@
 
 (defn propositions-from-composite-index [last-transaction-number pattern & transactions]
   (let [db (reduce common/transact
-                   (create-db-with-composite-index)
+                   (create-db-with-composite-index :composite true [:attribute-1 :attribute-2])
                    transactions)]
     (common/propositions-from-index (common/index db :composite)
                                     pattern
@@ -235,66 +238,142 @@
                                                 [:entity-1 :attribute-1 :add :value-2]
                                                 [:entity-1 :attribute-2 :add :value-2]})))))
 
+(defn datoms-from-composite-index-with-value-function [arguments & transactions]
+  (-> (reduce common/transact
+              (apply create-db-with-composite-index :composite
+                     arguments)
+              transactions)
+      (common/datoms-from :composite [])))
+
+(def composite-index-with-one-attribute-and-value-function [true
+                                                            [:attribute-1
+                                                             {:attributes [:attribute-2]
+                                                              :value-function seq}]])
+
+(deftest test-value-function
+  (is (= '([:value-1 \f :entity-1 0 :add]
+           [:value-1 \o :entity-1 0 :add])
+         (datoms-from-composite-index-with-value-function composite-index-with-one-attribute-and-value-function
+                                                          #{[:entity-1 :attribute-1 :add :value-1]
+                                                            [:entity-1 :attribute-2 :add "foo"]})))
+
+  (is (= '([:value-1 \f :entity-1 0 :add]
+           [:value-1 \f :entity-1 1 :remove]
+           [:value-1 \o :entity-1 0 :add]
+           [:value-1 \o :entity-1 1 :remove])
+         (datoms-from-composite-index-with-value-function composite-index-with-one-attribute-and-value-function
+                                                          #{[:entity-1 :attribute-1 :add :value-1]
+                                                            [:entity-1 :attribute-2 :add "foo"]}
+                                                          #{[:entity-1 :attribute-1 :remove :value-1]})))
+
+  (is (= '([:value-1 \f :entity-1 0 :add]
+           [:value-1 \o :entity-1 0 :add]
+           [:value-1 \z :entity-1 1 :add])
+         (datoms-from-composite-index-with-value-function composite-index-with-one-attribute-and-value-function
+                                                          #{[:entity-1 :attribute-1 :add :value-1]
+                                                            [:entity-1 :attribute-2 :add "foo"]}
+                                                          #{[:entity-1 :attribute-2 :add "fooz"]})))
+
+  (is (= '([:value-1 \a :entity-1 1 :add]
+           [:value-1 \b :entity-1 1 :add]
+           [:value-1 \f :entity-1 0 :add]
+           [:value-1 \f :entity-1 1 :remove]
+           [:value-1 \o :entity-1 0 :add]
+           [:value-1 \o :entity-1 1 :remove]
+           [:value-1 \r :entity-1 1 :add])
+         (datoms-from-composite-index-with-value-function composite-index-with-one-attribute-and-value-function
+                                                          #{[:entity-1 :attribute-1 :add :value-1]
+                                                            [:entity-1 :attribute-2 :add "foo"]}
+                                                          #{[:entity-1 :attribute-2 :set "bar"]}))))
+
+(def composite-index-with-two-attribute-column [true
+                                                [{:attributes [:attribute-1
+                                                               :attribute-2]
+                                                  :value-function seq}]])
+(deftest test-two-attributes-in-one-column
+  (is (= '([\a :entity-1 0 :add]
+           [\b :entity-1 0 :add]
+           [\f :entity-1 0 :add]
+           [\o :entity-1 0 :add]
+           [\r :entity-1 0 :add])
+         (datoms-from-composite-index-with-value-function composite-index-with-two-attribute-column
+                                                          #{[:entity-1 :attribute-1 :add "foo"]
+                                                            [:entity-1 :attribute-2 :add "bar"]})))
+
+  (is (= '([\f :entity-1 0 :add]
+           [\o :entity-1 0 :add])
+         (datoms-from-composite-index-with-value-function composite-index-with-two-attribute-column
+                                                          #{[:entity-1 :attribute-1 :add "foo"]}))))
+
+
+(deftest test-enumeration-index
+  (is (= '([:value-1 0 :add])
+         (datoms-from-composite-index-with-value-function [false
+                                                           [:attribute-1]]
+                                                          #{[:entity-1 :attribute-1 :add :value-1]
+                                                            [:entity-2 :attribute-1 :add :value-1]}
+                                                          #{[:entity-2 :attribute-1 :remove :value-1]}))))
+
 #_(deftest read-only-index-test
-  (let [metadata-storage (hash-map-storage/create)
-        node-storage (hash-map-storage/create)
-        transaction-log (sorted-map-transaction-log/create)
-        transactor-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
-                                                                                                    :node-storage node-storage))
-                                                       :eatcv-to-datoms eatcv-to-eatcv-datoms}}
-                                     :transaction-log transaction-log)
-                          (transact [[1 :friend :set 2]
-                                     [2 :friend :set 1]])
-                          (flush-indexes-after-maximum-number-of-transactions 0)
-                          (common/transact [[1 :friend :set 3]]))
+    (let [metadata-storage (hash-map-storage/create)
+          node-storage (hash-map-storage/create)
+          transaction-log (sorted-map-transaction-log/create)
+          transactor-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                                      :node-storage node-storage))
+                                                         :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                                       :transaction-log transaction-log)
+                            (transact [[1 :friend :set 2]
+                                       [2 :friend :set 1]])
+                            (flush-indexes-after-maximum-number-of-transactions 0)
+                            (common/transact [[1 :friend :set 3]]))
 
-        read-only-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
-                                                                                                   :node-storage node-storage))
-                                                      :eatcv-to-datoms eatcv-to-eatcv-datoms
-                                                      :last-transaction-number (or (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
-                                                                                       :metadata
-                                                                                       :last-transaction-number)
-                                                                                   0)}}
-                                    :transaction-log transaction-log)
-                         (update-indexes))]
+          read-only-db (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                                     :node-storage node-storage))
+                                                        :eatcv-to-datoms eatcv-to-eatcv-datoms
+                                                        :last-transaction-number (or (-> (btree/latest-root (btree/roots-from-metadata-storage metadata-storage))
+                                                                                         :metadata
+                                                                                         :last-transaction-number)
+                                                                                     0)}}
+                                      :transaction-log transaction-log)
+                           (update-indexes))]
 
-    (is (= '([1 :friend 0 :set 2]
-             [1 :friend 1 :set 3]
-             [2 :friend 0 :set 1])
-           (btree/inclusive-subsequence (-> transactor-db :indexes :eatcv :index-atom)
-                                        [1 :friend nil nil nil])
-           (btree/inclusive-subsequence (-> read-only-db :indexes :eatcv :index-atom)
-                                        [1 :friend nil nil nil])))))
+      (is (= '([1 :friend 0 :set 2]
+               [1 :friend 1 :set 3]
+               [2 :friend 0 :set 1])
+             (btree/inclusive-subsequence (-> transactor-db :indexes :eatcv :index-atom)
+                                          [1 :friend nil nil nil])
+             (btree/inclusive-subsequence (-> read-only-db :indexes :eatcv :index-atom)
+                                          [1 :friend nil nil nil])))))
 
 #_(deftest test-db-reload
-  (let [metadata-storage (hash-map-storage/create)
-        node-storage (hash-map-storage/create)
-        transaction-log (sorted-map-transaction-log/create)
-        db1 (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
-                                                                                          :node-storage node-storage))
-                                             :eatcv-to-datoms eatcv-to-eatcv-datoms}}
-                           :transaction-log transaction-log)
-                (transact [[1 :friend :set 2]
-                           [2 :friend :set 1]])
-                (flush-indexes-after-maximum-number-of-transactions 0)
-                (transact [[1 :friend :set 3]]))
+    (let [metadata-storage (hash-map-storage/create)
+          node-storage (hash-map-storage/create)
+          transaction-log (sorted-map-transaction-log/create)
+          db1 (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                            :node-storage node-storage))
+                                               :eatcv-to-datoms eatcv-to-eatcv-datoms}}
+                             :transaction-log transaction-log)
+                  (transact [[1 :friend :set 2]
+                             [2 :friend :set 1]])
+                  (flush-indexes-after-maximum-number-of-transactions 0)
+                  (transact [[1 :friend :set 3]]))
 
-        db2 (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
-                                                                                          :node-storage node-storage))
-                                             :eatcv-to-datoms eatcv-to-eatcv-datoms
-                                             :last-transaction-number (last-transaction-number metadata-storage)}}
-                           :transaction-log transaction-log)
-                (transact [[1 :friend :set 4]]))]
+          db2 (-> (create-db :indexes {:eatcv {:index-atom (atom (btree/create-from-options :metadata-storage metadata-storage
+                                                                                            :node-storage node-storage))
+                                               :eatcv-to-datoms eatcv-to-eatcv-datoms
+                                               :last-transaction-number (last-transaction-number metadata-storage)}}
+                             :transaction-log transaction-log)
+                  (transact [[1 :friend :set 4]]))]
 
-    (is (= '([1 :friend 0 :set 2]
-             [1 :friend 1 :set 3]
-             [2 :friend 0 :set 1])
-           (btree/inclusive-subsequence (-> db1 :indexes :eatcv :index-atom)
-                                        [1 :friend nil nil nil])))
+      (is (= '([1 :friend 0 :set 2]
+               [1 :friend 1 :set 3]
+               [2 :friend 0 :set 1])
+             (btree/inclusive-subsequence (-> db1 :indexes :eatcv :index-atom)
+                                          [1 :friend nil nil nil])))
 
-    (is (= '([1 :friend 0 :set 2]
-             [1 :friend 1 :set 3]
-             [1 :friend 2 :set 4]
-             [2 :friend 0 :set 1])
-           (btree/inclusive-subsequence (-> db2 :indexes :eatcv :index-atom)
-                                        [1 :friend nil nil nil])))))
+      (is (= '([1 :friend 0 :set 2]
+               [1 :friend 1 :set 3]
+               [1 :friend 2 :set 4]
+               [2 :friend 0 :set 1])
+             (btree/inclusive-subsequence (-> db2 :indexes :eatcv :index-atom)
+                                          [1 :friend nil nil nil])))))

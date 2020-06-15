@@ -28,7 +28,7 @@ Transactions specify statements that specify changes to the edges of a graph of 
 
 * consists of:
   * ordered list of parent transaction hashes
-	  * Parent branches are applied in the specified order when the transactions are threated as description of a graph.
+      * Parent branches are applied in the specified order when the transactions are threated as description of a graph.
   * A set of statements
   * Depth: the distance to the root transaction when all of the parent transactions are listed in the specified order. Used in the indexes to order statements.
   * hash of all other fields
@@ -134,30 +134,30 @@ Values can be one of:
 
   [1 name 2 Foo-1.2]
   [1 name 1 Foo]
-  
+
   and
-  
+
   [1 name 2 Foo-2.2]
   [1 name 1 Foo]
-  
+
   merges to
-  
+
   [1 name 3 Foo-1.2]
   [1 name 2 Foo-2.2]
   [1 name 1 Foo]
-  
+
   --------------------
-  
+
   [3 name 2 Baz]
   [1 name 1 Foo]
-  
+
   and
-  
+
   [2 name 2 Bar]
   [1 name 1 Foo]
-  
+
   merges to
-  
+
   [3 name 3 Baz]
   [2 name 2 Bar]
   [1 name 1 Foo]
@@ -167,7 +167,7 @@ Values can be one of:
 
 * Entity registers itself to an atom when it's created
 * Entity keeps track of the last transaction that changed one of entitys properties
-* 
+*
 * Affected entity id's are
 
 # How to manage client changes before committing them to the server
@@ -209,3 +209,10 @@ If the transaction numbers are kept in the index map, it must be stored in an at
 * branch parent can be a branch. this needs to be added to the kiss test
 * branch/create should take create-index as a parameter
 * sorted-datom-set-branch is not needed because it's generic code and not specific to sorted-set
+
+# new concepts
+* operator: "add", "remove" or "set". "set" is expanded to an "add" and to zero or more "remove":s. "set" is not stored in indexes as such.
+* proposition: an ordered sequence of values in a single entry in an index
+* operation: a proposition and an operator. It describes a change to an index.
+* datom: a proposition concatenated by transaction number and operator
+* index: ordered set of datoms
