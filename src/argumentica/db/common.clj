@@ -75,13 +75,13 @@
   (get statement 3))
 
 
-(defn eatcv-to-eatcv-datoms [_db e a t c v]
+(defn eatcv-to-eatcv-datoms [_indexes e a t c v]
   [[e a t c v]])
 
-(defn eatcv-to-avtec-datoms [_db e a t c v]
+(defn eatcv-to-avtec-datoms [_indexes e a t c v]
   [[a v t e c]])
 
-(defn eatcv-to-avetc-datoms [_db e a t c v]
+(defn eatcv-to-avetc-datoms [_indexes e a t c v]
   [[a v e t c]])
 
 (def eatcv-index-definition {:key :eatcv
@@ -92,9 +92,8 @@
                              :eatcv-to-datoms eatcv-to-avtec-datoms
                              :datom-transaction-number-index 2})
 
-
 (def eav-index-definition {:key :eav
-                           :eatcv-to-datoms (fn [_db e a t c v] [[e a v t c]])})
+                           :eatcv-to-datoms (fn [_indexes e a t c v] [[e a v t c]])})
 
 (def avetc-index-definition {:key :avetc
                              :eatcv-to-datoms eatcv-to-avetc-datoms})
@@ -948,60 +947,60 @@
                                  :datom-transaction-number-index 2})
 
 #_(defn- old-tokens [tokenize indexes entity attribute transaction-number]
-  (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
-                                                      entity
-                                                      attribute
-                                                      (dec transaction-number)))))
+    (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
+                                                        entity
+                                                        attribute
+                                                        (dec transaction-number)))))
 
 #_(defn- removed-tokens* [old-tokens tokenize indexes entity attribute transaction-number]
-  (set/difference old-tokens
-                  (clojure.core/set (mapcat tokenize
-                                            (values-from-eav (:eav indexes)
-                                                             entity
-                                                             attribute
-                                                             transaction-number)))))
+    (set/difference old-tokens
+                    (clojure.core/set (mapcat tokenize
+                                              (values-from-eav (:eav indexes)
+                                                               entity
+                                                               attribute
+                                                               transaction-number)))))
 
 #_(defn removed-tokens [tokenize indexes transaction-number [entity attribute operator value]]
-  (removed-tokens* (old-tokens tokenize indexes entity attribute transaction-number)
-                   tokenize indexes entity attribute transaction-number))
+    (removed-tokens* (old-tokens tokenize indexes entity attribute transaction-number)
+                     tokenize indexes entity attribute transaction-number))
 
 #_(defn- added-tokens [tokenize indexes transaction-number [entity attribute operator value]]
-  (set/difference (clojure.core/set (tokenize value))
-                  (old-tokens tokenize indexes entity attribute transaction-number)))
+    (set/difference (clojure.core/set (tokenize value))
+                    (old-tokens tokenize indexes entity attribute transaction-number)))
 
 #_(defn token-operations [tokenize indexes transaction-number [entity attribute operator value]]
-  (let [old-tokens (old-tokens tokenize indexes entity attribute transaction-number)]
-    (case operator
+    (let [old-tokens (old-tokens tokenize indexes entity attribute transaction-number)]
+      (case operator
 
-      :remove
-      (for [token (removed-tokens old-tokens tokenize indexes entity attribute transaction-number)]
-        {:token token
-         :operator :remove})
+        :remove
+        (for [token (removed-tokens old-tokens tokenize indexes entity attribute transaction-number)]
+          {:token token
+           :operator :remove})
 
-      :add
-      (for [token (added-tokens tokenize value old-tokens)]
-        {:token token
-         :operator :add}))))
+        :add
+        (for [token (added-tokens tokenize value old-tokens)]
+          {:token token
+           :operator :add}))))
 
 #_(defn statements-to-token-datoms [tokenize propositions indexes transaction-number statements]
-  (for [[e a o v :as statement] statements
-        operation (token-operations tokenize
-                                    indexes
+    (for [[e a o v :as statement] statements
+          operation (token-operations tokenize
+                                      indexes
+                                      transaction-number
+                                      statement)
+          proposition (propositions indexes
+                                    operation
                                     transaction-number
-                                    statement)
-        proposition (propositions indexes
-                                  operation
-                                  transaction-number
-                                  statement)]
-    (concat proposition
-            [transaction-number
-             (statement-operator statement)])))
+                                    statement)]
+      (concat proposition
+              [transaction-number
+               (statement-operator statement)])))
 
 #_(defn token-index-definition [key propositions]
-  {:key key
-   :statements-to-datoms (partial statements-to-token-datoms
-                                  tokenize
-                                  propositions)})
+    {:key key
+     :statements-to-datoms (partial statements-to-token-datoms
+                                    tokenize
+                                    propositions)})
 
 (defn attributes-from-column-definition [column-definition]
   (if (keyword? column-definition)
@@ -1054,18 +1053,38 @@
                                                                 transaction-number
                                                                 :add])))))))))})
 
-(defn enumeration-index-definition [key attribute]
-  {:key key
-   :statements-to-datoms (fn [indexes transaction-number statements]
-                           (map statement-value
-                                (filter (fn [statement]
-                                          (= attribute
-                                             (statement-attribute statement)))
-                                        statements))
-                           (propositions-from-index (key indexes)
-                                                    []
-                                                    (dec transaction-number)))})
+(defn enumeration-count [index value]
+  (let [[value-from-index _transaction-number count-from-index] (first (datoms-starting-from-index index
+                                                                                                   [value]
+                                                                                                   {:reverse? true}))]
+    (if (= value-from-index value)
+      count-from-index
+      0)))
 
+(defn- grouped-statements-to-enumeration-datom [index transaction-number statements-with-same-value-and-operator]
+  (let [value (statement-value (first statements-with-same-value-and-operator))]
+    [value
+     transaction-number
+     ((if (= :add (statement-operator (first statements-with-same-value-and-operator)))
+        + -)
+      (enumeration-count index
+                         value)
+      (count statements-with-same-value-and-operator))]))
+
+(defn enumeration-index-definition [index-key selected-attribute]
+  {:key index-key
+   :statements-to-datoms (fn [indexes transaction-number statements]
+                           (->> statements
+                                (filter (fn [statement]
+                                          (= selected-attribute
+                                             (statement-attribute statement))))
+                                (sort-by (juxt statement-operator
+                                               statement-value))
+                                (partition-by (juxt statement-operator
+                                                    statement-value))
+                                (map (partial grouped-statements-to-enumeration-datom
+                                              (get indexes index-key)
+                                              transaction-number))))})
 (defn new-id []
   (UUID/randomUUID))
 

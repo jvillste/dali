@@ -303,12 +303,34 @@
          (datoms-from-composite-index-with-value-function composite-index-with-two-attribute-column
                                                           #{[:entity-1 :attribute-1 :add "foo"]}))))
 
+(defn datoms-from-enumeration-index [& transactions]
+  (-> (reduce common/transact
+              (create-in-memory-db [(common/enumeration-index-definition :enumeration
+                                                                         :attribute-1)])
+              transactions)
+      (common/datoms-from :enumeration [])))
+
 (deftest test-enumeration-index
-  (is (= '([:value-1 0 :add])
-         (datoms-from-composite-index-with-value-function [:attribute-1]
-                                                          #{[:entity-1 :attribute-1 :add :value-1]
-                                                            [:entity-2 :attribute-1 :add :value-1]}
-                                                          #{[:entity-2 :attribute-1 :remove :value-1]}))))
+  (is (= '([:value-1 0 1])
+         (datoms-from-enumeration-index #{[:entity-1 :attribute-1 :add :value-1]})))
+
+  (is (= '([:value-1 0 2])
+         (datoms-from-enumeration-index #{[:entity-1 :attribute-1 :add :value-1]
+                                          [:entity-2 :attribute-1 :add :value-1]})))
+
+  (is (= '([:value-1 0 2]
+           [:value-2 0 1])
+         (datoms-from-enumeration-index #{[:entity-2 :attribute-1 :add :value-2]
+                                          [:entity-1 :attribute-1 :add :value-1]
+                                          [:entity-2 :attribute-1 :add :value-1]})))
+
+  (is (= '([:value-1 0 2]
+           [:value-1 1 1]
+           [:value-1 2 0])
+         (datoms-from-enumeration-index #{[:entity-1 :attribute-1 :add :value-1]
+                                          [:entity-2 :attribute-1 :add :value-1]}
+                                        #{[:entity-2 :attribute-1 :remove :value-1]}
+                                        #{[:entity-1 :attribute-1 :remove :value-1]}))))
 
 #_(deftest read-only-index-test
     (let [metadata-storage (hash-map-storage/create)
