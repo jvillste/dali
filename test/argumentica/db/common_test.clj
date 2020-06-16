@@ -170,7 +170,7 @@
 
 (defn datoms-from-composite-index [& transactions]
   (-> (reduce common/transact
-              (create-db-with-composite-index :composite true [:attribute-1 :attribute-2])
+              (create-db-with-composite-index :composite [:attribute-1 :attribute-2])
               transactions)
       (common/datoms-from :composite [])))
 
@@ -197,7 +197,7 @@
 
 (defn propositions-from-composite-index [last-transaction-number pattern & transactions]
   (let [db (reduce common/transact
-                   (create-db-with-composite-index :composite true [:attribute-1 :attribute-2])
+                   (create-db-with-composite-index :composite [:attribute-1 :attribute-2])
                    transactions)]
     (common/propositions-from-index (common/index db :composite)
                                     pattern
@@ -238,17 +238,16 @@
                                                 [:entity-1 :attribute-1 :add :value-2]
                                                 [:entity-1 :attribute-2 :add :value-2]})))))
 
-(defn datoms-from-composite-index-with-value-function [arguments & transactions]
+(defn datoms-from-composite-index-with-value-function [column-definitions & transactions]
   (-> (reduce common/transact
-              (apply create-db-with-composite-index :composite
-                     arguments)
+              (create-db-with-composite-index :composite
+                                              column-definitions)
               transactions)
       (common/datoms-from :composite [])))
 
-(def composite-index-with-one-attribute-and-value-function [true
-                                                            [:attribute-1
-                                                             {:attributes [:attribute-2]
-                                                              :value-function seq}]])
+(def composite-index-with-one-attribute-and-value-function [:attribute-1
+                                                            {:attributes [:attribute-2]
+                                                             :value-function seq}])
 
 (deftest test-value-function
   (is (= '([:value-1 \f :entity-1 0 :add]
@@ -286,10 +285,9 @@
                                                             [:entity-1 :attribute-2 :add "foo"]}
                                                           #{[:entity-1 :attribute-2 :set "bar"]}))))
 
-(def composite-index-with-two-attribute-column [true
-                                                [{:attributes [:attribute-1
-                                                               :attribute-2]
-                                                  :value-function seq}]])
+(def composite-index-with-two-attribute-column [{:attributes [:attribute-1
+                                                              :attribute-2]
+                                                 :value-function seq}])
 (deftest test-two-attributes-in-one-column
   (is (= '([\a :entity-1 0 :add]
            [\b :entity-1 0 :add]
@@ -305,11 +303,9 @@
          (datoms-from-composite-index-with-value-function composite-index-with-two-attribute-column
                                                           #{[:entity-1 :attribute-1 :add "foo"]}))))
 
-
 (deftest test-enumeration-index
   (is (= '([:value-1 0 :add])
-         (datoms-from-composite-index-with-value-function [false
-                                                           [:attribute-1]]
+         (datoms-from-composite-index-with-value-function [:attribute-1]
                                                           #{[:entity-1 :attribute-1 :add :value-1]
                                                             [:entity-2 :attribute-1 :add :value-1]}
                                                           #{[:entity-2 :attribute-1 :remove :value-1]}))))

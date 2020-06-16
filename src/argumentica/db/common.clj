@@ -1014,7 +1014,7 @@
     (fn [value]
       [value])))
 
-(defn composite-index-definition [key include-entity-id? column-definitions]
+(defn composite-index-definition [key column-definitions]
   {:key key
    :statements-to-datoms (let [attributes (mapcat attributes-from-column-definition
                                                   column-definitions)
@@ -1043,22 +1043,28 @@
                                         (concat (for [combination (set/difference old-combinations
                                                                                   new-combinations)]
                                                   (vec (concat combination
-                                                               (if include-entity-id?
-                                                                 [affected-entity-id
-                                                                  transaction-number
-                                                                  :remove]
-                                                                 [transaction-number
-                                                                  :remove]))))
+                                                               [affected-entity-id
+                                                                transaction-number
+                                                                :remove])))
 
                                                 (for [combination (set/difference new-combinations
                                                                                   old-combinations)]
                                                   (vec (concat combination
-                                                               (if include-entity-id?
-                                                                 [affected-entity-id
-                                                                  transaction-number
-                                                                  :add]
-                                                                 [transaction-number
-                                                                  :add]))))))))))})
+                                                               [affected-entity-id
+                                                                transaction-number
+                                                                :add])))))))))})
+
+(defn enumeration-index-definition [key attribute]
+  {:key key
+   :statements-to-datoms (fn [indexes transaction-number statements]
+                           (map statement-value
+                                (filter (fn [statement]
+                                          (= attribute
+                                             (statement-attribute statement)))
+                                        statements))
+                           (propositions-from-index (key indexes)
+                                                    []
+                                                    (dec transaction-number)))})
 
 (defn new-id []
   (UUID/randomUUID))
