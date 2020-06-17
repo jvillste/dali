@@ -7,7 +7,8 @@
                          [comparator :as comparator]
                          [sorted-map-transaction-log :as sorted-map-transaction-log])
             [argumentica.btree-index :as btree-index]
-            [argumentica.sorted-set-index :as sorted-set-index])
+            [argumentica.sorted-set-index :as sorted-set-index]
+            [medley.core :as medley])
   (:use clojure.test))
 
 (defn create-eav-db [& transactions]
@@ -303,6 +304,8 @@
          (datoms-from-composite-index-with-value-function composite-index-with-two-attribute-column
                                                           #{[:entity-1 :attribute-1 :add "foo"]}))))
 
+
+
 (defn datoms-from-enumeration-index [& transactions]
   (-> (reduce common/transact
               (create-in-memory-db [(common/enumeration-index-definition :enumeration
@@ -331,6 +334,46 @@
                                           [:entity-2 :attribute-1 :add :value-1]}
                                         #{[:entity-2 :attribute-1 :remove :value-1]}
                                         #{[:entity-1 :attribute-1 :remove :value-1]}))))
+
+
+
+(defn values-from-enumeration-index [transaction-number transactions]
+  (common/values-from-enumeration-index (-> (reduce common/transact
+                                                    (create-in-memory-db [(common/enumeration-index-definition :enumeration
+                                                                                                               :attribute-1)])
+                                                    transactions)
+                                            :indexes
+                                            :enumeration)
+                                        transaction-number))
+
+(deftest test-values-from-enumeration-index
+  (is (= '(:value-1)
+         (values-from-enumeration-index 0
+                                        [#{[:entity-1 :attribute-1 :add :value-1]}])))
+
+  (is (= '(:value-1)
+         (values-from-enumeration-index nil
+                                        [#{[:entity-1 :attribute-1 :add :value-1]}])))
+
+  (is (= []
+         (values-from-enumeration-index 1
+                                        [#{[:entity-1 :attribute-1 :add :value-1]}
+                                         #{[:entity-1 :attribute-1 :remove :value-1]}])))
+
+  (is (= [:value-1]
+         (values-from-enumeration-index 0
+                                        [#{[:entity-1 :attribute-1 :add :value-1]}
+                                         #{[:entity-1 :attribute-1 :remove :value-1]}])))
+
+  (is (= '(:value-1 :value-2)
+         (values-from-enumeration-index 0
+                                        [#{[:entity-1 :attribute-1 :add :value-1]
+                                           [:entity-2 :attribute-1 :add :value-1]
+                                           [:entity-2 :attribute-1 :add :value-2]}])))
+
+  (is (= []
+         (values-from-enumeration-index 0
+                                        [#{[:entity-1 :attribute-2 :add :value-1]}]))))
 
 #_(deftest read-only-index-test
     (let [metadata-storage (hash-map-storage/create)

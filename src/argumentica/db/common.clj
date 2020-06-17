@@ -12,7 +12,8 @@
             [argumentica.util :as util]
             [clojure.math.combinatorics :as combinatorics]
             [argumentica.log :as log]
-            [schema.core :as schema])
+            [schema.core :as schema]
+            [medley.core :as medley])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -1100,3 +1101,35 @@
     (fn [] (let [id (first @ids-atom)]
              (swap! ids-atom rest)
              id))))
+
+(defn- values-from-enumeration-index* [index last-transaction-number value]
+  (let [latest-datom (medley/find-first (fn [datom]
+                                          (or (nil? last-transaction-number)
+                                              (<= (second datom)
+                                                  last-transaction-number)))
+                                        (take-while-pattern-matches [value]
+                                                                    (datoms-starting-from-index index [value] {:reverse? true})))
+        value-exists-after-last-transaction? (and latest-datom
+                          (< 0 (nth latest-datom
+                                    2)))
+        next-value (first (first (datoms-starting-from-index index [value ::comparator/max])))]
+
+    (cond
+      (and value-exists-after-last-transaction?
+           next-value)
+      (lazy-seq (cons value
+                      (values-from-enumeration-index* index
+                                                      last-transaction-number
+                                                      next-value)))
+      value-exists-after-last-transaction?
+      [value]
+
+      :default
+      [])))
+
+(defn values-from-enumeration-index [index last-transaction-number]
+  (if-let [first-value (first (first (datoms-starting-from-index index [])))]
+    (values-from-enumeration-index* index
+                                    last-transaction-number
+                                    first-value)
+    []))
