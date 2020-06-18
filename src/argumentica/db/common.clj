@@ -328,7 +328,10 @@
                                                   last-transaction-number))))
 
 (defn index [db index-key]
-  (get-in db [:indexes index-key]))
+  (if-let [index (get-in db [:indexes index-key])]
+    index
+    (throw (Exception. (str "Unknown index-key: "
+                            index-key)))))
 
 (util/defno propositions-from-index [index pattern last-transaction-number options :- datoms-starting-from-index-options]
   (mapcat reduce-propositions
@@ -1133,3 +1136,8 @@
                                     last-transaction-number
                                     first-value)
     []))
+
+
+(defn values-from-enumeration [db index-key]
+  (values-from-enumeration-index (index db index-key)
+                                 (:last-transaction-number db)))
