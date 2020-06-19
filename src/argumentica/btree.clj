@@ -1596,6 +1596,12 @@
                                             (unload-btree)))
                                   0)))))
 
+(defn remove-old-roots [btree]
+  (storage/put-edn-to-storage! (:metadata-storage btree)
+                               "roots"
+                               [(get-latest-root btree)])
+  btree)
+
 (defn add-stored-root [btree metadata]
   (let [new-root {:storage-key (:root-id btree)
                   :stored-time (System/nanoTime)
@@ -1667,7 +1673,7 @@
                         "roots")))
 
 (defn unused-storage-keys [btree]
-  (filter (complement (used-storage-keys btree))
+  (remove (used-storage-keys btree)
           (storage/storage-keys! (:node-storage btree))))
 
 (defn stored-node-sizes [btree]
@@ -1686,12 +1692,15 @@
 (defn total-storage-size [btree]
   (reduce + (stored-node-sizes btree)))
 
-#_(defn collect-storage-garbage [btree]
-    (update btree :node-storage
-            (fn [storage]
-              (reduce remove-from-storage
-                      storage
-                      (unused-storage-keys btree)))))
+(defn collect-storage-garbage [btree]
+  (let [unused-storage-keys (unused-storage-keys btree)
+        remove-from-storage (fn [storage]
+                              (reduce storage/remove-from-storage!
+                                      storage
+                                      unused-storage-keys))]
+    (-> btree
+        (update :node-storage remove-from-storage)
+        (update :metadata-storage remove-from-storage))))
 
 
 (deftest test-garbage-collection

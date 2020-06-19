@@ -2,7 +2,8 @@
   (:require (argumentica [btree :as btree]
                          [storage :as storage])
             [me.raynes.fs :as fs])
-  (:import [java.nio.file Files Paths OpenOption LinkOption]
+  (:import [java.io File]
+           [java.nio.file Files Paths OpenOption LinkOption]
            [java.nio.file.attribute FileAttribute])
   (:use clojure.test))
 
@@ -37,6 +38,19 @@
                (into-array OpenOption []))
   this)
 
+(defmethod storage/remove-from-storage!
+  DirectoryStorage
+  [this key]
+  (Files/delete (key-path this key))
+  this)
+
+(defmethod storage/storage-keys!
+  DirectoryStorage
+  [this]
+  (map (fn [file]
+         (.getName file))
+       (.listFiles (File. (:path this)))))
+
 (defmethod storage/storage-contains?
   DirectoryStorage
   [this key]
@@ -46,10 +60,12 @@
   (fs/mkdirs directory-path)
   (->DirectoryStorage directory-path))
 
-(comment (String. (btree/get-from-storage (DirectoryStorage. "src/argumentica")
-                                          "directory_storage.clj"))
+(comment
 
-         (btree/put-to-storage (DirectoryStorage. "data")
-                               "test.txt"
-                               (.getBytes "test"
-                                          "UTF-8")))
+  (String. (btree/get-from-storage (DirectoryStorage. "src/argumentica")
+                                   "directory_storage.clj"))
+
+  (btree/put-to-storage (DirectoryStorage. "data")
+                        "test.txt"
+                        (.getBytes "test"
+                                   "UTF-8")))

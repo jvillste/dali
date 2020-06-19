@@ -21,14 +21,33 @@
 
 (defn store-index-roots-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-root]
   (if-let [last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))]
-    (-> db
-        (common/apply-to-indexes store-index-root-after-maximum-number-of-transactions
-                                 last-transaction-number
-                                 maximum-number-of-transactions-after-previous-root)
-        #_(update :transaction-log
-                  transaction-log/truncate!
-                  last-transaction-number))
+    (common/apply-to-indexes db
+                             store-index-root-after-maximum-number-of-transactions
+                             last-transaction-number
+                             maximum-number-of-transactions-after-previous-root)
     db))
+
+(defn- apply-to-btrees [db function & arguments]
+  (common/apply-to-indexes db
+                           (fn [index]
+                             (apply btree-index/swap-btree!
+                                    (:index index)
+                                    function
+                                    arguments)
+                             index)))
+
+(defn remove-old-roots [db]
+  (apply-to-btrees db
+                   btree/remove-old-roots))
+
+(defn unload-nodes [db maximum-loaded-node-count]
+  (apply-to-btrees db
+                   btree/unload-excess-nodes
+                   maximum-loaded-node-count))
+
+(defn collect-storage-garbage [db]
+  (apply-to-btrees db
+                   btree/collect-storage-garbage))
 
 (defn store-index-roots [db]
   (store-index-roots-after-maximum-number-of-transactions db 0))
