@@ -24,9 +24,9 @@
                  [org.flatland/useful "0.11.5"]
                  [logga "0.1.0-SNAPSHOT"]
                  [prismatic/schema "1.1.12"]
-                 [org.clojure/tools.trace "0.7.10"]]
+                 [org.clojure/tools.trace "0.7.10"]
+                 [org.clojure/tools.namespace "0.2.11"]]
   :test-paths ["src/clj" "test"]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
   :resource-paths ["resources"]
-  :aliases {"test" ["clean"]}
-  :profiles {:dev {:dependencies [[org.clojure/tools.namespace "0.2.11"]]}})
+  :aliases {"test" ["clean"]})

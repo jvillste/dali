@@ -8,7 +8,8 @@
                          [sorted-map-transaction-log :as sorted-map-transaction-log])
             [argumentica.btree-index :as btree-index]
             [argumentica.sorted-set-index :as sorted-set-index]
-            [medley.core :as medley])
+            [medley.core :as medley]
+            [argumentica.db.query :as query])
   (:use clojure.test))
 
 (defn create-eav-db [& transactions]
@@ -58,34 +59,7 @@
                                      [:entity-1 :attribute-2]
                                      0)))))
 
-(deftest test-datoms-starting-from-index
-  (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :add 1]
-                                [:entity-1 :attribute-1 :add 2]
-                                [:entity-1 :attribute-1 :add 3]}))]
 
-    (is (= '([:entity-1 :attribute-1 1 0 :add]
-             [:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 3 0 :add])
-           (common/datoms-starting-from-index (-> db :indexes :eav)
-                                              [])))
-
-    (is (= '([:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 3 0 :add])
-           (common/datoms-starting-from-index (-> db :indexes :eav)
-                                              [:entity-1 :attribute-1 2])))
-
-    (is (= '([:entity-1 :attribute-1 3 0 :add]
-             [:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 1 0 :add])
-           (common/datoms-starting-from-index (-> db :indexes :eav)
-                                              []
-                                              {:reverse? true})))
-
-    (is (= '([:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 1 0 :add])
-           (common/datoms-starting-from-index (-> db :indexes :eav)
-                                              [:entity-1 :attribute-1 2]
-                                              {:reverse? true})))))
 
 
 (deftest test-matching-datoms-from-index
