@@ -1,6 +1,6 @@
 (ns argumentica.db.query
   (:require [argumentica.comparator :as comparator]
-            [argumentica.index :as index]
+            [argumentica.index :as collection]
             [argumentica.util :as util]
             [schema.core :as schema])
   (:use clojure.test))
@@ -118,14 +118,14 @@
   (is (has-trailing-constants? [nil :a]))
   (is (has-trailing-constants? [:a nil :a])))
 
-(util/defno datoms [index pattern {:keys [reverse?] :or {reverse? false}} :- datoms-options]
+(util/defno datoms [collection pattern {:keys [reverse?] :or {reverse? false}} :- datoms-options]
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (or (->> (if reverse?
-               (util/inclusive-reverse-subsequence (:collection index)
-                                                   (util/pad (count (first (util/inclusive-subsequence (:collection index) nil)))
+               (util/inclusive-reverse-subsequence collection
+                                                   (util/pad (count (first (util/inclusive-subsequence collection nil)))
                                                              (start-pattern pattern)
                                                              ::comparator/max))
-               (util/inclusive-subsequence (:collection index)
+               (util/inclusive-subsequence collection
                                            (start-pattern pattern)))
              (filter (fn [datom]
                        (or (not pattern-has-trailing-constants?)
@@ -139,9 +139,9 @@
            value))
        pattern))
 
-(defn index-substitutions [index pattern]
+(defn index-substitutions [collection pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)]
-    (->> (datoms index
+    (->> (datoms collection
                  wildcard-pattern)
          (take-while #(match? % wildcard-pattern))
          (map #(substitutions % pattern)))))

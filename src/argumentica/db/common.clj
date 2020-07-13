@@ -248,9 +248,14 @@
               true))
           (map vector pattern datom)))
 
+(util/defno datoms-from-index-map [index pattern options :- query/datoms-options]
+  (query/datoms (:collection index)
+                pattern
+                options))
+
 (defn datoms-from [db index-key pattern]
-  (query/datoms (get-in db [:indexes index-key])
-                pattern))
+  (datoms-from-index-map (get-in db [:indexes index-key])
+                         pattern))
 
 (defn proposition [datom]
   (vec (drop-last 2 datom)))
@@ -281,9 +286,9 @@
                 datoms)))
 
 (util/defno datoms-by-proporistion [index pattern last-transaction-number options :- query/datoms-options]
-  (->> (query/datoms index
-                     pattern
-                     options)
+  (->> (datoms-from-index-map index
+                              pattern
+                              options)
        (partition-by proposition)
        (map (partial take-until-transaction-number
                      last-transaction-number))))
@@ -1044,9 +1049,9 @@
                                                                 :add])))))))))})
 
 (defn enumeration-count [index value]
-  (let [[value-from-index _transaction-number count-from-index] (first (query/datoms index
-                                                                                     [value]
-                                                                                     {:reverse? true}))]
+  (let [[value-from-index _transaction-number count-from-index] (first (datoms-from-index-map index
+                                                                                              [value]
+                                                                                              {:reverse? true}))]
     (if (= value-from-index value)
       count-from-index
       0)))
@@ -1097,11 +1102,11 @@
                                               (<= (second datom)
                                                   last-transaction-number)))
                                         (take-while-pattern-matches [value]
-                                                                    (query/datoms index [value] {:reverse? true})))
+                                                                    (datoms-from-index-map index [value] {:reverse? true})))
         value-exists-after-last-transaction? (and latest-datom
                                                   (< 0 (nth latest-datom
                                                             2)))
-        next-value (first (first (query/datoms index [value ::comparator/max])))]
+        next-value (first (first (datoms-from-index-map index [value ::comparator/max])))]
 
     (cond
       (and value-exists-after-last-transaction?
@@ -1117,7 +1122,7 @@
       [])))
 
 (defn values-from-enumeration-index [index last-transaction-number]
-  (if-let [first-value (first (first (query/datoms index [])))]
+  (if-let [first-value (first (first (datoms-from-index-map index [])))]
     (values-from-enumeration-index* index
                                     last-transaction-number
                                     first-value)
