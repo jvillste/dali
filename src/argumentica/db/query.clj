@@ -120,17 +120,17 @@
 
 (util/defno datoms [index pattern {:keys [reverse?] :or {reverse? false}} :- datoms-options]
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
-   (or (->> (if reverse?
-              (index/inclusive-reverse-subsequence (:index index)
-                                                   (util/pad (count (first (index/inclusive-subsequence (:index index) nil)))
+    (or (->> (if reverse?
+               (util/inclusive-reverse-subsequence (:index index)
+                                                   (util/pad (count (first (util/inclusive-subsequence (:index index) nil)))
                                                              (start-pattern pattern)
                                                              ::comparator/max))
-              (index/inclusive-subsequence (:index index)
+               (util/inclusive-subsequence (:index index)
                                            (start-pattern pattern)))
-            (filter (fn [datom]
-                      (or (not pattern-has-trailing-constants?)
-                          (match? datom pattern)))))
-       [])))
+             (filter (fn [datom]
+                       (or (not pattern-has-trailing-constants?)
+                           (match? datom pattern)))))
+        [])))
 
 (defn wildcard-pattern [pattern]
   (map (fn [value]

@@ -14,7 +14,8 @@
             [argumentica.log :as log]
             [schema.core :as schema]
             [medley.core :as medley]
-            [argumentica.db.query :as query])
+            [argumentica.db.query :as query]
+            [argumentica.mutable-collection :as mutable-collection])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -131,8 +132,8 @@
     (doseq [datom (statements-to-datoms indexes
                                         transaction-number
                                         statements)]
-      (index/add! (:index index)
-                  datom))
+      (mutable-collection/add! (:index index)
+                               datom))
     (doseq [[e a c v] statements]
       (doseq [datom ((:eatcv-to-datoms index)
                      indexes
@@ -141,8 +142,8 @@
                      transaction-number
                      c
                      v)]
-        (index/add! (:index index)
-                    datom)))))
+        (mutable-collection/add! (:index index)
+                                 datom)))))
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
   (if (or (nil? (:last-indexed-transaction-number index))
@@ -204,7 +205,6 @@
   (assoc db
          :last-transaction-number (transaction-log/last-transaction-number (:transaction-log db))))
 
-
 (defn entities-by-string-value [avtec attribute pattern latest-transaction-number]
   (map (fn [datom]
          (nth datom
@@ -213,8 +213,8 @@
                      (and (= a attribute)
                           (string/starts-with? v pattern)
                           (<= t latest-transaction-number)))
-                   (index/inclusive-subsequence avtec
-                                                [attribute pattern nil nil nil]))))
+                   (util/inclusive-subsequence avtec
+                                               [attribute pattern nil nil nil]))))
 
 (defn take-while-and-n-more [pred n coll]
   (let [[head tail] (split-with pred coll)]
@@ -237,8 +237,8 @@
 
 
 #_(defn datoms [db]
-    (index/inclusive-subsequence (-> db :indexes :eatcv :index)
-                                 [nil nil nil nil nil]))
+    (util/inclusive-subsequence (-> db :indexes :eatcv :index)
+                                [nil nil nil nil nil]))
 
 (defn pattern-matches? [pattern datom]
   (every? (fn [[pattern-value datom-value]]
@@ -370,8 +370,8 @@
                            attribute
                            <=
                            latest-transaction-number)
-              (index/inclusive-subsequence eatcv
-                                           [entity-id attribute 0 nil nil])))
+              (util/inclusive-subsequence eatcv
+                                          [entity-id attribute 0 nil nil])))
 
 
 (defn avt-matches [attribute value-predicate transaction-comparator latest-transaction-number]
@@ -401,8 +401,8 @@
                            value-predicate
                            <=
                            latest-transaction-number)
-              (index/inclusive-subsequence avtec
-                                           [attribute value 0 ::comparator/min ::comparator/min])))
+              (util/inclusive-subsequence avtec
+                                          [attribute value 0 ::comparator/min ::comparator/min])))
 
 (defn entities [db attribute value]
   (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
@@ -418,8 +418,8 @@
                            value-predicate
                            <=
                            latest-transaction-number)
-              (index/inclusive-subsequence avtec
-                                           [attribute value 0 nil nil])))
+              (util/inclusive-subsequence avtec
+                                          [attribute value 0 nil nil])))
 
 (defn entities-2 [avtec-index attribute value value-predicate]
   (entities-from-avtec-datoms (all-avtec-datoms-from-avtec-2 avtec-index
@@ -433,8 +433,8 @@
                            attribute
                            >=
                            latest-transaction-number)
-              (index/inclusive-reverse-subsequence eatcv
-                                                   [entity-id attribute latest-transaction-number nil nil])))
+              (util/inclusive-reverse-subsequence eatcv
+                                                  [entity-id attribute latest-transaction-number nil nil])))
 
 
 (defn eat-datoms [db entity-id attribute latest-transaction-number reverse?]
@@ -747,8 +747,8 @@
 (defn entity-datoms-from-eav [eatcv entity-id]
   (take-while (fn [[e a t c v]]
                 (= e entity-id))
-              (index/inclusive-subsequence eatcv
-                                           [entity-id nil nil nil nil])))
+              (util/inclusive-subsequence eatcv
+                                          [entity-id nil nil nil nil])))
 
 (defn entity-attributes [db entity-id]
   (->> (propositions db
@@ -830,12 +830,12 @@
                 :datom-transaction-number-index
                 :key]))
 
-(defn index-definition-to-indexes [index-definition create-index]
+(defn index-definition-to-indexes [index-definition create-collection]
   (into {}
         (map (fn [[key eatcv-to-datoms]]
                [key
                 {:eatcv-to-datoms eatcv-to-datoms
-                 :index (create-index (name key))}])
+                 :index (create-collection (name key))}])
              index-definition)))
 
 (deftest test-index-definition-to-indexes
@@ -845,7 +845,7 @@
          (index-definition-to-indexes {:eatcv :eatcv-to-eatcv-datoms}
                                       (fn [index-name] {:index-name index-name})))))
 
-(defn index-definitions-to-indexes [create-index index-definitions]
+(defn index-definitions-to-indexes [create-collection index-definitions]
   (assert (sequential? index-definitions))
 
   (into {}
@@ -853,7 +853,7 @@
                [(:key index-definition)
                 (assoc index-definition
                        :index
-                       (create-index (:key index-definition)))])
+                       (create-collection (:key index-definition)))])
              index-definitions)))
 
 (deftest test-index-definitions-to-indexes
@@ -864,9 +864,9 @@
          (index-definitions-to-indexes (fn [index-key] {:index-key index-key})
                                        [{:eatcv-to-datoms :eatcv-to-eatcv-datoms :key :eatcv}]))))
 
-(defn db-from-index-definition [index-definition create-index transaction-log]
+(defn db-from-index-definition [index-definition create-collection transaction-log]
   (update-indexes (create :indexes (index-definition-to-indexes index-definition
-                                                                create-index)
+                                                                create-collection)
                           :transaction-log transaction-log)))
 
 
@@ -877,9 +877,9 @@
     (transact! this statements))
 
   db/ReadableDB
-  (inclusive-subsequence [this index-key first-datom]
-    (index/inclusive-subsequence (-> this :indexes index-key :index)
-                                 first-datom))
+  (util/inclusive-subsequence [this index-key first-datom]
+    (util/inclusive-subsequence (-> this :indexes index-key :index)
+                                first-datom))
   clojure.lang.IDeref
   (deref [this] (deref this)))
 
@@ -890,8 +890,8 @@
 (defmethod clojure.pprint/simple-dispatch LocalDb [local-db]
   (pprint/pprint (into {} local-db)))
 
-(defn db-from-index-definitions [index-definitions create-index transaction-log]
-  (map->LocalDb (create :indexes (index-definitions-to-indexes create-index
+(defn db-from-index-definitions [index-definitions create-collection transaction-log]
+  (map->LocalDb (create :indexes (index-definitions-to-indexes create-collection
                                                                index-definitions)
                         :transaction-log transaction-log)))
 
@@ -902,7 +902,7 @@
     this)
 
   db/ReadableDB
-  (inclusive-subsequence [this index-key first-datom]
+  (util/inclusive-subsequence [this index-key first-datom]
     []))
 
 (defn tokenize [string]

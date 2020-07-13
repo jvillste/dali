@@ -5,17 +5,20 @@
                          [btree :as btree]
                          [index :as index]
                          [comparator :as comparator]
-                         [sorted-map-transaction-log :as sorted-map-transaction-log])
+                         [sorted-map-transaction-log :as sorted-map-transaction-log]
+                         [btree-collection :as btree-collection])
+
             [argumentica.btree-index :as btree-index]
             [argumentica.sorted-set-index :as sorted-set-index]
             [medley.core :as medley]
-            [argumentica.db.query :as query])
+            [argumentica.db.query :as query]
+            [argumentica.util :as util])
   (:use clojure.test))
 
 (defn create-eav-db [& transactions]
   (reduce common/transact
           (common/db-from-index-definitions [common/eav-index-definition]
-                                            (fn [index-key] (sorted-set-index/create))
+                                            (fn [index-key] (btree-collection/create-memory-based {:node-size 3}))
                                             (sorted-map-transaction-log/create))
           transactions))
 
@@ -27,8 +30,8 @@
          (let [db (create-eav-db #{[1 :friend :set 2]
                                    [2 :friend :set 1]}
                                  #{[1 :friend :set 3]})]
-           (index/inclusive-subsequence (-> db :indexes :eav :index)
-                                        [1 :friend nil nil nil])))))
+           (util/inclusive-subsequence (-> db :indexes :eav :index)
+                                       [1 :friend nil nil nil])))))
 
 (deftest test-datoms-from-index
   (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
@@ -136,7 +139,7 @@
   (common/db-from-index-definitions index-definitions
                                     (fn [index-key]
                                       #_(btree-index/create-memory-btree-index 101)
-                                      (sorted-set-index/create))
+                                      (btree-collection/create-memory-based {:node-size 3}))
                                     (sorted-map-transaction-log/create)))
 
 (defn create-db-with-composite-index [& composite-index-definition-arguments]

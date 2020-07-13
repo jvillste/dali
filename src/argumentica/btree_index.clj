@@ -2,9 +2,40 @@
   (:require (argumentica [index :as index]
                          [btree :as btree]
                          [directory-storage :as directory-storage]
-                         [hash-map-storage :as hash-map-storage])))
+                         [hash-map-storage :as hash-map-storage])
+            [argumentica.comparator :as comparator]
+            [argumentica.mutable-collection :as mutable-collection])
+  (:import [argumentica.comparator DatomComparator]))
 
-(defrecord BtreeIndex [btree-index-atom])
+(defn swap-btree! [btree-index function & arguments]
+  (apply swap!
+         (:btree-index-atom btree-index)
+         function
+         arguments))
+
+(defrecord BtreeIndex [btree-index-atom]
+  clojure.lang.Sorted
+  (comparator [this]
+    (DatomComparator.))
+  (entryKey [this entry]
+    entry)
+  (seq [this ascending?]
+    (if ascending?
+      (btree/inclusive-subsequence (:btree-index-atom this)
+                                   ::comparator/min)
+      (btree/inclusive-reverse-subsequence (:btree-index-atom this)
+                                           ::comparator/max)))
+  (seqFrom [this value ascending?]
+    (if ascending?
+      (btree/inclusive-subsequence (:btree-index-atom this)
+                                   value)
+      (btree/inclusive-reverse-subsequence (:btree-index-atom this)
+                                           value)))
+  mutable-collection/MutableCollection
+  (add! [this value]
+    (swap-btree! this
+                 btree/add
+                 value)))
 
 (defmethod index/inclusive-subsequence
   BtreeIndex
@@ -17,12 +48,6 @@
   [this value]
   (btree/inclusive-reverse-subsequence (:btree-index-atom this)
                                        value))
-
-(defn swap-btree! [btree-index function & arguments]
-  (apply swap!
-         (:btree-index-atom btree-index)
-         function
-         arguments))
 
 (defn btree [btree-index]
   @(:btree-index-atom btree-index))

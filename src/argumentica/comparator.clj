@@ -219,3 +219,8 @@
            (subseq sorted-set
                    >=
                    [0 :name 0 ::min ::min])))))
+
+(deftype DatomComparator []
+  java.util.Comparator
+  (compare [this x y]
+    (compare-datoms x y)))

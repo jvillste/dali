@@ -87,3 +87,16 @@
 
         :default
         value))
+
+(defn locking-swap-volatile! [volatile function & arguments]
+  (locking volatile
+    (vreset! volatile
+             (apply function
+                    @volatile
+                    arguments))))
+
+(defn inclusive-subsequence [sorted-collection minimum-value]
+  (subseq sorted-collection >= minimum-value))
+
+(defn inclusive-reverse-subsequence [sorted-collection maximum-value]
+  (rsubseq sorted-collection <= maximum-value))
