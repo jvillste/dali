@@ -198,7 +198,7 @@
 
       (is (= #{[:entity-1 :name 1 :set "Name after first root"]
                [:entity-1 :name 2 :set "Name after creation"]}
-             (-> server-btree-db :indexes :eatcv :index :index-atom deref :branch-datom-set :sorted-set-atom deref)))
+             (-> server-btree-db :indexes :eatcv :collection :index-atom deref :branch-datom-set :sorted-set-atom deref)))
 
       (swap! server-state-atom
              update
@@ -215,7 +215,7 @@
         (is (= '([:entity-1 :name 0 :set "Name in first root"]
                  [:entity-1 :name 1 :set "Name after first root"]
                  [:entity-1 :name 2 :set "Name after creation"])
-               (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :index :index-atom deref :base-sorted-datom-set :btree-index-atom)
+               (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :collection :index-atom deref :base-sorted-datom-set :btree-index-atom)
                                             ::comparator/min)))
 
         (is (= 2 (:last-transaction-number @server-btree-db)))

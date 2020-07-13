@@ -30,7 +30,7 @@
          (let [db (create-eav-db #{[1 :friend :set 2]
                                    [2 :friend :set 1]}
                                  #{[1 :friend :set 3]})]
-           (util/inclusive-subsequence (-> db :indexes :eav :index)
+           (util/inclusive-subsequence (-> db :indexes :eav :collection)
                                        [1 :friend nil nil nil])))))
 
 (deftest test-datoms-from-index

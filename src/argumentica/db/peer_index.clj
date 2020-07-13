@@ -29,7 +29,7 @@
     {:client client
      :index-key index-key
      :eatcv-to-datoms eatcv-to-datoms
-     :index (map->PeerIndex {:local-index (sorted-set-index/create)
+     :collection (map->PeerIndex {:local-index (sorted-set-index/create)
                              :remote-index (server-btree-index/create client
                                                                       index-key
                                                                       latest-root)})
@@ -40,7 +40,7 @@
                                         (:index-key index-definition))]
     (merge index-definition
            {:client client
-            :index (sorted-datom-set-branch/create (server-btree-index/create client
+            :collection (sorted-datom-set-branch/create (server-btree-index/create client
                                                                               (:index-key index-definition)
                                                                               latest-root)
                                                    base-transaction-number
@@ -52,15 +52,15 @@
 (defn update-root [peer-index]
   (let [latest-root (client/latest-root (:client peer-index)
                                         (:index-key peer-index))
-        previous-root (-> peer-index :index :remote-index :btree-index-atom deref :latest-root)]
+        previous-root (-> peer-index :collection :remote-index :btree-index-atom deref :latest-root)]
 
     (if (= latest-root previous-root)
       peer-index
       (-> peer-index
-          (update-in [:index :remote-index]
+          (update-in [:collection :remote-index]
                      (fn [remote-btree-index]
                        (server-btree-index/set-root remote-btree-index
                                                     latest-root)))
-          (assoc-in [:index :local-index]
+          (assoc-in [:collection :local-index]
                     (sorted-set-index/create))
           (assoc :last-indexed-transaction-number (-> latest-root :metadata :last-transaction-number))))))

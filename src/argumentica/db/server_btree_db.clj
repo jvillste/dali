@@ -25,8 +25,8 @@
             (let [latest-root (client/latest-root (:client server-btree-db)
                                                   (:key index-map))]
               (if (not= (-> latest-root :metadata :last-transaction-number)
-                        (-> index-map :index :index-atom deref :base-transaction-number))
-                (index-atom/swap-index! (:index index-map)
+                        (-> index-map :collection :index-atom deref :base-transaction-number))
+                (index-atom/swap-index! (:collection index-map)
                                         (fn [sorted-datom-set-branch]
                                           (-> (sorted-datom-set-branch/create (server-btree-index/set-root (:base-sorted-datom-set sorted-datom-set-branch)
                                                                                                            latest-root)
@@ -37,7 +37,7 @@
                 index-map)))))
 
 (defn last-indexed-transaction-number-for-index-map [index-map]
- (-> index-map :index :index-atom deref :last-indexed-transaction-number))
+ (-> index-map :collection :index-atom deref :last-indexed-transaction-number))
 
 (defn first-unindexed-transacion-number-for-index-map [index-map]
   (if-let [last-indexed-transaction-number (last-indexed-transaction-number-for-index-map index-map)]
@@ -55,7 +55,7 @@
   (when (< (last-indexed-transaction-number-for-index-map index-map)
            transaction-number)
     (do (common/add-transaction-to-index! index-map indexes transaction-number statements)
-        (index-atom/swap-index! (:index index-map)
+        (index-atom/swap-index! (:collection index-map)
                                 assoc
                                 :last-indexed-transaction-number
                                 transaction-number))))
@@ -91,7 +91,7 @@
   (let [latest-root (client/latest-root client
                                         (:key index-definition))]
     (merge index-definition
-           {:index (index-atom/create (-> (sorted-datom-set-branch/create (server-btree-index/create client
+           {:collection (index-atom/create (-> (sorted-datom-set-branch/create (server-btree-index/create client
                                                                                                      (:key index-definition)
                                                                                                      latest-root)
                                                                           (-> latest-root :metadata :last-transaction-number)

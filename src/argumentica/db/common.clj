@@ -132,7 +132,7 @@
     (doseq [datom (statements-to-datoms indexes
                                         transaction-number
                                         statements)]
-      (mutable-collection/add! (:index index)
+      (mutable-collection/add! (:collection index)
                                datom))
     (doseq [[e a c v] statements]
       (doseq [datom ((:eatcv-to-datoms index)
@@ -142,7 +142,7 @@
                      transaction-number
                      c
                      v)]
-        (mutable-collection/add! (:index index)
+        (mutable-collection/add! (:collection index)
                                  datom)))))
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
@@ -237,7 +237,7 @@
 
 
 #_(defn datoms [db]
-    (util/inclusive-subsequence (-> db :indexes :eatcv :index)
+    (util/inclusive-subsequence (-> db :indexes :eatcv :collection)
                                 [nil nil nil nil nil]))
 
 (defn pattern-matches? [pattern datom]
@@ -405,7 +405,7 @@
                                           [attribute value 0 ::comparator/min ::comparator/min])))
 
 (defn entities [db attribute value]
-  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :index)
+  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :collection)
                                                        attribute
                                                        value
                                                        (fn [other-value]
@@ -441,7 +441,7 @@
   (let [eat-datoms-from-eatcv (if reverse?
                                 eat-datoms-in-reverse-from-eatcv
                                 eat-datoms-from-eatcv)]
-    (eat-datoms-from-eatcv (-> db :indexes :eatcv :index)
+    (eat-datoms-from-eatcv (-> db :indexes :eatcv :collection)
                            entity-id
                            attribute
                            latest-transaction-number)))
@@ -673,11 +673,11 @@
 
     clojure.lang.Associative
     (equiv [this other-object] (= this other-object))
-    (containsKey [this attribute] (value (-> indexes :eatcv :index)
+    (containsKey [this attribute] (value (-> indexes :eatcv :collection)
                                          entity-id
                                          attribute
                                          transaction-number))
-    (entryAt [this attribute]     (some->> (value (-> indexes :eatcv :index)
+    (entryAt [this attribute]     (some->> (value (-> indexes :eatcv :collection)
                                                   entity-id
                                                   attribute
                                                   transaction-number)
@@ -689,22 +689,22 @@
     (count [this]         (throw (UnsupportedOperationException.)))
 
     clojure.lang.ILookup
-    (valAt [this attribute] (value (-> indexes :eatcv :index)
+    (valAt [this attribute] (value (-> indexes :eatcv :collection)
                                    entity-id
                                    attribute
                                    transaction-number))
-    (valAt [this attribute not-found] (or (value (-> indexes :eatcv :index)
+    (valAt [this attribute not-found] (or (value (-> indexes :eatcv :collection)
                                                  entity-id
                                                  attribute
                                                  transaction-number)
                                           not-found))
 
     clojure.lang.IFn
-    (invoke [this attribute] (value (-> indexes :eatcv :index)
+    (invoke [this attribute] (value (-> indexes :eatcv :collection)
                                     entity-id
                                     attribute
                                     transaction-number))
-    (invoke [this attribute not-found] (or (value (-> indexes :eatcv :index)
+    (invoke [this attribute not-found] (or (value (-> indexes :eatcv :collection)
                                                   entity-id
                                                   attribute
                                                   transaction-number)
@@ -835,13 +835,13 @@
         (map (fn [[key eatcv-to-datoms]]
                [key
                 {:eatcv-to-datoms eatcv-to-datoms
-                 :index (create-collection (name key))}])
+                 :collection (create-collection (name key))}])
              index-definition)))
 
 (deftest test-index-definition-to-indexes
   (is (= {:eatcv
           {:eatcv-to-datoms :eatcv-to-eatcv-datoms,
-           :index {:index-name "eatcv"}}}
+           :collection {:index-name "eatcv"}}}
          (index-definition-to-indexes {:eatcv :eatcv-to-eatcv-datoms}
                                       (fn [index-name] {:index-name index-name})))))
 
@@ -852,7 +852,7 @@
         (map (fn [index-definition]
                [(:key index-definition)
                 (assoc index-definition
-                       :index
+                       :collection
                        (create-collection (:key index-definition)))])
              index-definitions)))
 
@@ -860,7 +860,7 @@
   (is (= {:eatcv
           {:eatcv-to-datoms :eatcv-to-eatcv-datoms,
            :key :eatcv,
-           :index {:index-key :eatcv}}}
+           :collection {:index-key :eatcv}}}
          (index-definitions-to-indexes (fn [index-key] {:index-key index-key})
                                        [{:eatcv-to-datoms :eatcv-to-eatcv-datoms :key :eatcv}]))))
 
@@ -878,7 +878,7 @@
 
   db/ReadableDB
   (util/inclusive-subsequence [this index-key first-datom]
-    (util/inclusive-subsequence (-> this :indexes index-key :index)
+    (util/inclusive-subsequence (-> this :indexes index-key :collection)
                                 first-datom))
   clojure.lang.IDeref
   (deref [this] (deref this)))

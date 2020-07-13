@@ -10,11 +10,11 @@
 (defn store-index-root-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
             (- last-transaction-number
-               (or (-> (btree/get-latest-root (btree-index/btree (:index index)))
+               (or (-> (btree/get-latest-root (btree-index/btree (:collection index)))
                        :metadata
                        :last-transaction-number)
                    0)))
-    (btree-index/swap-btree! (:index index)
+    (btree-index/swap-btree! (:collection index)
                              btree/store-root
                              {:last-transaction-number last-transaction-number}))
   index)
@@ -31,7 +31,7 @@
   (common/apply-to-indexes db
                            (fn [index]
                              (apply btree-index/swap-btree!
-                                    (:index index)
+                                    (:collection index)
                                     function
                                     arguments)
                              index)))
@@ -72,26 +72,26 @@
 
 
 (defn create-directory-btree-db [base-path]
-  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-directory-btree-index base-path)
+  (common/update-indexes (common/create :indexes {:eatcv {:collection (btree-index/create-directory-btree-index base-path)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}}
                                         :transaction-log (file-transaction-log/create (str base-path "/transaction-log")))))
 
 (defn create-memory-btree-db []
-  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index 10001)
+  (common/update-indexes (common/create :indexes {:eatcv {:collection (btree-index/create-memory-btree-index 10001)
                                                           :eatcv-to-datoms common/eatcv-to-eatcv-datoms}
-                                                  :avtec {:index (btree-index/create-memory-btree-index 10001)
+                                                  :avtec {:collection (btree-index/create-memory-btree-index 10001)
                                                           :eatcv-to-datoms common/eatcv-to-avtec-datoms}}
                                         :transaction-log  (sorted-map-transaction-log/create))))
 
 (defn create-memory-btree-db-from-transaction-log [transaction-log first-transaction-number]
-  (-> (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index 10001)
+  (-> (common/create :indexes {:eatcv {:collection (btree-index/create-memory-btree-index 10001)
                                        :eatcv-to-datoms common/eatcv-to-eatcv-datoms
                                        :last-indexed-transaction-number (dec first-transaction-number)}}
                      :transaction-log transaction-log)
       (common/update-indexes)))
 
 (defn create-memory-btree-db-from-reference [db-reference]
-  (common/update-indexes (common/create :indexes {:eatcv {:index (btree-index/create-memory-btree-index-from-btree-index (-> db-reference
+  (common/update-indexes (common/create :indexes {:eatcv {:collection (btree-index/create-memory-btree-index-from-btree-index (-> db-reference
                                                                                                                              :indexes
                                                                                                                              :eatcv
                                                                                                                              :index))

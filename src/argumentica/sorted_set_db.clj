@@ -8,9 +8,9 @@
   (:use clojure.test))
 
 (defn create []
-  (common/create :indexes {:eatcv {:index (sorted-set-index/create)
+  (common/create :indexes {:eatcv {:collection (sorted-set-index/create)
                                    :eatcv-to-datoms common/eatcv-to-eatcv-datoms}
-                           :avtec {:index (sorted-set-index/create)
+                           :avtec {:collection (sorted-set-index/create)
                                    :eatcv-to-datoms common/eatcv-to-avtec-datoms}}
                  :transaction-log (sorted-map-transaction-log/create)))
 
