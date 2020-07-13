@@ -1,6 +1,6 @@
 (ns argumentica.db.query
   (:require [argumentica.comparator :as comparator]
-            [argumentica.index :as collection]
+            [argumentica.index :as sorted-collection]
             [argumentica.util :as util]
             [schema.core :as schema])
   (:use clojure.test))
@@ -14,7 +14,7 @@
   (is (variable? :foo?))
   (is (not (variable? :foo))))
 
-(defn substitutions [datom pattern]
+(defn substitution-for-datom [datom pattern]
   (let [binding-pairs (->> (map (fn [datom-value pattern-value]
                                   (cond (variable? pattern-value)
                                         [pattern-value datom-value]
@@ -32,15 +32,15 @@
             (remove #{:matching-constant}
                     binding-pairs)))))
 
-(deftest test-substitutions
+(deftest test-substitution-for-datom
   (is (= {}
-         (substitutions [:a] [:a])))
+         (substitution-for-datom [:a] [:a])))
 
   (is (= nil
-         (substitutions [:a] [:b])))
+         (substitution-for-datom [:a] [:b])))
 
   (is (= {:a? :a}
-         (substitutions [:a] [:a?]))))
+         (substitution-for-datom [:a] [:a?]))))
 
 (defn substitute [pattern substitutions]
   (map (fn [pattern-value]
@@ -118,14 +118,14 @@
   (is (has-trailing-constants? [nil :a]))
   (is (has-trailing-constants? [:a nil :a])))
 
-(util/defno datoms [collection pattern {:keys [reverse?] :or {reverse? false}} :- datoms-options]
+(util/defno datoms [sorted-collection pattern {:keys [reverse?] :or {reverse? false}} :- datoms-options]
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (or (->> (if reverse?
-               (util/inclusive-reverse-subsequence collection
-                                                   (util/pad (count (first (util/inclusive-subsequence collection nil)))
+               (util/inclusive-reverse-subsequence sorted-collection
+                                                   (util/pad (count (first (util/inclusive-subsequence sorted-collection nil)))
                                                              (start-pattern pattern)
                                                              ::comparator/max))
-               (util/inclusive-subsequence collection
+               (util/inclusive-subsequence sorted-collection
                                            (start-pattern pattern)))
              (filter (fn [datom]
                        (or (not pattern-has-trailing-constants?)
@@ -139,18 +139,47 @@
            value))
        pattern))
 
-(defn index-substitutions [collection pattern]
+(defn substitutions-for-collection [sorted-collection pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)]
-    (->> (datoms collection
+    (->> (datoms sorted-collection
                  wildcard-pattern)
          (take-while #(match? % wildcard-pattern))
-         (map #(substitutions % pattern)))))
+         (map #(substitution-for-datom % pattern)))))
 
-(comment
-  (query db [[:data-type? :nutrient? :amount? :food?]
+(defn apply-substitution [pattern substitution]
+  (map (fn [value]
+         (if (variable? value)
+           (or (get substitution value)
+               value)
+           value))
+       pattern))
 
-             [:measurement? :nutrient :nutrient?]
-             [:measurement? :amount :amount?]
-             [:measurement? :food :food?]
-             [:food? :data-type :data-type?]])
-  ) ;; TODO: remove-me
+(deftest test-apply-substitution
+  (is (= '(1 2 :b?)
+         (apply-substitution [:a? 2 :b?]
+                             {:a? 1}))))
+
+(defn query [sorted-collection patterns]
+  (loop [substitutions (substitutions-for-collection sorted-collection
+                                                     (first patterns))
+         patterns (rest patterns)]
+    (if-let [pattern (first patterns)]
+      (recur (mapcat (fn [substitution]
+                       (map (fn [substitution-2]
+                              (merge substitution
+                                     substitution-2))
+                            (substitutions-for-collection sorted-collection
+                                                          (apply-substitution pattern substitution))))
+                     substitutions)
+             (rest patterns))
+      substitutions)))
+
+(defn project [variables substitution]
+  ((apply juxt variables) substitution))
+
+(deftest test-project
+  (is (= [1 2] (project [:a? :b?] {:a? 1 :b? 2 :c? 3}))))
+
+(defn projections [variables substitutions]
+  (map (partial project variables)
+       substitutions))

@@ -1,70 +1,89 @@
 (ns argumentica.db.query-test
-  (:require [argumentica.db.common :as common]
-            (argumentica [hash-map-storage :as hash-map-storage]
-                         [sorted-set-db :as sorted-set-db]
-                         [btree :as btree]
-                         [index :as index]
-                         [comparator :as comparator]
-                         [sorted-map-transaction-log :as sorted-map-transaction-log])
-            [argumentica.btree-index :as btree-index]
-            [argumentica.sorted-set-index :as sorted-set-index]
-            [medley.core :as medley]
-            [argumentica.db.query :as sut]
-            [clojure.test :as t]
-            [argumentica.db.query :as query])
-  (:use clojure.test))
+  (:require [argumentica.btree-collection :as btree-collection]
+            [argumentica.db.query :as query]
+            [argumentica.mutable-collection :as mutable-collection]
+            [clojure.test :refer :all]))
 
-(defn create-eav-db [& transactions]
-  (reduce common/transact
-          (common/db-from-index-definitions [common/eav-index-definition]
-                                            (fn [index-key] (sorted-set-index/create))
-                                            (sorted-map-transaction-log/create))
-          transactions))
-
-(defn create-index [& datoms]
-  (let [index (sorted-set-index/create)]
+(defn create-collection [& datoms]
+  (let [collection (btree-collection/create-in-memory {:node-size 3})]
     (doseq [datom datoms]
-      (index/add! index datom))
-    index))
+      (mutable-collection/add! collection datom))
+    collection))
 
 (deftest test-datoms
-  (let [index (-> (create-index [:entity-1 :attribute-1 :add 1]
-                                [:entity-1 :attribute-1 :add 2]
-                                [:entity-1 :attribute-1 :add 3]))]
+  (let [collection (-> (create-collection [:entity-1 :attribute-1 :add 1]
+                                          [:entity-1 :attribute-1 :add 2]
+                                          [:entity-1 :attribute-1 :add 3]))]
 
-    (is (= '([:entity-1 :attribute-1 1 0 :add]
-             [:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 3 0 :add])
-           (query/datoms index
+    (is (= '([:entity-1 :attribute-1 :add 1]
+             [:entity-1 :attribute-1 :add 2]
+             [:entity-1 :attribute-1 :add 3])
+           (query/datoms collection
                          [])))
 
-    (is (= '([:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 3 0 :add])
-           (query/datoms index
-                         [:entity-1 :attribute-1 2])))
+    (is (= '([:entity-1 :attribute-1 :add 2]
+             [:entity-1 :attribute-1 :add 3])
+           (query/datoms collection
+                         [:entity-1 :attribute-1 :add 2])))
 
-    (is (= '([:entity-1 :attribute-1 3 0 :add]
-             [:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 1 0 :add])
-           (query/datoms index
+    (is (= '([:entity-1 :attribute-1 :add 3]
+             [:entity-1 :attribute-1 :add 2]
+             [:entity-1 :attribute-1 :add 1])
+           (query/datoms collection
                          []
                          {:reverse? true})))
 
-    (is (= '([:entity-1 :attribute-1 2 0 :add]
-             [:entity-1 :attribute-1 1 0 :add])
-           (query/datoms index
-                         [:entity-1 :attribute-1 2]
+    (is (= '([:entity-1 :attribute-1 :add 2]
+             [:entity-1 :attribute-1 :add 1])
+           (query/datoms collection
+                         [:entity-1 :attribute-1 :add 2]
                          {:reverse? true})))
 
-    (is (= '([:entity-1 :attribute-1 2 0 :add])
-           (query/datoms index
-                         [:entity-1 nil 2]
-                         {:reverse? true})))))
+    (is (= '([:entity-1 :attribute-1 :add 2])
+           (query/datoms collection
+                         [:entity-1 nil nil 2]
+                         {:reverse? true})))
+
+    (is (= '([:entity-1 :attribute-1 :add 2])
+           (query/datoms collection
+                         [nil :attribute-1 nil 2])))))
+
+(deftest test-substitutions-for-collection
+  (is (= '({:b? 1}
+           {:b? 2})
+         (query/substitutions-for-collection (create-collection [:a 1]
+                                                                [:a 2])
+                                             [:a :b?]))))
 
 
+(def test-query-collection (create-collection [:measurement-1 :amount 10]
+                                              [:measurement-1 :food :food-1]
+                                              [:food-1 :category :beverages]
 
-(deftest test-index-substitutions
-  (is (= nil (query/index-substitutions (create-index [:a :b]
-                                                      [:a :c])
-                                        [:a :b?])))
-  )
+                                              [:measurement-2 :amount 20]
+                                              [:measurement-2 :food :food-2]
+                                              [:food-2 :category :meat]))
+
+(deftest test-query
+  (is (= '({:measurement? :measurement-1,
+            :amount? 10,
+            :food? :food-1,
+            :category? :beverages}
+
+           {:measurement? :measurement-2,
+            :amount? 20,
+            :food? :food-2,
+            :category? :meat})
+         (query/query test-query-collection
+                      [[:measurement? :amount :amount?]
+                       [:measurement? :food :food?]
+                       [:food? :category :category?]]))))
+
+(comment
+  (query/projections [:food?]
+                     (query/query test-query-collection
+                                  [[:measurement? :amount :amount?]
+                                   [:measurement? :food :food?]
+                                   [:food? :category :category?]]))
+  ) ;; TODO: remove-me
+
