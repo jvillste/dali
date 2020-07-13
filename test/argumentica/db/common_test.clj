@@ -18,7 +18,7 @@
 (defn create-eav-db [& transactions]
   (reduce common/transact
           (common/db-from-index-definitions [common/eav-index-definition]
-                                            (fn [index-key] (btree-collection/create-memory-based {:node-size 3}))
+                                            (fn [index-key] (btree-collection/create-in-memory {:node-size 3}))
                                             (sorted-map-transaction-log/create))
           transactions))
 
@@ -138,8 +138,7 @@
 (defn create-in-memory-db [index-definitions]
   (common/db-from-index-definitions index-definitions
                                     (fn [index-key]
-                                      #_(btree-index/create-memory-btree-index 101)
-                                      (btree-collection/create-memory-based {:node-size 3}))
+                                      (btree-collection/create-in-memory {:node-size 3}))
                                     (sorted-map-transaction-log/create)))
 
 (defn create-db-with-composite-index [& composite-index-definition-arguments]

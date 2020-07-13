@@ -4,7 +4,7 @@
             [clojure.test :refer :all]))
 
 (defn create-collection [& datoms]
-  (let [collection (btree-collection/create-memory-based {:node-size 3})]
+  (let [collection (btree-collection/create-in-memory {:node-size 3})]
     (doseq [datom datoms]
       (mutable-collection/add! collection datom))
     collection))
