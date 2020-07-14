@@ -159,9 +159,13 @@
          (apply-substitution [:a? 2 :b?]
                              {:a? 1}))))
 
-(defn query [sorted-collection patterns]
-  (loop [substitutions (substitutions-for-collection sorted-collection
-                                                     (first patterns))
+(def query-options {(schema/optional-key :substitution) (schema/pred map?)})
+
+(util/defno query [sorted-collection patterns options :- query-options]
+  (loop [substitutions (if-let [substitution (:substitution options)]
+                         [substitution]
+                         (substitutions-for-collection sorted-collection
+                                                       (first patterns)))
          patterns (rest patterns)]
     (if-let [pattern (first patterns)]
       (recur (mapcat (fn [substitution]
@@ -178,7 +182,10 @@
   ((apply juxt variables) substitution))
 
 (deftest test-project
-  (is (= [1 2] (project [:a? :b?] {:a? 1 :b? 2 :c? 3}))))
+  (is (= [1 2] (project [:a? :b?]
+                        {:a? 1
+                         :b? 2
+                         :c? 3}))))
 
 (defn projections [variables substitutions]
   (map (partial project variables)

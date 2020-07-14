@@ -2,7 +2,11 @@
   (:require [argumentica.btree-collection :as btree-collection]
             [argumentica.db.query :as query]
             [argumentica.mutable-collection :as mutable-collection]
-            [clojure.test :refer :all]))
+            [clojure.test :refer :all]
+            [schema.core :as schema]
+            schema.test))
+
+(use-fixtures :once schema.test/validate-schemas)
 
 (defn create-collection [& datoms]
   (let [collection (btree-collection/create-in-memory {:node-size 3})]
@@ -55,7 +59,6 @@
                                                                 [:a 2])
                                              [:a :b?]))))
 
-
 (def test-query-collection (create-collection [:measurement-1 :amount 10]
                                               [:measurement-1 :food :food-1]
                                               [:food-1 :category :beverages]
@@ -77,7 +80,16 @@
          (query/query test-query-collection
                       [[:measurement? :amount :amount?]
                        [:measurement? :food :food?]
-                       [:food? :category :category?]]))))
+                       [:food? :category :category?]])))
+
+  (is (= '({:category? :meat
+            :measurement? :measurement-2
+            :food? :food-2})
+         (query/query test-query-collection
+                      [[:measurement? :amount :amount?]
+                       [:measurement? :food :food?]
+                       [:food? :category :category?]]
+                      {:substitution {:category? :meat}}))))
 
 (comment
   (query/projections [:food?]
