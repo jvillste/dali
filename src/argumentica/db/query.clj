@@ -7,11 +7,12 @@
 
 (defn variable? [value]
   (and (keyword? value)
-       (.endsWith (name value)
-                  "?")))
+       (or (= "v" (namespace value))
+           (.endsWith (name value)
+                      "?"))))
 
 (deftest test-variable?
-  (is (variable? :foo?))
+  (is (variable? :v/foo))
   (is (not (variable? :foo))))
 
 (defn substitution-for-datom [datom pattern]
@@ -39,8 +40,8 @@
   (is (= nil
          (substitution-for-datom [:a] [:b])))
 
-  (is (= {:a? :a}
-         (substitution-for-datom [:a] [:a?]))))
+  (is (= {:v/a :a}
+         (substitution-for-datom [:a] [:v/a]))))
 
 (defn substitute [pattern substitutions]
   (map (fn [pattern-value]
@@ -50,8 +51,8 @@
 
 (deftest test-substitute
   (is (= [1 :b]
-         (substitute [:a? :b]
-                     {:a? 1}))))
+         (substitute [:v/a :b]
+                     {:v/a 1}))))
 
 (defn match? [datom pattern]
   (loop [datom-values datom
@@ -155,9 +156,9 @@
        pattern))
 
 (deftest test-apply-substitution
-  (is (= '(1 2 :b?)
-         (apply-substitution [:a? 2 :b?]
-                             {:a? 1}))))
+  (is (= '(1 2 :v/b)
+         (apply-substitution [:v/a 2 :v/b]
+                             {:v/a 1}))))
 
 (def query-options {(schema/optional-key :substitution) (schema/pred map?)})
 
@@ -182,11 +183,23 @@
   ((apply juxt variables) substitution))
 
 (deftest test-project
-  (is (= [1 2] (project [:a? :b?]
-                        {:a? 1
-                         :b? 2
-                         :c? 3}))))
+  (is (= [1 2] (project [:v/a :v/b]
+                        {:v/a 1
+                         :v/b 2
+                         :v/c 3}))))
 
 (defn projections [variables substitutions]
   (map (partial project variables)
        substitutions))
+
+(defn join [participants]
+  (loop [substitutions (query (:sorted-collection (first participants))
+                              (:patterns (first participants)))
+         participants (rest participants)]
+    (if-let [participant (first participants)]
+      (recur (rest participants)
+             (apply concat (for [substitution substitutions]
+                             (query (:sorted-collection participant)
+                                    (:patterns participant)
+                                    {:substitution substitution}))))
+      substitutions)))

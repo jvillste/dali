@@ -59,10 +59,12 @@
                                                                 [:a 2])
                                              [:a :b?]))))
 
-(def test-query-collection (create-collection [:measurement-1 :amount 10]
+(def test-query-collection (create-collection [:measurement-5 :nutirent :nutrient-1]
+                                              [:measurement-1 :amount 10]
                                               [:measurement-1 :food :food-1]
-                                              [:food-1 :category :beverages]
+                                              [:food-1 :category :pastry]
 
+                                              [:measurement-2 :nutirent :nutrient-1]
                                               [:measurement-2 :amount 20]
                                               [:measurement-2 :food :food-2]
                                               [:food-2 :category :meat]))
@@ -71,7 +73,7 @@
   (is (= '({:measurement? :measurement-1,
             :amount? 10,
             :food? :food-1,
-            :category? :beverages}
+            :category? :pastry}
 
            {:measurement? :measurement-2,
             :amount? 20,
@@ -91,11 +93,17 @@
                        [:food? :category :category?]]
                       {:substitution {:category? :meat}}))))
 
-(comment
-  (query/projections [:food?]
-                     (query/query test-query-collection
-                                  [[:measurement? :amount :amount?]
-                                   [:measurement? :food :food?]
-                                   [:food? :category :category?]]))
-  ) ;; TODO: remove-me
+(deftest test-join
+  (is (= '(#:v{:measurement :measurement-1, :food :food-1}
+           #:v{:measurement :measurement-2, :food :food-2})
+         (query/join [{:sorted-collection (create-collection [:measurement-1 :food :food-1]
+                                                             [:measurement-2 :food :food-2])
+                       :patterns [[:v/measurement :food :v/food]]}])))
 
+  (is (= '(#:v{:measurement :measurement-2, :food :food-2})
+         (query/join [{:sorted-collection (create-collection [:measurement-1 :food :food-1]
+                                                             [:measurement-2 :food :food-2])
+                       :patterns [[:v/measurement :food :v/food]]}
+                      {:sorted-collection (create-collection [:measurement-1 :nutirent :nutrient-1]
+                                                             [:measurement-2 :nutirent :nutrient-2])
+                       :patterns [[:v/measurement :nutrient :nutrient-1]]}]))))
