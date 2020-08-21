@@ -96,7 +96,10 @@
                              :datom-transaction-number-index 2})
 
 (def eav-index-definition {:key :eav
-                           :eatcv-to-datoms (fn [_indexes e a t c v] [[e a v t c]])})
+                           ;;                           :eatcv-to-datoms (fn [_indexes e a t c v] [[e a v t c]])
+                           :statements-to-datoms (fn [indexes transaction-number statements]
+                                                   (for [[e a o v] statements]
+                                                     [e a v transaction-number o]))})
 
 (def avetc-index-definition {:key :avetc
                              :eatcv-to-datoms eatcv-to-avetc-datoms})
@@ -122,37 +125,48 @@
                         eacv-statements)
   db)
 
-(defn add-transaction-to-index! [index indexes transaction-number statements]
+(defn statements-to-datoms [index indexes transaction-number statements]
   (assert (every? (fn [statement]
                     (= 4 (count statement)))
                   statements)
           "Statement must have four values")
 
   (if-let [statements-to-datoms (:statements-to-datoms index)]
-    (doseq [datom (statements-to-datoms indexes
-                                        transaction-number
-                                        statements)]
-      (mutable-collection/add! (:collection index)
-                               datom))
-    (doseq [[e a c v] statements]
-      (doseq [datom ((:eatcv-to-datoms index)
-                     indexes
-                     e
-                     a
-                     transaction-number
-                     c
-                     v)]
-        (mutable-collection/add! (:collection index)
-                                 datom)))))
+    (statements-to-datoms indexes
+                          transaction-number
+                          statements)
+    (for [[e a c v] statements
+          datom ((:eatcv-to-datoms index)
+                 indexes
+                 e
+                 a
+                 transaction-number
+                 c
+                 v)]
+      datom)))
+
+(defn add-transaction-to-index! [index indexes transaction-number statements]
+  (run! #(mutable-collection/add! (:collection index)
+                                  %)
+        (statements-to-datoms index
+                              indexes
+                              transaction-number
+                              statements)))
 
 (defn add-transaction-to-index [index indexes transaction-number statements]
   (if (or (nil? (:last-indexed-transaction-number index))
           (< (:last-indexed-transaction-number index)
              transaction-number))
-    (do (add-transaction-to-index! index indexes transaction-number statements)
-        (assoc index
-               :last-indexed-transaction-number
-               transaction-number))
+    (let [datoms (statements-to-datoms index
+                                       indexes
+                                       transaction-number
+                                       statements)]
+      (run! #(mutable-collection/add! (:collection index)
+                                      %)
+            datoms)
+      (assoc index
+             :last-indexed-transaction-number transaction-number
+             :last-transaction-datoms datoms))
     index))
 
 (defn apply-to-indexes [db function & arguments]
@@ -248,10 +262,10 @@
               true))
           (map vector pattern datom)))
 
-(util/defno datoms-from-index-map [index pattern options :- query/datoms-options]
-  (query/datoms (:collection index)
-                pattern
-                options))
+(util/defno datoms-from-index-map [index pattern options :- query/filter-by-pattern-options]
+  (query/filter-by-pattern (:collection index)
+                           pattern
+                           options))
 
 (defn datoms-from [db index-key pattern]
   (datoms-from-index-map (get-in db [:indexes index-key])
@@ -285,7 +299,7 @@
                 #{}
                 datoms)))
 
-(util/defno datoms-by-proporistion [index pattern last-transaction-number options :- query/datoms-options]
+(util/defno datoms-by-proporistion [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (->> (datoms-from-index-map index
                               pattern
                               options)
@@ -323,14 +337,14 @@
     (throw (Exception. (str "Unknown index-key: "
                             index-key)))))
 
-(util/defno propositions-from-index [index pattern last-transaction-number options :- query/datoms-options]
+(util/defno propositions-from-index [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (mapcat reduce-propositions
           (datoms-by-proporistion index
                                   pattern
                                   last-transaction-number
                                   options)))
 
-(def propositions-options (merge query/datoms-options
+(def propositions-options (merge query/filter-by-pattern-options
                                  {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
 
 (util/defno propositions [db index-key pattern options :- propositions-options]
@@ -1080,6 +1094,75 @@
                                 (map (partial grouped-statements-to-enumeration-datom
                                               (get indexes index-key)
                                               transaction-number))))})
+
+(defrecord PropositionCollection [index last-transaction-number]
+  clojure.lang.Sorted
+  (comparator [this]
+    (.comparator (:collection index)))
+  (entryKey [this entry]
+    entry)
+  (seq [this ascending?]
+    (propositions-from-index index
+                             ::comparator/min
+                             last-transaction-number
+                             {:reverse? (not ascending?)}))
+  (seqFrom [this value ascending?]
+    (propositions-from-index index
+                             value
+                             last-transaction-number
+                             {:reverse? (not ascending?)})))
+
+(defn create-sorted-datom-set [& datoms]
+  (apply sorted-set-by comparator/compare-datoms datoms))
+
+(defn- participants [indexes transaction-number rule]
+  (map (fn [[index-key & patterns]]
+         (concat [(->PropositionCollection (get indexes index-key)
+                                           transaction-number)]
+                 patterns))
+       (:body rule)))
+
+(defn- propositions-concerning-substitution [rule transaction-number indexes substitution]
+  (for [concerning-substitution (apply query/query-with-substitution
+                                       substitution
+                                       (participants indexes
+                                                     transaction-number
+                                                     rule))]
+    (query/substitute (:head rule)
+                      concerning-substitution)))
+
+(defn- substitutions-involved-in-the-last-transaction [indexes rule]
+  (mapcat (fn [[index-key & patterns]]
+            (mapcat #(query/substitutions-for-collection (apply create-sorted-datom-set
+                                                                (get-in indexes
+                                                                        [index-key
+                                                                         :last-transaction-datoms]))
+                                                         %)
+                    patterns))
+          (:body rule)))
+
+(defn rule-index-statements-to-datoms [rule indexes transaction-number statements]
+  (let [substitutions-involved-in-the-last-transaction (substitutions-involved-in-the-last-transaction indexes rule)
+        old-propositions (clojure.core/set (mapcat #(propositions-concerning-substitution rule (dec transaction-number) indexes %)
+                                                   substitutions-involved-in-the-last-transaction))
+        new-propositions (clojure.core/set (mapcat #(propositions-concerning-substitution rule transaction-number indexes %)
+                                                   substitutions-involved-in-the-last-transaction))]
+
+    (concat (for [added-proposition (set/difference new-propositions
+                                                    old-propositions)]
+              (concat added-proposition
+                      [transaction-number :add]))
+
+            (for [removed-proposition (set/difference old-propositions
+                                                      new-propositions)]
+              (concat removed-proposition
+                      [transaction-number :remove])))))
+
+(defn rule-index-definition [index-key rule]
+  {:key index-key
+   :statements-to-datoms (partial rule-index-statements-to-datoms
+                                  rule)})
+
 (defn new-id []
   (UUID/randomUUID))
 
@@ -1132,3 +1215,4 @@
 (defn values-from-enumeration [db index-key]
   (values-from-enumeration-index (index db index-key)
                                  (:last-transaction-number db)))
+

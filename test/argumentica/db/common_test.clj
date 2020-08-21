@@ -354,3 +354,90 @@
          (values-from-enumeration-index 0
                                         [#{[:entity-1 :attribute-2 :add :value-1]}]))))
 
+
+(defn datoms-from-rule-index [& transactions]
+  (common/datoms-from (reduce common/transact
+                              (create-in-memory-db [common/eav-index-definition
+                                                    (common/rule-index-definition :rule
+                                                                                  {:head [:?category :?nutrient :?amount :?food]
+                                                                                   :body [[:eav
+                                                                                           [:?measurement :nutirent :?nutrient]
+                                                                                           [:?measurement :amount :?amount]
+                                                                                           [:?measurement :food :?food]
+                                                                                           [:?food :category :?category]]]})])
+                              transactions)
+                      :rule
+                      []))
+
+(deftest test-datoms-from-rule-index
+  (is (= [] (datoms-from-rule-index #{[:entity-1 :attribute-1 :add :value-1]})))
+
+  (is (= [[:pastry :nutrient-1 10 :food-1 0 :add]]
+         (datoms-from-rule-index #{[:measurement-1 :nutirent :add :nutrient-1]
+                                   [:measurement-1 :amount :add 10]
+                                   [:measurement-1 :food :add :food-1]
+                                   [:food-1 :category :add :pastry]})))
+
+  (is (= [[:pastry :nutrient-1 10 :food-1 1 :add]]
+         (datoms-from-rule-index #{[:measurement-1 :nutirent :add :nutrient-1]
+                                   [:measurement-1 :amount :add 10]
+                                   [:measurement-1 :food :add :food-1]}
+                                 #{[:food-1 :category :add :pastry]}))))
+
+(deftest test-proposition-collection
+  (is (= '([1 :friend 2] [2 :friend 1])
+         (util/inclusive-subsequence (common/->PropositionCollection (common/index (create-eav-db #{[1 :friend :set 2]
+                                                                                                    [2 :friend :set 1]}
+                                                                                                  #{[1 :friend :set 3]})
+                                                                                   :eav)
+                                                                     1)
+                                     [1 :friend]))))
+
+(defn run-rule-index-statements-to-datoms [transactions]
+  (common/rule-index-statements-to-datoms {:head [:?category :?amount :?food]
+                                           :body [[:eav
+                                                   [:?measurement :amount :?amount]
+                                                   [:?measurement :food :?food]
+                                                   [:?food :category :?category]]]}
+                                          (:indexes (apply create-eav-db transactions))
+                                          (dec (count transactions))
+                                          (last transactions)))
+
+(deftest test-rule-index-statements-to-datoms
+  (is (= '((:pastry 10 :food-1 0 :add))
+         (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
+                                                 [:measurement-1 :food :add :food-1]
+                                                 [:food-1 :category :add :pastry]}])))
+  
+  (is (= '((:pastry 10 :food-1 1 :add))
+         (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
+                                                 [:measurement-1 :food :add :food-1]}
+                                               #{[:food-1 :category :add :pastry]}])))
+
+  (is (= '((:pastry 5 :food-1 1 :add))
+         (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
+                                                 [:measurement-1 :food :add :food-1]
+                                                 [:food-1 :category :add :pastry]}
+                                               #{[:measurement-2 :amount :add 5]
+                                                 [:measurement-2 :food :add :food-1]}])))
+
+  (is (= '((:pastry 5 :food-1 1 :add)
+           (:pastry 10 :food-1 1 :remove))
+         (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
+                                                 [:measurement-1 :food :add :food-1]
+                                                 [:food-1 :category :add :pastry]}
+                                               #{[:measurement-1 :amount :remove 10]
+                                                 [:measurement-1 :amount :add 5]}])))
+
+  (is (= '((:beverage 5 :food-1 2 :add)
+           (:beverage 10 :food-1 2 :add)
+           (:pastry 10 :food-1 2 :remove)
+           (:pastry 5 :food-1 2 :remove))
+         (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
+                                                 [:measurement-1 :food :add :food-1]
+                                                 [:food-1 :category :add :pastry]}
+                                               #{[:measurement-2 :amount :add 5]
+                                                 [:measurement-2 :food :add :food-1]}
+                                               #{[:food-1 :category :add :beverage]
+                                                 [:food-1 :category :remove :pastry]}]))))
+

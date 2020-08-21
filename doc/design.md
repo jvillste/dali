@@ -205,15 +205,31 @@ If the transaction numbers are kept in the index map, it must be stored in an at
 
 
 # TODO
-
+* Only in memory db needs to contain transaction numbers and operators in datoms. The on disk datastructure is persistent on node level anyway. Having transaction numbers in datoms improves performance because the there is no need to copy datoms from nodes to another until they fill up.
+  * If transaction numbers are not stored on disk datoms, only the versions that are stored as roots are accessible.
 * branch parent can be a branch. this needs to be added to the kiss test
 * branch/create should take create-index as a parameter
 * sorted-datom-set-branch is not needed because it's generic code and not specific to sorted-set
 
-# new concepts
+# terms
 * operator: "add", "remove" or "set". "set" is expanded to an "add" and to zero or more "remove":s. "set" is not stored in indexes as such.
-* proposition: an ordered sequence of values in a single entry in an index
+* tuplet: a list of values in a datom
 * operation: a proposition and an operator. It describes a change to an index.
-* statement: entity attribute operator value
-* datom: a proposition concatenated by transaction number and operator
+* statement: list of entity attribute operator value
+* datom: a tuplet concatenated by transaction number and operator
 * index: ordered set of datoms
+
+* pattern: list of constants and variables
+* substitution: a map from variables to constants
+* tuplect: a sorted set of tuples of a certain length
+
+I have a sorted collection of vectors like in a relational database index. Then I have “patterns” that I want match to those vectors in the collection. Pattern is a vector of contants and varaibles. The result of the matching is a set of substitutions that define what combinations of values the variables in the patterns can have so that there are corresponding vectors in the collection.
+
+The matching occures in different levels:
+* one tuple to one pattern
+* a tuplect to one pattern
+* a tuplect to many patterns
+* many tuplects and their corresponding patterns
+The last case is called join in relational algebra.
+
+
