@@ -129,10 +129,7 @@
   
   (is (= [{:?x 4}]
          (query/query-2 [(create-sorted-set [:a 1] [:b 2] [:b 4]) [:b :?x]]
-                        [(create-sorted-set 3 4 5) :?x])))
-
-
-  )
+                        [(create-sorted-set 3 4 5) :?x]))))
 
 (deftest test-query-with-substitution
 

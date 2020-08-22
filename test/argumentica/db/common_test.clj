@@ -354,7 +354,6 @@
          (values-from-enumeration-index 0
                                         [#{[:entity-1 :attribute-2 :add :value-1]}]))))
 
-
 (defn datoms-from-rule-index [& transactions]
   (common/datoms-from (reduce common/transact
                               (create-in-memory-db [common/eav-index-definition
@@ -385,23 +384,24 @@
                                  #{[:food-1 :category :add :pastry]}))))
 
 (deftest test-proposition-collection
-  (is (= '([1 :friend 2] [2 :friend 1])
+  (is (= '([1 :friend 2]
+           [2 :friend 1])
          (util/inclusive-subsequence (common/->PropositionCollection (common/index (create-eav-db #{[1 :friend :set 2]
                                                                                                     [2 :friend :set 1]}
                                                                                                   #{[1 :friend :set 3]})
                                                                                    :eav)
-                                                                     1)
+                                                                     0)
                                      [1 :friend]))))
 
 (defn run-rule-index-statements-to-datoms [transactions]
-  (common/rule-index-statements-to-datoms {:head [:?category :?amount :?food]
-                                           :body [[:eav
-                                                   [:?measurement :amount :?amount]
-                                                   [:?measurement :food :?food]
-                                                   [:?food :category :?category]]]}
-                                          (:indexes (apply create-eav-db transactions))
-                                          (dec (count transactions))
-                                          (last transactions)))
+  (#'common/rule-index-statements-to-datoms {:head [:?category :?amount :?food]
+                                             :body [[:eav
+                                                     [:?measurement :amount :?amount]
+                                                     [:?measurement :food :?food]
+                                                     [:?food :category :?category]]]}
+                                            (:indexes (apply create-eav-db transactions))
+                                            (dec (count transactions))
+                                            (last transactions)))
 
 (deftest test-rule-index-statements-to-datoms
   (is (= '((:pastry 10 :food-1 0 :add))

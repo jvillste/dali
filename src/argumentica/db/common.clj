@@ -628,12 +628,15 @@
 
 (defn add-transactions-to-indexes [indexes transactions]
   (reduce (fn [indexes [transaction-number statements]]
-            (map/map-vals indexes
-                          (fn [index]
-                            (add-transaction-to-index index
-                                                      indexes
-                                                      transaction-number
-                                                      statements))))
+            (reduce (fn [indexes index-key]
+                      (update indexes
+                              index-key
+                              add-transaction-to-index
+                              indexes
+                              transaction-number
+                              statements))
+                    indexes
+                    (keys indexes)))
           indexes
           transactions))
 
@@ -1141,7 +1144,7 @@
                     patterns))
           (:body rule)))
 
-(defn rule-index-statements-to-datoms [rule indexes transaction-number statements]
+(defn- rule-index-statements-to-datoms [rule indexes transaction-number statements]
   (let [substitutions-involved-in-the-last-transaction (substitutions-involved-in-the-last-transaction indexes rule)
         old-propositions (clojure.core/set (mapcat #(propositions-concerning-substitution rule (dec transaction-number) indexes %)
                                                    substitutions-involved-in-the-last-transaction))
