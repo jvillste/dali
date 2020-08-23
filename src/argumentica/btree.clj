@@ -1529,29 +1529,93 @@
                                                           values))
                                             (last values)))))))
 
+(defn next-sequence [sequence btree-atom direction]
+  (if (first (rest sequence))
+    sequence
+    (if-let [value (first sequence)]
+      (cons value
+            (sequence-after-splitter btree-atom
+                                     (first sequence)
+                                     direction))
+      nil)))
+
+(defn transduce-btree [btree-atom starting-value & {:as options}]
+  (let [transducer (or (:transducer options)
+                       identity)
+        reducing-function (transducer (or (:reducer options)
+                                          (constantly nil)))
+        direction (or (:direction options)
+                      :forwards)]
+    (loop [reduced-value (if (contains? options :initial-value)
+                           (:initial-value options)
+                           (if (contains? options :reducer)
+                             ((:reducer options))
+                             nil))
+           sequence (sequence-for-value btree-atom
+                                        starting-value
+                                        direction)]
+      (loop [reduced-value reduced-value
+             sequence sequence]
+        (if-let [value-from-sequence (first sequence)]
+          (let [result (reducing-function reduced-value
+                                          value-from-sequence)]
+            (if (reduced? result)
+              (reducing-function @result)
+              (recur result
+                     (next-sequence (rest sequence)
+                                    btree-atom
+                                    direction))))
+          (reducing-function reduced-value))))))
+
+(deftest test-transduce-btree
+  (is (= [30 31 32 33 34 35 36 37 38 39]
+         (transduce-btree (atom (create-test-btree 3 100))
+                          30
+                          :transducer (take 10)
+                          :reducer conj)))
+
+  (is (= [30 29 28 27 26 25 24 23 22 21]
+         (transduce-btree (atom (create-test-btree 3 100))
+                          30
+                          :transducer (take 10)
+                          :reducer conj
+                          :direction :backwards))))
+
 (deftest test-btree
   (repeatedly 100
               (let [maximum 1000
                     values (take 200
                                  (repeatedly (fn [] (rand-int maximum))))
                     first-value (rand maximum)
-                    create-btree-atom (fn []
-                                        (atom (reduce add
-                                                      (create (full-after-maximum-number-of-values 3))
-                                                      values)))]
-                (is (= (subseq (apply create-sorted-set
-                                      values)
-                               >=
-                               first-value)
-                       (inclusive-subsequence (create-btree-atom)
+                    btree-atom (atom (reduce add
+                                             (create (full-after-maximum-number-of-values 3))
+                                             values))
+                    forward-subsequence (subseq (apply create-sorted-set
+                                                       values)
+                                                >=
+                                                first-value)
+                    backward-subsequence (rsubseq (apply create-sorted-set
+                                                         values)
+                                                  <=
+                                                  first-value)]
+                (is (= forward-subsequence
+                       (inclusive-subsequence btree-atom
                                               first-value)))
 
-                (is (= (rsubseq (apply create-sorted-set
-                                       values)
-                                <=
-                                first-value)
-                       (inclusive-reverse-subsequence (create-btree-atom)
-                                                      first-value))))))
+                (is (= forward-subsequence
+                       (transduce-btree btree-atom
+                                        first-value
+                                        :reducer conj)))
+
+                (is (= backward-subsequence
+                       (inclusive-reverse-subsequence btree-atom
+                                                      first-value)))
+
+                (is (= backward-subsequence
+                       (transduce-btree btree-atom
+                                        first-value
+                                        :reducer conj
+                                        :direction :backwards))))))
 
 #_(defn write-metadata [btree]
     (put-to-storage (:node-storage btree)

@@ -89,3 +89,21 @@
                                  smallest)
                          (btree/inclusive-subsequence (atom (apply-commands-to-new-btree commands))
                                                       smallest))))
+
+(comment
+
+  ;; preformance testing
+  
+  (time (let [btree-atom (atom (btree/create-test-btree 11 1000))]
+          (dotimes [i 10000]
+            (doall (take 1 (btree/inclusive-subsequence btree-atom
+                                                        (rand-int 1000)))))))
+
+  (time (let [btree-atom (atom (btree/create-test-btree 11 1000))]
+          (dotimes [i 10000]
+            (btree/transduce-btree btree-atom
+                                   (rand-int 1000)
+                                   :transducer (take 1)
+                                   :reducer conj))))
+  
+  )
