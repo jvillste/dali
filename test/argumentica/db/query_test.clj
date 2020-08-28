@@ -152,7 +152,7 @@
             :?friend-name "Joe"})
          (query/query-with-substitution {:?x :a}
                                         [(create-sorted-set [:a :friend :b]
-                                                            [:c :firend :a])
+                                                            [:c :friend :a])
                                          [:?x :friend :?friend]]
 
                                         [(create-sorted-set [:a :name "John"]
