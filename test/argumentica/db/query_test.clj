@@ -144,5 +144,17 @@
          (query/query-with-substitution {:?x :a}
                                         [(create-sorted-set [:a :b :c]
                                                             [:d :b :e])
-                                         [:?x :b :?y]]))))
+                                         [:?x :b :?y]])))
 
+
+  (is (= '({:?x :a
+            :?friend :b
+            :?friend-name "Joe"})
+         (query/query-with-substitution {:?x :a}
+                                        [(create-sorted-set [:a :friend :b]
+                                                            [:c :firend :a])
+                                         [:?x :friend :?friend]]
+
+                                        [(create-sorted-set [:a :name "John"]
+                                                            [:b :name "Joe"])
+                                         [:?friend :name :?friend-name]]))))
