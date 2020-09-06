@@ -1,6 +1,6 @@
 (ns argumentica.btree-db
   (:require [argumentica.btree :as btree]
-            [argumentica.btree-index :as btree-index]
+            [argumentica.btree-collection :as btree-collection]
             [argumentica.db.common :as common]
             [argumentica.db.file-transaction-log :as file-transaction-log]
             [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
@@ -10,13 +10,13 @@
 (defn store-index-root-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
             (- last-transaction-number
-               (or (-> (btree/get-latest-root (btree-index/btree (:collection index)))
+               (or (-> (btree/get-latest-root (btree-collection/btree (:collection index)))
                        :metadata
                        :last-transaction-number)
                    0)))
-    (btree-index/swap-btree! (:collection index)
-                             btree/store-root
-                             {:last-transaction-number last-transaction-number}))
+    (btree-collection/locking-apply-to-btree! (:collection index)
+                                              btree/store-root
+                                              {:last-transaction-number last-transaction-number}))
   index)
 
 (defn store-index-roots-after-maximum-number-of-transactions [db maximum-number-of-transactions-after-previous-root]
@@ -30,7 +30,7 @@
 (defn- apply-to-btrees [db function & arguments]
   (common/apply-to-indexes db
                            (fn [index]
-                             (apply btree-index/swap-btree!
+                             (apply btree-collection/locking-apply-to-btree!
                                     (:collection index)
                                     function
                                     arguments)

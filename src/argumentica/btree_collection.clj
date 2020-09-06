@@ -9,6 +9,9 @@
             [schema.core :as schema])
   (:import argumentica.comparator.DatomComparator))
 
+(defn btree [btree-collection]
+  @(:btree-atom btree-collection))
+
 (defn locking-apply-to-btree! [btree-collection function & arguments]
   (locking (:btree-atom btree-collection)
     (reset! (:btree-atom btree-collection)
