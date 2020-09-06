@@ -43,7 +43,7 @@
                                        [1 (gen/tuple (gen/return #'btree/unload-btree))]
                                        [1 (gen/tuple (gen/return #'unload-excess-nodes))]
                                        [8 (gen/tuple (gen/return #'btree/add)
-                                                      gen/pos-int)]]))
+                                                     gen/pos-int)]]))
 
 (defn apply-commands-to-new-btree [commands]
   (reduce (fn [btree [command & arguments]]
@@ -71,7 +71,7 @@
                                             [#'argumentica.btree/add 1]]))))
 
 (defspec property-test-reached-nodes
-   (properties/for-all [commands (gen/vector command-generator)]
+  (properties/for-all [commands (gen/vector command-generator)]
                       (every? btree/loaded-node-id?
                               (reached-nodes (apply-commands-to-new-btree commands)))))
 
@@ -90,6 +90,35 @@
                          (btree/inclusive-subsequence (atom (apply-commands-to-new-btree commands))
                                                       smallest))))
 
+(defn test-transduce [values first-value]
+  (let [btree-atom (atom (reduce btree/add
+                                 (btree/create (btree/full-after-maximum-number-of-values 3))
+                                 values))
+        forward-subsequence (or (subseq (apply btree/create-sorted-set
+                                               values)
+                                        >=
+                                        first-value)
+                                [])
+        backward-subsequence (or (rsubseq (apply btree/create-sorted-set
+                                                 values)
+                                          <=
+                                          first-value)
+                                 [])]
+    (and (= forward-subsequence
+            (btree/transduce-btree btree-atom
+                                   first-value
+                                   {:reducer conj}))
+         (= backward-subsequence
+            (btree/transduce-btree btree-atom
+                                   first-value
+                                   {:reducer conj
+                                    :direction :backwards})))))
+
+(defspec property-test-transduce 1000
+  (properties/for-all* [(gen/vector gen/int)
+                        gen/int]
+                       test-transduce))
+
 (comment
 
   ;; preformance testing
@@ -100,10 +129,13 @@
                                                         (rand-int 1000)))))))
 
   (time (let [btree-atom (atom (btree/create-test-btree 11 1000))]
-          (dotimes [i 10000]
-            (btree/transduce-btree btree-atom
-                                   (rand-int 1000)
-                                   :transducer (take 1)
-                                   :reducer conj))))
+          (taoensso.tufte/profile {}
+                                  (taoensso.tufte/p :total                       
+                                                    (dotimes [i 10000]
+                                                      (taoensso.tufte/p :transduce-btree
+                                                                        (btree/transduce-btree btree-atom
+                                                                                               (rand-int 1000)
+                                                                                               :transducer (take 1)
+                                                                                               :reducer conj)))))))
   
   )

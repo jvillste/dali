@@ -287,7 +287,7 @@
                                             :<-parent #{{:dali/id 2}
                                                         {:dali/id 3}}})))))
 
-(defn maps-to-transaction[& maps]
+(defn maps-to-transaction [& maps]
   (assert (map? (first maps)))
   (apply set/union
          (map (fn [map-with-ids]

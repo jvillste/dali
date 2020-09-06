@@ -313,9 +313,9 @@
 
   ([index pattern last-transaction-number]
    (apply concat
-          (datoms-by-proporistion index
-                                  pattern
-                                  last-transaction-number))))
+          (datoms-by-proposition index
+                                 pattern
+                                 last-transaction-number))))
 
 (defn take-while-pattern-matches [pattern propositions]
   (take-while #(query/match? % pattern)
@@ -339,7 +339,7 @@
 
 (util/defno propositions-from-index [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (mapcat reduce-propositions
-          (datoms-by-proporistion index
+          (datoms-by-proposition index
                                   pattern
                                   last-transaction-number
                                   options)))
