@@ -271,7 +271,7 @@
            [2 :name :set "Child 1"]
            [3 :name :set "Child 2"])
          (sort (map-with-ids-to-statements {:dali/id 1
-                                            :children #{{:dali/id :child-1
+                                            :children #{{:dali/id 2
                                                          :name "Child 1"}
                                                         {:dali/id 3
                                                          :name "Child 2"}}}))))
