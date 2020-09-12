@@ -1,44 +1,58 @@
-(ns argumentica.transducible-collection)
+(ns argumentica.transducible-collection
+  (:require [schema.core :as schema]
+            [clojure.test :refer :all]))
+
+(def transduce-options {(schema/optional-key :direction) (schema/enum :forwards :backwards)
+                        (schema/optional-key :initial-value) schema/Any
+                        (schema/optional-key :transducer) (schema/pred fn?)
+                        (schema/optional-key :reducer) (schema/pred fn?)
+                        schema/Keyword schema/Any})
+
+(def default-transduce-options {:transducer identity
+                                :reducer (constantly nil)
+                                :direction :forwards})
 
 (defprotocol TransducibleCollection
   (transduce [this from-key options]))
 
+(extend-protocol TransducibleCollection
+  clojure.lang.Sorted
+  (transduce [this from-key options]
+    (let [options (merge default-transduce-options
+                         options)
+          subsequence (if (= :forwards (:direction options))
+                        (subseq this >= from-key)
+                        (rsubseq this <= from-key))]
+      (if (contains? options
+                     :initial-value)
+        (clojure.core/transduce (:transducer options)
+                                (:reducer options)
+                                (:initial-value options)
+                                subsequence)
+        (clojure.core/transduce (:transducer options)
+                                (:reducer options)
+                                subsequence)))))
 
-;; (extend-protocol TransducableCollection
-;;     clojure.lang.Sorted
-;;   ;; clojure.lang.PersistentTreeSet
-;;   (transduce2 [this value options]
-;;     (let [transducer (or (:transducer options)
-;;                          identity)
-;;           reducing-function (transducer (or (:reducer options)
-;;                                             (constantly nil)))
-;;           direction (or (:direction options)
-;;                         :forwards)]
-;;       (prn (:reducer options)
-;;            (if (= :forwards direction)
-;;              (subseq this >= value)
-;;              (rsubseq this <= value))) ;; TODO: remove-me
+(deftest test-transduce
+  (is (= [2 3]
+         (transduce (sorted-set 1 2 3)
+                    2
+                    {:reducer conj})))
 
-;;       (clojure.core/transduce transducer
-;;                               reducing-function
-;;                               (if (= :forwards direction)
-;;                                 (subseq this >= value)
-;;                                 (rsubseq this <= value))))))
+  (is (= [3 4]
+         (transduce (sorted-set 1 2 3)
+                    2
+                    {:reducer conj
+                     :transducer (map inc)})))
 
-;; (comment
+  (is (= [0 2 3]
+         (transduce (sorted-set 1 2 3)
+                    2
+                    {:reducer conj
+                     :initial-value [0]}))))
 
-;;   (clojure.core/transduce identity
-;;                           conj
-;;                           (subseq (sorted-set 1 2 3) >= 2))
-
-;;   (clojure.core/transduce identity
-;;                           conj
-;;                           (subseq (sorted-set 1 2 3) >= 2))
-
-;;   (transduce2 (sorted-set 1 2 3)
-;;               1
-;;               {:reducer conj}
-;;              )
-;;   ) ;; TODO: remove-me
-
-
+(defn prepend-transducer [options transducer]
+  (merge options
+         {:transducer (comp transducer
+                            (:transducer (merge default-transduce-options
+                                                options)))}))
