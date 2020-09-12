@@ -2,7 +2,8 @@
   (:require [argumentica.comparator :as comparator]
             [argumentica.index :as tuplect]
             [argumentica.util :as util]
-            [schema.core :as schema])
+            [schema.core :as schema]
+            [argumentica.transducible-collection :as transducible-collection])
   (:use clojure.test))
 
 (defn variable? [value]
@@ -146,6 +147,8 @@
   (is (has-trailing-constants? [:a nil :a]))
   (is (has-trailing-constants? (concat [:a] [nil] [:a]))))
 
+
+
 (util/defno filter-by-pattern [sorted-set pattern {:keys [reverse?] :or {reverse? false}} :- filter-by-pattern-options]
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (or (->> (if reverse?
@@ -159,6 +162,28 @@
                        (or (not pattern-has-trailing-constants?)
                            (match? datom pattern)))))
         [])))
+
+(defn pattern-for-reverse-iteration [pattern transducible-collection]
+  (util/pad (count (transducible-collection/transduce transducible-collection
+                                                      nil
+                                                      {:transducer (take 1)
+                                                       :reducer util/last-value}))
+            (start-pattern pattern)
+            ::comparator/max))
+
+(util/defno transduce-pattern [transducible-collection pattern options :- transducible-collection/transduce-options]
+  (let [options (merge transducible-collection/default-transduce-options
+                       options)
+        pattern-has-trailing-constants? (has-trailing-constants? pattern)]
+    (transducible-collection/transduce transducible-collection
+                                       (if (= :backwards (:direction options))
+                                         (pattern-for-reverse-iteration pattern transducible-collection)
+                                         pattern)
+                                       (merge options
+                                              {:transducer (if pattern-has-trailing-constants?
+                                                             (comp (filter #(match? % pattern))
+                                                                   (:transducer options))
+                                                             (:transducer options))}))))
 
 (defn- variable-to-nil [term]
   (if (variable? term)
