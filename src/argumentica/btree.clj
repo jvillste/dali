@@ -11,7 +11,9 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as properties]
-            [argumentica.log :as log]))
+            [argumentica.log :as log]
+            [argumentica.util :as util]
+            [argumentica.transducible-collection :as transducible-collection]))
 
 (defn create-sorted-set [& keys]
   (apply sorted-set-by
@@ -1383,13 +1385,13 @@
                                value
                                :forwards))
 
-        0   [1 2 3]
-        1   [1 2 3]
-        3   [3]
-        -10 [1 2 3]
-        5   [5 6]
-        50  nil
-        ::comparator/min [1 2 3])
+      0   [1 2 3]
+      1   [1 2 3]
+      3   [3]
+      -10 [1 2 3]
+      5   [5 6]
+      50  nil
+      ::comparator/min [1 2 3])
 
     (are [value sequence]
         (= sequence
@@ -1397,14 +1399,14 @@
                                value
                                :backwards))
 
-        0   nil
-        1   [1]
-        3   [3]
-        -10 nil
-        5   [5 4 3]
-        50  [6 5 4 3]
-        ::comparator/min nil
-        ::comparator/max [6 5 4 3])))
+      0   nil
+      1   [1]
+      3   [3]
+      -10 nil
+      5   [5 4 3]
+      50  [6 5 4 3]
+      ::comparator/min nil
+      ::comparator/max [6 5 4 3])))
 
 (defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))
@@ -1539,21 +1541,16 @@
                                      direction))
       nil)))
 
-(defn transduce-btree [btree-atom starting-value options]
-  (let [transducer (or (:transducer options)
-                       identity)
-        reducing-function (transducer (or (:reducer options)
-                                          (constantly nil)))
-        direction (or (:direction options)
-                      :forwards)]
+(util/defno transduce-btree [btree-atom starting-value options :- transducible-collection/transduce-options]
+  (let [options (merge transducible-collection/default-transduce-options
+                       options)
+        reducing-function ((:transducer options) (:reducer options))]
     (loop [reduced-value (if (contains? options :initial-value)
                            (:initial-value options)
-                           (if (contains? options :reducer)
-                             ((:reducer options))
-                             nil))
+                           ((:reducer options)))
            sequence (sequence-for-value btree-atom
                                         starting-value
-                                        direction)]
+                                        (:direction options))]
       (loop [reduced-value reduced-value
              sequence sequence]
         (if-let [value-from-sequence (first sequence)]
@@ -1564,7 +1561,7 @@
               (recur result
                      (rest (next-sequence sequence
                                           btree-atom
-                                          direction)))))
+                                          (:direction options))))))
           (reducing-function reduced-value))))))
 
 (deftest test-transduce-btree

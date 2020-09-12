@@ -58,7 +58,7 @@
   [this key]
   (merge-sequences (filter (fn [datom]
                              (>= (:base-transaction-number this)
-                                 (common/transaction-number datom)))
+                                 (common/datom-transaction-number datom)))
                            (index/inclusive-subsequence (:base-sorted-datom-set this)
                                                         key))
                    (index/inclusive-subsequence (:branch-datom-set this)

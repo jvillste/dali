@@ -1,6 +1,7 @@
 (ns argumentica.btree-db
   (:require [argumentica.btree :as btree]
             [argumentica.btree-collection :as btree-collection]
+            [argumentica.btree-index :as btree-index]
             [argumentica.db.common :as common]
             [argumentica.db.file-transaction-log :as file-transaction-log]
             [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]

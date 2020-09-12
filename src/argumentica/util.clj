@@ -100,3 +100,8 @@
 
 (defn inclusive-reverse-subsequence [sorted-collection maximum-value]
   (rsubseq sorted-collection <= maximum-value))
+
+(defn last-value
+  ([] nil)
+  ([result] result)
+  ([accumulator_ value] value))

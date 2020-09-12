@@ -90,7 +90,7 @@
                          (btree/inclusive-subsequence (atom (apply-commands-to-new-btree commands))
                                                       smallest))))
 
-(defn test-transduce [values first-value]
+(defn property-test-transduce* [values first-value]
   (let [btree-atom (atom (reduce btree/add
                                  (btree/create (btree/full-after-maximum-number-of-values 3))
                                  values))
@@ -117,7 +117,24 @@
 (defspec property-test-transduce 1000
   (properties/for-all* [(gen/vector gen/int)
                         gen/int]
-                       test-transduce))
+                       property-test-transduce*))
+
+
+(defn create-btree [values]
+  (reduce btree/add
+          (btree/create (btree/full-after-maximum-number-of-values 3))
+          values))
+
+(deftest test-transduce
+  (is [[:a :b]]
+      (btree/transduce-btree (atom (create-btree [[:a :b]]))
+                             [:a]
+                             {:reducer conj}))
+
+  (is [[:a :b :c]]
+      (btree/transduce-btree (atom (create-btree [[:a :b :c]]))
+                             [:a nil :c]
+                             {:reducer conj})))
 
 (comment
 

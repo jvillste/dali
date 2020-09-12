@@ -13,7 +13,8 @@
             [medley.core :as medley]
             [argumentica.db.query :as query]
             [argumentica.util :as util]
-            schema.test)
+            schema.test
+            [argumentica.comparator :as comparator])
   (:use clojure.test))
 
 (use-fixtures :once schema.test/validate-schemas)
@@ -35,6 +36,69 @@
                                  #{[1 :friend :set 3]})]
            (util/inclusive-subsequence (-> db :indexes :eav :collection)
                                        [1 :friend nil nil nil])))))
+
+(def test-datoms (sorted-set-by comparator/compare-datoms
+                                [:entity-1 :attribute-1 :value-1 0 :add]
+                                [:entity-1 :attribute-1 :value-1 1 :remove]
+                                [:entity-1 :attribute-1 :value-3 1 :add]
+                                [:entity-1 :attribute-2 :value-2 0 :add]
+                                [:entity-1 :attribute-3 :value-4 0 :add]))
+
+(deftest test-transduce-datoms-by-proposition
+  (is (= [[[:entity-1 :attribute-1 :value-1 0 :add]
+           [:entity-1 :attribute-1 :value-1 1 :remove]]
+          [[:entity-1 :attribute-1 :value-3 1 :add]]
+          [[:entity-1 :attribute-2 :value-2 0 :add]]
+          [[:entity-1 :attribute-3 :value-4 0 :add]]]
+         (common/transduce-datoms-by-proposition test-datoms
+                                                 [:entity-1]
+                                                 {:reducer conj})))
+
+  (is (= [[[:entity-1 :attribute-1 :value-1 0 :add]]
+          [[:entity-1 :attribute-2 :value-2 0 :add]]
+          [[:entity-1 :attribute-3 :value-4 0 :add]]]
+         (common/transduce-datoms-by-proposition test-datoms
+                                                 [:entity-1]
+                                                 {:reducer conj
+                                                  :last-transaction-number 0})))
+
+  (is (= [[[:entity-1 :attribute-2 :value-2 0 :add]]
+          [[:entity-1 :attribute-3 :value-4 0 :add]]]
+         (common/transduce-datoms-by-proposition test-datoms
+                                                 [:entity-1 :attribute-2]
+                                                 {:reducer conj})))
+
+  (is (= [[[:entity-1 :attribute-1 :value-1 0 :add]]]
+         (common/transduce-datoms-by-proposition test-datoms
+                                                 [:entity-1]
+                                                 {:reducer conj
+                                                  :transducer (take 1)
+                                                  :last-transaction-number 0}))))
+(deftest test-transduce-propositions
+  (is (= [[:entity-1 :attribute-1 :value-3]]
+         (common/transduce-propositions test-datoms
+                                        [:entity-1 :attribute-1]
+                                        {:reducer conj})))
+
+  (is (= [[:entity-1 :attribute-1 :value-3]
+          [:entity-1 :attribute-2 :value-2]
+          [:entity-1 :attribute-3 :value-4]]
+         (common/transduce-propositions test-datoms
+                                        [:entity-1 :attribute-1]
+                                        {:reducer conj
+                                         :take-while-pattern-matches? false})))
+
+  (is (= [[:attribute-1 2 :entity-3]
+          [:attribute-1 3 :entity-2]
+          [:attribute-1 4 :entity-4]]
+         (common/transduce-propositions (sorted-set-by comparator/compare-datoms
+                                                       [:attribute-1 1 :entity-1 0 :add]
+                                                       [:attribute-1 2 :entity-3 0 :add]
+                                                       [:attribute-1 3 :entity-2 0 :add]
+                                                       [:attribute-1 4 :entity-4 0 :add])
+                                        [:attribute-1 2]
+                                        {:reducer conj
+                                         :take-while-pattern-matches? false}))))
 
 (deftest test-datoms-from-index
   (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
@@ -64,8 +128,6 @@
            (common/datoms-from-index (-> db :indexes :eav)
                                      [:entity-1 :attribute-2]
                                      0)))))
-
-
 
 
 (deftest test-matching-datoms-from-index
@@ -137,6 +199,32 @@
            (common/values-from-eav (-> db :indexes :eav)
                                    :entity-1
                                    :attribute-2)))))
+
+(deftest test-transduce-values-from-eav-collection
+  (is (= [:value-3 :value-3-2]
+         (common/transduce-values-from-eav-collection (sorted-set-by comparator/compare-datoms
+                                                                     [:entity-1 :attribute-1 :value-1 0 :add] 
+                                                                    [:entity-1 :attribute-1 :value-1 1 :remove]
+                                                                     [:entity-1 :attribute-1 :value-3 1 :add]
+                                                                     [:entity-1 :attribute-1 :value-3-2 1 :add]
+                                                                     [:entity-1 :attribute-2 :value-2 0 :add]
+                                                                     [:entity-1 :attribute-3 :value-4 0 :add])
+                                                      :entity-1
+                                                      :attribute-1
+                                                      {:reducer conj})))
+
+  (is (= [:value-1]
+         (common/transduce-values-from-eav-collection (sorted-set-by comparator/compare-datoms
+                                                                     [:entity-1 :attribute-1 :value-1 0 :add]
+                                                                     [:entity-1 :attribute-1 :value-1 1 :remove]
+                                                                     [:entity-1 :attribute-1 :value-3 1 :add]
+                                                                     [:entity-1 :attribute-1 :value-3-2 1 :add]
+                                                                     [:entity-1 :attribute-2 :value-2 0 :add]
+                                                                     [:entity-1 :attribute-3 :value-4 0 :add])
+                                                      :entity-1
+                                                      :attribute-1
+                                                      {:reducer conj
+                                                       :last-transaction-number 0}))))
 
 (defn create-in-memory-db [index-definitions]
   (common/db-from-index-definitions index-definitions
@@ -290,7 +378,12 @@
               (create-in-memory-db [(common/enumeration-index-definition :enumeration
                                                                          :attribute-1)])
               transactions)
-      (common/datoms-from :enumeration [])))
+      :indexes
+      :enumeration
+      :collection
+      (query/transduce-pattern []
+                               {:take-while-pattern-matches? false
+                                :reducer conj})))
 
 (deftest test-enumeration-index
   (is (= '([:value-1 0 1])

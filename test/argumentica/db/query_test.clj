@@ -2,7 +2,11 @@
   (:require [argumentica.comparator :as comparator]
             [argumentica.db.query :as query]
             [clojure.test :refer :all]
-            schema.test))
+            schema.test
+            [argumentica.btree-collection :as btree-collection]
+            [argumentica.mutable-collection :as mutable-collection]
+            [clojure.java.io :as io]))
+
 
 (use-fixtures :once schema.test/validate-schemas)
 
@@ -158,3 +162,61 @@
                                         [(create-sorted-set [:a :name "John"]
                                                             [:b :name "Joe"])
                                          [:?friend :name :?friend-name]]))))
+
+(defn create-btree-collection [datoms]
+  (let [btree-collection (btree-collection/create-in-memory)]
+    (run! #(mutable-collection/add! btree-collection %)
+          datoms)
+    btree-collection))
+
+(deftest test-transduce-pattern
+  (is (= [[:a :b :c]
+          [:a :b :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b]
+                                  {:reducer conj})))
+
+  (is (= [[:a :b :d]
+          [:a :b :c]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b]
+                                  {:reducer conj
+                                   :direction :backwards})))
+
+    (is (= [[:a :b :c] [:a :b :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b]
+                                  {:reducer conj})))
+
+  (is (= [[:a :b :c] [:a :b :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b :c]
+                                  {:reducer conj})))
+
+  (is (= [[:a :b :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b :d]
+                                  {:reducer conj})))
+
+
+    (is (= [[:a :b :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :c]
+                                                            [:a :b :d]])
+                                  [:a :b :d]
+                                  {:reducer conj})))
+
+  (is (= [[:b :b :d]
+          [:b :c :d]]
+         (query/transduce-pattern (create-btree-collection [[:a :b :d]
+                                                            [:b :b :d]
+                                                            [:b :c :d]
+                                                            [:c :c :d]])
+                                  [:b nil :d]
+                                  {:reducer conj}))))
+
+

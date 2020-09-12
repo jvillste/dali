@@ -21,37 +21,36 @@
   btree-collection)
 
 (defrecord BtreeCollection [btree-atom]
-  clojure.lang.Sorted
-  (comparator [this]
-    (DatomComparator.))
-  (entryKey [this entry]
-    entry)
-  (seq [this ascending?]
-    (locking (:btree-atom this)
-      (if ascending?
-        (btree/inclusive-subsequence (:btree-atom this)
-                                     ::comparator/min)
-        (btree/inclusive-reverse-subsequence (:btree-atom this)
-                                             ::comparator/max))))
-  (seqFrom [this value ascending?]
-    (locking (:btree-atom this)
-      (if ascending?
-        (btree/inclusive-subsequence (:btree-atom this)
-                                     value)
-        (btree/inclusive-reverse-subsequence (:btree-atom this)
-                                             value))))
+  ;; clojure.lang.Sorted
+  ;; (comparator [this]
+  ;;   (DatomComparator.))
+  ;; (entryKey [this entry]
+  ;;   entry)
+  ;; (seq [this ascending?]
+  ;;   (locking (:btree-atom this)
+  ;;     (if ascending?
+  ;;       (btree/inclusive-subsequence (:btree-atom this)
+  ;;                                    ::comparator/min)
+  ;;       (btree/inclusive-reverse-subsequence (:btree-atom this)
+  ;;                                            ::comparator/max))))
+  ;; (seqFrom [this value ascending?]
+  ;;   (locking (:btree-atom this)
+  ;;     (if ascending?
+  ;;       (btree/inclusive-subsequence (:btree-atom this)
+  ;;                                    value)
+  ;;       (btree/inclusive-reverse-subsequence (:btree-atom this)
+  ;;                                            value))))
   mutable-collection/MutableCollection
   (add! [this value]
     (locking-apply-to-btree! this
-                          btree/add
-                          value))
+                             btree/add
+                             value))
   transducible-collection/TransducibleCollection
   (transduce [this value options]
     (locking (:btree-atom this)
-      (apply btree/transduce-btree
-             (:btree-atom this)
-             value
-             options))))
+      (btree/transduce-btree (:btree-atom this)
+                             value
+                             options))))
 
 (defn- create-for-btree [btree]
   (->BtreeCollection (atom btree)))

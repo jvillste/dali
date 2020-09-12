@@ -15,7 +15,8 @@
             [schema.core :as schema]
             [medley.core :as medley]
             [argumentica.db.query :as query]
-            [argumentica.mutable-collection :as mutable-collection])
+            [argumentica.mutable-collection :as mutable-collection]
+            [argumentica.transducible-collection :as transducible-collection])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -77,6 +78,8 @@
 (defn eacv-value [statement]
   (get statement 3))
 
+(defn eav-value [eav-datom]
+  (get eav-datom 2))
 
 (defn eatcv-to-eatcv-datoms [_indexes e a t c v]
   [[e a t c v]])
@@ -271,26 +274,28 @@
   (datoms-from-index-map (get-in db [:indexes index-key])
                          pattern))
 
-(defn proposition [datom]
+(defn datom-proposition [datom]
   (vec (drop-last 2 datom)))
+
+(defn datom-transaction-number [datom]
+  (first (take-last 2 datom)))
 
 (defn command [datom]
   (last datom))
 
 (defn- accumulate-propositions [propositions datom]
   (case (command datom)
-    :add (conj propositions (proposition datom))
-    :remove (disj propositions (proposition datom))
+    :add (conj propositions (datom-proposition datom))
+    :remove (disj propositions (datom-proposition datom))
     propositions))
 
-(defn transaction-number [datom]
-  (first (take-last 2 datom)))
+
 
 (defn- take-until-transaction-number [last-transaction-numer datoms]
   (take-while (fn [datom]
                 (if last-transaction-numer
                   (>= last-transaction-numer
-                      (transaction-number datom))
+                      (datom-transaction-number datom))
                   true))
               datoms))
 
@@ -299,13 +304,27 @@
                 #{}
                 datoms)))
 
-(util/defno datoms-by-proporistion [index pattern last-transaction-number options :- query/filter-by-pattern-options]
+(util/defno datoms-by-proposition [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (->> (datoms-from-index-map index
                               pattern
                               options)
-       (partition-by proposition)
+       (partition-by datom-proposition)
        (map (partial take-until-transaction-number
                      last-transaction-number))))
+
+(def transduce-datoms-by-proposition-options (merge transducible-collection/transduce-options
+                                                    {(schema/optional-key :last-transaction-number) schema/Num}))
+
+(util/defno transduce-datoms-by-proposition [transducible-collection pattern options :- transduce-datoms-by-proposition-options]
+  (query/transduce-pattern transducible-collection
+                           pattern
+                           (transducible-collection/prepend-transducer options
+                                                                       (comp (if (:last-transaction-number options)
+                                                                               (filter (fn [datom]
+                                                                                         (>= (:last-transaction-number options)
+                                                                                             (datom-transaction-number datom))))
+                                                                               identity)
+                                                                             (partition-by datom-proposition)))))
 
 (defn datoms-from-index
   ([index pattern]
@@ -317,9 +336,12 @@
                                  pattern
                                  last-transaction-number))))
 
-(defn take-while-pattern-matches [pattern propositions]
-  (take-while #(query/match? % pattern)
-              propositions))
+(defn take-while-pattern-matches
+  ([pattern]
+   (take-while #(query/match? % pattern)))
+  ([pattern propositions]
+   (take-while #(query/match? % pattern)
+               propositions)))
 
 (defn matching-datoms-from-index
   ([index pattern]
@@ -337,12 +359,31 @@
     (throw (Exception. (str "Unknown index-key: "
                             index-key)))))
 
+(defn collection [db index-key]
+  (:collection (index db index-key)))
+
 (util/defno propositions-from-index [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (mapcat reduce-propositions
           (datoms-by-proposition index
-                                  pattern
-                                  last-transaction-number
-                                  options)))
+                                 pattern
+                                 last-transaction-number
+                                 options)))
+
+(def transduce-propositions-options (merge transduce-datoms-by-proposition-options
+                                           {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
+
+(def default-transduce-propositions-options {:take-while-pattern-matches? true})
+
+(util/defno transduce-propositions [transducible-collection pattern options :- transduce-propositions-options]
+  (let [options (merge default-transduce-propositions-options
+                       options)]
+    (transduce-datoms-by-proposition transducible-collection
+                                     pattern
+                                     (transducible-collection/prepend-transducer options
+                                                                                 (comp (mapcat reduce-propositions)
+                                                                                       (if (:take-while-pattern-matches? options)
+                                                                                         (take-while-pattern-matches pattern)
+                                                                                         identity))))))
 
 (def propositions-options (merge query/filter-by-pattern-options
                                  {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
@@ -587,16 +628,25 @@
                                                       last-transaction-number))
                                                 (transaction-log/subseq transaction-log
                                                                         0)))))
+
+(util/defno transduce-values-from-eav-collection [transducible-collection entity-id attribute options :- transduce-propositions-options]
+  (transduce-propositions transducible-collection
+                          [entity-id attribute]
+                          (transducible-collection/prepend-transducer options
+                                                                      (map eav-value))))
+
 (defn values-from-eav
   ([eav-index entity-id attribute]
    (values-from-eav eav-index entity-id attribute nil))
 
   ([eav-index entity-id attribute last-transaction-number]
-   (map last
-        (take-while-pattern-matches [entity-id attribute]
-                                    (propositions-from-index eav-index
-                                                             [entity-id attribute]
-                                                             last-transaction-number)))))
+   (transduce-values-from-eav-collection (:collection eav-index)
+                                         entity-id
+                                         attribute
+                                         {:last-transaction-number last-transaction-number
+                                          :reducer conj})))
+
+
 
 (defn values [db entity-id attribute]
   (values-from-eav (index db :eav)
@@ -610,8 +660,12 @@
                  attribute)))
 
 (defn- remove-statements [eav-index entity attribute]
-  (for [value (values-from-eav eav-index entity attribute)]
-    [entity attribute :remove value]))
+  (transduce-values-from-eav-collection (:collection eav-index)
+                                        entity
+                                        attribute
+                                        {:transducer (map (fn [value]
+                                                            [entity attribute :remove value]))
+                                         :reduer conj}))
 
 (defn expand-set-statements [eav-index statements]
   (into #{}
@@ -1066,9 +1120,12 @@
                                                                 :add])))))))))})
 
 (defn enumeration-count [index value]
-  (let [[value-from-index _transaction-number count-from-index] (first (datoms-from-index-map index
-                                                                                              [value]
-                                                                                              {:reverse? true}))]
+  (let [[value-from-index _transaction-number count-from-index] (query/transduce-pattern (:collection index)
+                                                                                         [value]
+                                                                                         {:direction :backwards
+                                                                                          :transducer (take 1)
+                                                                                          :reducer util/last-value})]
+
     (if (= value-from-index value)
       count-from-index
       0)))
