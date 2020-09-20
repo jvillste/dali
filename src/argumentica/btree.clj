@@ -26,6 +26,8 @@
 (defn full-after-maximum-number-of-values [maximum]
   (assert (odd? maximum)
           "Maximum node size must be odd")
+  (assert (< 1 maximum)
+          "Maximum node size must be creater than one")
   (fn [node]
     (= maximum
        (count (:values node)))))
@@ -1647,36 +1649,6 @@
                                   starting-value
                                   direction)))
 
-
-;; idea from https://juxt.pro/blog/ontheflycollections-with-reducible
-#_(defn btree-reducible [iterator-atom]
-  (reify clojure.lang.IReduceInit
-    (reduce [this reducing-function initial-value]
-      (loop [reduced-value initial-value]
-        (if (or (reduced? reduced-value)
-                (not (has-next? iterator-atom)))
-          (unreduced reduced-value)
-          (recur (reducing-function reduced-value (next iterator-atom))))))))
-
-
-(defn btree-reducible [btree-atom starting-value direction]
-  (reify clojure.lang.IReduceInit
-    (reduce [this reducing-function initial-value]
-      (loop [reduced-value initial-value
-             sequence (sequence-for-value btree-atom
-                                          starting-value
-                                          direction)]
-        (if (reduced? reduced-value)
-          (unreduced reduced-value)
-          (let [next-sequence (next-sequence sequence
-                                             btree-atom
-                                             direction)]
-            (if (nil? (first next-sequence))
-              (unreduced reduced-value)
-              (recur (reducing-function reduced-value
-                                        (first sequence))
-                     (rest next-sequence)))))))))
-
 (deftest test-iterator
   (is (= [3 4 5 6 7 8 9]
          (reduce conj []
@@ -1687,34 +1659,6 @@
                                          :forwards)))))
   )
 
-(deftest test-btree-reducible
-  (is (= [3 4 5]
-         (transduce (take 3)
-                    conj
-                    (btree-reducible (atom (reduce add
-                                                   (create (full-after-maximum-number-of-values 3))
-                                                   (range 10)))
-                                     3
-                                     :forwards))))
-
-  (is (= [:start 3 4 5]
-         (transduce (take 3)
-                    conj
-                    [:start]
-                    (btree-reducible (atom (reduce add
-                                                   (create (full-after-maximum-number-of-values 3))
-                                                   (range 10)))
-                                     3
-                                     :forwards))))
-
-  (is (= 42
-         (reduce +
-                 0
-                 (btree-reducible (atom (reduce add
-                                                (create (full-after-maximum-number-of-values 3))
-                                                (range 10)))
-                                  3
-                                  :forwards)))))
 
 (deftest test-btree
   (repeatedly 100

@@ -3,7 +3,9 @@
             [argumentica.index :as tuplect]
             [argumentica.util :as util]
             [schema.core :as schema]
-            [argumentica.transducible-collection :as transducible-collection])
+            [argumentica.transducible-collection :as transducible-collection]
+            [argumentica.sorted-reducible :as sorted-reducible]
+            [argumentica.transducing :as transducing])
   (:use clojure.test))
 
 (defn variable? [value]
@@ -66,7 +68,7 @@
   (is (= 1
          (substitute :v/a
                      {:v/a 1})))
-  
+
   (is (= [1 :b]
          (substitute [:v/a :b]
                      {:v/a 1}))))
@@ -163,11 +165,14 @@
                            (match? datom pattern)))))
         [])))
 
-(defn pattern-for-reverse-iteration [pattern transducible-collection]
-  (util/pad (count (transducible-collection/transduce transducible-collection
-                                                      nil
-                                                      {:transducer (take 1)
-                                                       :reducer util/last-value}))
+(defn first-from-transducible-collection [transducible-collection]
+  (transducible-collection/transduce transducible-collection
+                                     nil
+                                     {:transducer (take 1)
+                                      :reducer util/last-value}))
+
+(defn pattern-for-reverse-iteration [pattern sample-datom]
+  (util/pad (count sample-datom)
             (start-pattern pattern)
             ::comparator/max))
 
@@ -177,13 +182,63 @@
         pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (transducible-collection/transduce transducible-collection
                                        (if (= :backwards (:direction options))
-                                         (pattern-for-reverse-iteration pattern transducible-collection)
+                                         (pattern-for-reverse-iteration pattern
+                                                                        (first-from-transducible-collection transducible-collection))
                                          pattern)
                                        (merge options
                                               {:transducer (if pattern-has-trailing-constants?
                                                              (comp (filter #(match? % pattern))
                                                                    (:transducer options))
                                                              (:transducer options))}))))
+
+(def reducible-for-pattern-options {(schema/optional-key :direction) (schema/enum :forwards :backwards)})
+(def default-reducible-for-pattern-options {:direction :forwards})
+
+(util/defno reducible-for-pattern [sorted-reducible pattern options :- reducible-for-pattern-options]
+  (let [options (merge default-reducible-for-pattern-options
+                       options)
+        pattern-has-trailing-constants? (has-trailing-constants? pattern)
+        pattern (if (= :backwards (:direction options))
+                  (pattern-for-reverse-iteration pattern (first (transduce (take 1)
+                                                                           util/last-value
+                                                                           (sorted-reducible/subreducible sorted-reducible nil :forwards))))
+                  pattern)
+        reducible (sorted-reducible/subreducible sorted-reducible
+                                                 pattern
+                                                 (:direction options))]
+    (if pattern-has-trailing-constants?
+      (eduction (filter #(match? % pattern))
+                reducible)
+      reducible)))
+
+
+(deftest test-reducible-for-pattern
+  (is (= [2 3]
+         (into [] (reducible-for-pattern (sorted-set 1 2 3)
+                                         2))))
+
+  (is (= [1 2 3]
+         (into [] (reducible-for-pattern (sorted-set 1 2 3)
+                                         nil))))
+
+  (is (= [[:a 1] [:b 1]]
+         (into [] (reducible-for-pattern (sorted-set-by comparator/compare-datoms
+                                                        [:a 1]
+                                                        [:b 1])
+                                         [:a nil]))))
+
+  (is (= [[:b 1]]
+         (into [] (reducible-for-pattern (sorted-set-by comparator/compare-datoms
+                                                        [:a 1]
+                                                        [:b 1])
+                                         [:b nil]))))
+
+  (is (= [[:a 1 :b] [:a 3 :b]]
+         (into [] (reducible-for-pattern (sorted-set-by comparator/compare-datoms
+                                                        [:a 1 :b]
+                                                        [:a 2 :c]
+                                                        [:a 3 :b])
+                                         [:a nil :b])))))
 
 (defn- variable-to-nil [term]
   (if (variable? term)
@@ -210,6 +265,67 @@
          (substitutions-for-collection (sorted-set 1 2 3)
                                        :?x))))
 
+(defn substitution-transducer [pattern]
+  (let [wildcard-pattern (wildcard-pattern pattern)]
+    (comp (take-while #(match? % wildcard-pattern))
+          (map #(unify % pattern)))))
+
+(util/defno transduce-substitutions-for-collection [collection pattern options :- transducible-collection/transduce-options]
+  (transduce-pattern collection
+                     pattern
+                     (transducible-collection/prepend-transducer options
+                                                                 (substitution-transducer pattern))))
+
+(deftest test-transduce-substitutions-for-collection
+  (is (= [{}] (transduce-substitutions-for-collection (sorted-set 1 2 3)
+                                                      2
+                                                      {:reducer conj})))
+
+  (is (= [{:?x 1} {:?x 2} {:?x 3}]
+         (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
+                                                                1 2 3)
+                                                 :?x
+                                                 {:reducer conj})))
+
+  (is (= [{:?x 1} {:?x 3}]
+         (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
+                                                                [:a 1]
+                                                                [:b 2]
+                                                                [:a 3])
+                                                 [:a :?x]
+                                                 {:reducer conj}))))
+
+(defn substitution-reducible [sorted-reducible pattern]
+  (let [wildcard-pattern (wildcard-pattern pattern)]
+    (eduction (comp (take-while #(match? % wildcard-pattern))
+                    (map #(unify % pattern)))
+              (reducible-for-pattern sorted-reducible
+                                     wildcard-pattern))))
+
+(deftest test-substitution-reducible
+  (is (= [{}] (into [] (substitution-reducible (sorted-set 1 2 3)
+                                               2))))
+
+  (is (= [{:?x 1} {:?x 2} {:?x 3}]
+         (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                         1 2 3)
+                                          :?x))))
+
+  (is (= [{:?x 1} {:?x 3}]
+         (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                         [:a 1]
+                                                         [:b 2]
+                                                         [:a 3])
+                                          [:a :?x]))))
+
+  (is (= [{:?x :?a} {:?x 1} {:?x 3}]
+         (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                         [:a :?a]
+                                                         [:a 1]
+                                                         [:b 2]
+                                                         [:a 3])
+                                          [:a :?x])))))
+
 (defn substitute-term [term substitution]
   (if (variable? term)
     (or (get substitution term)
@@ -234,7 +350,7 @@
 (def substitutions-for-patterns-options {(schema/optional-key :substitution) (schema/pred map?)})
 
 (util/defno substitutions-for-patterns [sorted-set patterns options :- substitutions-for-patterns-options]
-  (assert (instance? clojure.lang.Sorted sorted-set))
+  (assert (satisfies? transducible-collection/TransducibleCollection sorted-set))
   (loop [substitutions (if-let [substitution (:substitution options)]
                          [substitution]
                          (substitutions-for-collection sorted-set
@@ -251,6 +367,39 @@
                      substitutions)
              (rest patterns))
       substitutions)))
+
+
+(util/defno substitution-reducible-for-patterns [sorted-reducible patterns options :- substitutions-for-patterns-options]
+  (assert (satisfies? sorted-reducible/SortedReducible sorted-reducible))
+
+  (loop [substitutions (if-let [substitution (:substitution options)]
+                         [substitution]
+                         (substitution-reducible sorted-reducible
+                                                 (first patterns)))
+         patterns (if (:substitution options)
+                    patterns
+                    (rest patterns))]
+
+    (if-let [pattern (first patterns)]
+      (recur (eduction (mapcat (fn [substitution]
+                                 (eduction (map #(merge substitution %))
+                                           (substitution-reducible sorted-reducible
+                                                                   (substitute-pattern pattern substitution)))))
+                       substitutions)
+
+             (rest patterns))
+      substitutions)))
+
+
+
+(deftest test-substitution-reducile-for-patterns
+  (is (= '({:?x :?a} {:?x 1} {:?x 3})
+         (substitution-reducible-for-patterns (sorted-set-by comparator/compare-datoms
+                                                             [:a :?a]
+                                                             [:a 1]
+                                                             [:b 2]
+                                                             [:a 3])
+                                              [[:a :?x]]))))
 
 (defn project [variables substitution]
   ((apply juxt variables) substitution))
@@ -277,6 +426,32 @@
                                                          {:substitution substitution})))
              (rest participants))
       substitutions)))
+
+(defn reducible-query [substitution & body]
+  (assert (or (nil? substitution)
+              (map? substitution)))
+
+  (let [participants (map (fn [[sorted-reducible & patterns]]
+                            {:sorted-reducible sorted-reducible
+                             :patterns patterns})
+                          body)]
+
+    (loop [substitutions (if substitution
+                           [substitution]
+                           (substitution-reducible-for-patterns (:sorted-reducible (first participants))
+                                                                (:patterns (first participants))))
+           participants (if substitution
+                          participants
+                          (rest participants))]
+
+      (if-let [participant (first participants)]
+        (recur (eduction (mapcat (fn [substitution]
+                                   (substitution-reducible-for-patterns (:sorted-reducible participant)
+                                                                        (:patterns participant)
+                                                                        {:substitution substitution})))
+                         substitutions)
+               (rest participants))
+        substitutions))))
 
 (defn query-2 [& body]
   (query (for [[sorted-set & patterns] body]
