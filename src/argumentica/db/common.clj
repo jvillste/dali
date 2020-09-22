@@ -16,7 +16,8 @@
             [medley.core :as medley]
             [argumentica.db.query :as query]
             [argumentica.mutable-collection :as mutable-collection]
-            [argumentica.transducible-collection :as transducible-collection])
+            [argumentica.transducible-collection :as transducible-collection]
+            [argumentica.sorted-reducible :as sorted-reducible])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID))
@@ -270,9 +271,10 @@
                            pattern
                            options))
 
-(defn datoms-from [db index-key pattern]
-  (datoms-from-index-map (get-in db [:indexes index-key])
-                         pattern))
+(util/defno datoms-from [db index-key pattern options :- query/reducible-for-pattern-options]
+  (query/reducible-for-pattern (get-in db [:indexes index-key :collection])
+                               pattern
+                               options))
 
 (defn datom-proposition [datom]
   (vec (drop-last 2 datom)))
@@ -326,6 +328,16 @@
                                                                                identity)
                                                                              (partition-by datom-proposition)))))
 
+(defn filter-datoms-by-transaciton-number [last-transaction-number]
+  (filter (fn [datom]
+            (>= last-transaction-number
+                (datom-transaction-number datom)))))
+
+#_(util/defno datoms-by-proposition-reducible [sorted-reducible pattern options :- query/substitution-reducible-for-pattern-options]
+  (eduction (partition-by datom-proposition)
+            (query/reducible-for-pattern sorted-reducible
+                                         pattern)))
+
 (defn datoms-from-index
   ([index pattern]
    (datoms-from-index index pattern nil))
@@ -369,6 +381,16 @@
                                  last-transaction-number
                                  options)))
 
+(def propositions-transducer (comp (partition-by datom-proposition)
+                                   (mapcat reduce-propositions)))
+
+(util/defno propositions-reducible [sorted-reducible pattern last-transaction-number options :- query/reducible-for-pattern-options]
+  (eduction (comp (filter-datoms-by-transaciton-number last-transaction-number)
+                  (partition-by datom-proposition)
+                  (mapcat reduce-propositions))
+            (query/reducible-for-pattern sorted-reducible
+                                         pattern)))
+
 (def transduce-propositions-options (merge transduce-datoms-by-proposition-options
                                            {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
 
@@ -395,7 +417,7 @@
                                               options)]
     (if false #_(if-let [take-while-pattern-matches? (:take-while-pattern-matches? options)]
                   take-while-pattern-matches?
-                  true) 
+                  true)
         (take-while-pattern-matches pattern
                                     propositions)
         propositions)))
@@ -406,16 +428,6 @@
                               pattern
                               (:last-transaction-number db)))
 
-
-(defn values-from-eatcv
-  ([eatcv entity-id attribute]
-   (values-from-eatcv-datoms (matching-datoms-from-index eatcv
-                                                         [entity-id attribute])))
-
-  ([eatcv entity-id attribute last-transaction-number]
-   (values-from-eatcv-datoms (matching-datoms-from-index eatcv
-                                                         [entity-id attribute]
-                                                         last-transaction-number))))
 
 (defn eat-matches [entity-id attribute transaction-comparator latest-transaction-number]
   (fn [[e a t c v]]
@@ -1172,41 +1184,51 @@
                              last-transaction-number
                              {:reverse? (not ascending?)})))
 
-(defn create-sorted-datom-set [& datoms]
-  (apply sorted-set-by comparator/compare-datoms datoms))
+(defrecord PropositionsSortedReducible [sorted-reducible last-transaction-number]
+  sorted-reducible/SortedReducible
+  (subreducible-method [this starting-key direction]
+    (eduction (comp (filter-datoms-by-transaciton-number last-transaction-number)
+                    propositions-transducer)
+              (query/reducible-for-pattern sorted-reducible
+                                           starting-key
+                                           {:direction direction}))))
 
 (defn- participants [indexes transaction-number rule]
   (map (fn [[index-key & patterns]]
-         (concat [(->PropositionCollection (get indexes index-key)
-                                           transaction-number)]
+         (concat [(->PropositionsSortedReducible (get-in indexes [index-key :collection])
+                                                 transaction-number)]
                  patterns))
        (:body rule)))
 
 (defn- propositions-concerning-substitution [rule transaction-number indexes substitution]
-  (for [concerning-substitution (apply query/query-with-substitution
-                                       substitution
-                                       (participants indexes
-                                                     transaction-number
-                                                     rule))]
-    (query/substitute (:head rule)
-                      concerning-substitution)))
+  (eduction (map #(query/substitute (:head rule) %))
+            (apply query/reducible-query
+                   substitution
+                   (participants indexes
+                                 transaction-number
+                                 rule))))
+
+(defn create-sorted-datom-set [& datoms]
+  (apply sorted-set-by comparator/compare-datoms datoms))
 
 (defn- substitutions-involved-in-the-last-transaction [indexes rule]
   (mapcat (fn [[index-key & patterns]]
-            (mapcat #(query/substitutions-for-collection (apply create-sorted-datom-set
-                                                                (get-in indexes
-                                                                        [index-key
-                                                                         :last-transaction-datoms]))
-                                                         %)
+            (mapcat #(query/substitution-reducible (apply create-sorted-datom-set
+                                                          (get-in indexes
+                                                                  [index-key
+                                                                   :last-transaction-datoms]))
+                                                   %)
                     patterns))
           (:body rule)))
 
 (defn- rule-index-statements-to-datoms [rule indexes transaction-number statements]
   (let [substitutions-involved-in-the-last-transaction (substitutions-involved-in-the-last-transaction indexes rule)
-        old-propositions (clojure.core/set (mapcat #(propositions-concerning-substitution rule (dec transaction-number) indexes %)
+        propostions-for-transaction-number (fn [transaction-number]
+                                             (into #{}
+                                                   (mapcat #(propositions-concerning-substitution rule transaction-number indexes %))
                                                    substitutions-involved-in-the-last-transaction))
-        new-propositions (clojure.core/set (mapcat #(propositions-concerning-substitution rule transaction-number indexes %)
-                                                   substitutions-involved-in-the-last-transaction))]
+        old-propositions (propostions-for-transaction-number (dec transaction-number))
+        new-propositions (propostions-for-transaction-number transaction-number)]
 
     (concat (for [added-proposition (set/difference new-propositions
                                                     old-propositions)]
@@ -1275,4 +1297,3 @@
 (defn values-from-enumeration [db index-key]
   (values-from-enumeration-index (index db index-key)
                                  (:last-transaction-number db)))
-

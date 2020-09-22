@@ -120,6 +120,10 @@
 
 (def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
 
+(defn nil-or-varialbe? [value]
+  (or (nil? value)
+      (variable? value)))
+
 (defn has-trailing-constants? [pattern]
   (if (sequential? pattern)
     (loop [pattern pattern]
@@ -129,12 +133,12 @@
             (empty? pattern)
             false
 
-            (and (nil? (first pattern))
-                 (some (complement nil?)
+            (and (nil-or-varialbe? (first pattern))
+                 (some (complement nil-or-varialbe?)
                        (rest pattern)))
             true
 
-            (not (nil? (first pattern)))
+            (not (nil-or-varialbe? (first pattern)))
             (recur (rest pattern))
 
             :default
@@ -146,6 +150,7 @@
   (is (not (has-trailing-constants? [:a])))
   (is (not (has-trailing-constants? [nil])))
   (is (has-trailing-constants? [nil :a]))
+  (is (has-trailing-constants? [:?b :a]))
   (is (has-trailing-constants? [:a nil :a]))
   (is (has-trailing-constants? (concat [:a] [nil] [:a]))))
 
@@ -194,25 +199,41 @@
 (def reducible-for-pattern-options {(schema/optional-key :direction) (schema/enum :forwards :backwards)})
 (def default-reducible-for-pattern-options {:direction :forwards})
 
+(defn starting-pattern [sorted-reducible pattern direction]
+  (if (= :backwards direction)
+    (pattern-for-reverse-iteration pattern (first (transduce (take 1)
+                                                             util/last-value
+                                                             (sorted-reducible/subreducible sorted-reducible nil :forwards))))
+    pattern))
+
+(defn transducer-for-pattern-reduction [pattern]
+  (if (has-trailing-constants? pattern)
+    (filter #(match? % pattern))
+    identity))
+
 (util/defno reducible-for-pattern [sorted-reducible pattern options :- reducible-for-pattern-options]
   (let [options (merge default-reducible-for-pattern-options
                        options)
-        pattern-has-trailing-constants? (has-trailing-constants? pattern)
-        pattern (if (= :backwards (:direction options))
-                  (pattern-for-reverse-iteration pattern (first (transduce (take 1)
-                                                                           util/last-value
-                                                                           (sorted-reducible/subreducible sorted-reducible nil :forwards))))
-                  pattern)
-        reducible (sorted-reducible/subreducible sorted-reducible
-                                                 pattern
-                                                 (:direction options))]
-    (if pattern-has-trailing-constants?
-      (eduction (filter #(match? % pattern))
-                reducible)
-      reducible)))
+        pattern (starting-pattern sorted-reducible
+                                  pattern
+                                  (:direction options))]
+    (eduction (transducer-for-pattern-reduction pattern)
+              (sorted-reducible/subreducible sorted-reducible
+                                             pattern
+                                             (:direction options)))))
 
 
 (deftest test-reducible-for-pattern
+
+  
+  (is (= [2 3]
+         (into [] (reducible-for-pattern (apply sorted-set-by
+                                                comparator/compare-datoms
+                                                #{[:food-1 :category :pastry 0 :add]
+                                                  [:measurement-1 :amount 10 0 :add]
+                                                  [:measurement-1 :food :food-1 0 :add]
+                                                  [:measurement-1 :nutrient :nutrient-1 0 :add]})
+                                         [:?measurement :nutrient :?nutrient]))))
   (is (= [2 3]
          (into [] (reducible-for-pattern (sorted-set 1 2 3)
                                          2))))
@@ -316,6 +337,13 @@
                                                          [:a 1]
                                                          [:b 2]
                                                          [:a 3])
+                                          [:a :?x]))))
+
+  (is (= [{:?x 1} {:?x 3}]
+         (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                         [:a 1 :c]
+                                                         [:b 2 :c]
+                                                         [:a 3 :c])
                                           [:a :?x]))))
 
   (is (= [{:?x :?a} {:?x 1} {:?x 3}]

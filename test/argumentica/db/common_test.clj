@@ -203,7 +203,7 @@
 (deftest test-transduce-values-from-eav-collection
   (is (= [:value-3 :value-3-2]
          (common/transduce-values-from-eav-collection (sorted-set-by comparator/compare-datoms
-                                                                     [:entity-1 :attribute-1 :value-1 0 :add] 
+                                                                     [:entity-1 :attribute-1 :value-1 0 :add]
                                                                     [:entity-1 :attribute-1 :value-1 1 :remove]
                                                                      [:entity-1 :attribute-1 :value-3 1 :add]
                                                                      [:entity-1 :attribute-1 :value-3-2 1 :add]
@@ -448,18 +448,18 @@
                                         [#{[:entity-1 :attribute-2 :add :value-1]}]))))
 
 (defn datoms-from-rule-index [& transactions]
-  (common/datoms-from (reduce common/transact
-                              (create-in-memory-db [common/eav-index-definition
-                                                    (common/rule-index-definition :rule
-                                                                                  {:head [:?category :?nutrient :?amount :?food]
-                                                                                   :body [[:eav
-                                                                                           [:?measurement :nutirent :?nutrient]
-                                                                                           [:?measurement :amount :?amount]
-                                                                                           [:?measurement :food :?food]
-                                                                                           [:?food :category :?category]]]})])
-                              transactions)
-                      :rule
-                      []))
+  (into [] (common/datoms-from (reduce common/transact
+                                       (create-in-memory-db [common/eav-index-definition
+                                                             (common/rule-index-definition :rule
+                                                                                           {:head [:?category :?nutrient :?amount :?food]
+                                                                                            :body [[:eav
+                                                                                                    [:?measurement :nutirent :?nutrient]
+                                                                                                    [:?measurement :amount :?amount]
+                                                                                                    [:?measurement :food :?food]
+                                                                                                    [:?food :category :?category]]]})])
+                                       transactions)
+                               :rule
+                               [])))
 
 (deftest test-datoms-from-rule-index
   (is (= [] (datoms-from-rule-index #{[:entity-1 :attribute-1 :add :value-1]})))
@@ -501,7 +501,7 @@
          (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
                                                  [:measurement-1 :food :add :food-1]
                                                  [:food-1 :category :add :pastry]}])))
-  
+
   (is (= '((:pastry 10 :food-1 1 :add))
          (run-rule-index-statements-to-datoms [#{[:measurement-1 :amount :add 10]
                                                  [:measurement-1 :food :add :food-1]}
@@ -533,4 +533,3 @@
                                                  [:measurement-2 :food :add :food-1]}
                                                #{[:food-1 :category :add :beverage]
                                                  [:food-1 :category :remove :pastry]}]))))
-
