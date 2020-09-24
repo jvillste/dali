@@ -48,6 +48,10 @@
       reduced-value)))
 
 
+(def print-transducer (map (fn [value]
+                             (prn value)
+                             value)))
+
 ;; experiments
 
 #_(schema/defn transduce-increments [collection options :- reduction-options]

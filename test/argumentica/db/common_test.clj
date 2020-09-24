@@ -170,35 +170,40 @@
                                               [:entity-1 :attribute-2]
                                               1)))))
 
+(def test-eav-index (-> (create-eav-db #{[1 :friend :set 2]
+                                         [2 :friend :set 1]}
+                                       #{[1 :friend :set 3]})
+                        :indexes :eav))
+
 (deftest test-values-from-eav
   (let [db (-> (create-eav-db #{[1 :friend :set 2]
                                 [2 :friend :set 1]}
                               #{[1 :friend :set 3]}))]
 
     (is (= '(2)
-           (common/values-from-eav (-> db :indexes :eav)
-                                   1
-                                   :friend
-                                   0)))
+           (into [] (common/values-from-eav (-> db :indexes :eav)
+                                            1
+                                            :friend
+                                            0))))
 
     (is (= '(3)
-           (common/values-from-eav (-> db :indexes :eav)
-                                   1
-                                   :friend
-                                   1))))
+           (into [] (common/values-from-eav test-eav-index
+                                            1
+                                            :friend
+                                            1)))))
 
   (let [db (-> (create-eav-db #{[:entity-1 :attribute-1 :set :value-1]
                                 [:entity-1 :attribute-2 :set :value-2]}))]
 
     (is (= '(:value-1)
-           (common/values-from-eav (-> db :indexes :eav)
-                                   :entity-1
-                                   :attribute-1)))
+           (into [] (common/values-from-eav (-> db :indexes :eav)
+                                            :entity-1
+                                            :attribute-1))))
 
     (is (= '(:value-2)
-           (common/values-from-eav (-> db :indexes :eav)
-                                   :entity-1
-                                   :attribute-2)))))
+           (into [] (common/values-from-eav (-> db :indexes :eav)
+                                            :entity-1
+                                            :attribute-2))))))
 
 (deftest test-transduce-values-from-eav-collection
   (is (= [:value-3 :value-3-2]
@@ -237,10 +242,10 @@
                         (apply common/composite-index-definition composite-index-definition-arguments)]))
 
 (defn datoms-from-composite-index [& transactions]
-  (-> (reduce common/transact
-              (create-db-with-composite-index :composite [:attribute-1 :attribute-2])
-              transactions)
-      (common/datoms-from :composite [])))
+  (into [] (-> (reduce common/transact
+                       (create-db-with-composite-index :composite [:attribute-1 :attribute-2])
+                       transactions)
+               (common/datoms-from :composite []))))
 
 (deftest test-composite-index
   (is (= []
@@ -249,16 +254,22 @@
   (is (= []
          (datoms-from-composite-index #{[:entity-1 :attribute-2 :add :value-1]})))
 
-  (is (= '([:value-1 :value-2 :entity-1 0 :add])
+  (is (= [[:value-1 :value-2 :entity-1 0 :add]]
          (datoms-from-composite-index #{[:entity-1 :attribute-1 :add :value-1]
                                         [:entity-1 :attribute-2 :add :value-2]})))
 
-  (is (= '([:value-1 :value-2 :entity-1 1 :add])
+  (is (= [[:value-1 :value-2 :entity-1 0 :add]
+          [:value-1 :value-3 :entity-1 0 :add]]
+         (datoms-from-composite-index #{[:entity-1 :attribute-1 :add :value-1]
+                                        [:entity-1 :attribute-2 :add :value-2]
+                                        [:entity-1 :attribute-2 :add :value-3]})))
+
+  (is (= [[:value-1 :value-2 :entity-1 1 :add]]
          (datoms-from-composite-index #{[:entity-1 :attribute-1 :add :value-1]}
                                       #{[:entity-1 :attribute-2 :add :value-2]})))
 
-  (is (= '([:value-1 :value-2 :entity-1 0 :add]
-           [:value-1 :value-2 :entity-1 1 :remove])
+  (is (= [[:value-1 :value-2 :entity-1 0 :add]
+          [:value-1 :value-2 :entity-1 1 :remove]]
          (datoms-from-composite-index #{[:entity-1 :attribute-1 :add :value-1]
                                         [:entity-1 :attribute-2 :add :value-2]}
                                       #{[:entity-1 :attribute-2 :remove :value-2]}))))
@@ -307,11 +318,11 @@
                                                 [:entity-1 :attribute-2 :add :value-2]})))))
 
 (defn datoms-from-composite-index-with-value-function [column-definitions & transactions]
-  (-> (reduce common/transact
-              (create-db-with-composite-index :composite
-                                              column-definitions)
-              transactions)
-      (common/datoms-from :composite [])))
+  (into [] (-> (reduce common/transact
+                       (create-db-with-composite-index :composite
+                                                       column-definitions)
+                       transactions)
+               (common/datoms-from :composite []))))
 
 (def composite-index-with-one-attribute-and-value-function [:attribute-1
                                                             {:attributes [:attribute-2]

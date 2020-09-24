@@ -328,15 +328,15 @@
                                                                                identity)
                                                                              (partition-by datom-proposition)))))
 
-(defn filter-datoms-by-transaciton-number [last-transaction-number]
+(defn filter-datoms-by-transaction-number [last-transaction-number]
   (filter (fn [datom]
             (>= last-transaction-number
                 (datom-transaction-number datom)))))
 
 #_(util/defno datoms-by-proposition-reducible [sorted-reducible pattern options :- query/substitution-reducible-for-pattern-options]
-  (eduction (partition-by datom-proposition)
-            (query/reducible-for-pattern sorted-reducible
-                                         pattern)))
+    (eduction (partition-by datom-proposition)
+              (query/reducible-for-pattern sorted-reducible
+                                           pattern)))
 
 (defn datoms-from-index
   ([index pattern]
@@ -385,11 +385,11 @@
                                    (mapcat reduce-propositions)))
 
 (util/defno propositions-reducible [sorted-reducible pattern last-transaction-number options :- query/reducible-for-pattern-options]
-  (eduction (comp (filter-datoms-by-transaciton-number last-transaction-number)
-                  (partition-by datom-proposition)
-                  (mapcat reduce-propositions))
+  (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
+                  propositions-transducer)
             (query/reducible-for-pattern sorted-reducible
-                                         pattern)))
+                                         pattern
+                                         options)))
 
 (def transduce-propositions-options (merge transduce-datoms-by-proposition-options
                                            {(schema/optional-key :take-while-pattern-matches?) schema/Bool}))
@@ -415,12 +415,30 @@
                                               pattern
                                               (:last-transaction-number db)
                                               options)]
-    (if false #_(if-let [take-while-pattern-matches? (:take-while-pattern-matches? options)]
-                  take-while-pattern-matches?
-                  true)
-        (take-while-pattern-matches pattern
-                                    propositions)
-        propositions)))
+    (if (if-let [take-while-pattern-matches? (:take-while-pattern-matches? options)]
+          take-while-pattern-matches?
+          true)
+      (take-while-pattern-matches pattern
+                                  propositions)
+      propositions)))
+
+(defn maybe-add-filter-by-transaction-number [transducer last-transaction-number]
+  (if (some? last-transaction-number)
+    (comp (filter-datoms-by-transaction-number last-transaction-number)
+          transducer)
+    transducer))
+
+(defn db-value? [value]
+  (some? (:last-transaction-number value)))
+
+(util/defno matching-propositions [db index-key pattern options :- query/reducible-for-pattern-options]
+  (assert (db-value? db))
+  (eduction (comp (filter-datoms-by-transaction-number (:last-transaction-number db))
+                  propositions-transducer
+                  (take-while-pattern-matches pattern))
+            (query/reducible-for-pattern (:collection (index db index-key))
+                                         pattern
+                                         options)))
 
 
 (defn datoms [db index-key pattern]
@@ -647,18 +665,23 @@
                           (transducible-collection/prepend-transducer options
                                                                       (map eav-value))))
 
+
+(defn value-transducer [entity-id attribute]
+  (comp propositions-transducer
+        (take-while-pattern-matches [entity-id attribute])
+        (map eav-value)))
+
 (defn values-from-eav
   ([eav-index entity-id attribute]
-   (values-from-eav eav-index entity-id attribute nil))
+   (eduction (value-transducer entity-id attribute)
+             (query/reducible-for-pattern (:collection eav-index)
+                                          [entity-id attribute])))
 
   ([eav-index entity-id attribute last-transaction-number]
-   (transduce-values-from-eav-collection (:collection eav-index)
-                                         entity-id
-                                         attribute
-                                         {:last-transaction-number last-transaction-number
-                                          :reducer conj})))
-
-
+   (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
+                   (value-transducer entity-id attribute))
+             (query/reducible-for-pattern (:collection eav-index)
+                                          [entity-id attribute]))))
 
 (defn values [db entity-id attribute]
   (values-from-eav (index db :eav)
@@ -672,12 +695,12 @@
                  attribute)))
 
 (defn- remove-statements [eav-index entity attribute]
-  (transduce-values-from-eav-collection (:collection eav-index)
-                                        entity
-                                        attribute
-                                        {:transducer (map (fn [value]
-                                                            [entity attribute :remove value]))
-                                         :reduer conj}))
+  (into []
+        (map (fn [value]
+               [entity attribute :remove value]))
+        (values-from-eav eav-index
+                         entity
+                         attribute)))
 
 (defn expand-set-statements [eav-index statements]
   (into #{}
@@ -747,7 +770,7 @@
                                  transaction-number
                                  statements)))
 
-(defn set [db entity attribute value]
+(defn set-value [db entity attribute value]
   (transact! db
              [[entity attribute :set value]]))
 
@@ -828,9 +851,9 @@
     (entity-value-from-values db
                               schema
                               attribute
-                              (values db
-                                      entity-id
-                                      attribute))))
+                              (into [] (values db
+                                               entity-id
+                                               attribute)))))
 
 (defn entity-datoms-from-eav [eatcv entity-id]
   (take-while (fn [[e a t c v]]
@@ -839,12 +862,11 @@
                                           [entity-id nil nil nil nil])))
 
 (defn entity-attributes [db entity-id]
-  (->> (propositions db
-                     :eav
-                     [entity-id])
-       (map second)
-       (into #{})
-       (#(conj % :dali/id))))
+  (into #{:dali/id}
+        (map second)
+        (matching-propositions db
+                               :eav
+                               [entity-id])))
 
 (defn entity-to-sec [db schema entity-id]
   (->> (entity-attributes db entity-id)
@@ -1091,45 +1113,51 @@
     (fn [value]
       [value])))
 
+(defn- affected-entity-ids [column-definitions statements]
+  (let [attributes-set (set (mapcat attributes-from-column-definition
+                                    column-definitions))]
+    (->> statements
+         (filter (fn [statement]
+                   (contains? attributes-set
+                              (eacv-attribute statement))))
+         (map eacv-entity)
+         (dedupe))))
+
 (defn composite-index-definition [key column-definitions]
   {:key key
-   :statements-to-datoms (let [attributes (mapcat attributes-from-column-definition
-                                                  column-definitions)
-                               attributes-set (clojure.core/set attributes)]
-                           (fn [indexes transaction-number statements]
-                             (apply concat
-                                    (for [affected-entity-id (->> statements
-                                                                  (filter (fn [statement]
-                                                                            (contains? attributes-set
-                                                                                       (eacv-attribute statement))))
-                                                                  (map eacv-entity)
-                                                                  (dedupe))]
+   :statements-to-datoms (fn [indexes transaction-number statements]
+                           (apply concat
+                                  (for [affected-entity-id (affected-entity-ids column-definitions statements)]
 
-                                      (let [values (fn [transaction-number]
-                                                     (for [column-definition column-definitions]
-                                                       (apply concat
-                                                              (for [attribute (attributes-from-column-definition column-definition)]
-                                                                (mapcat (value-function-from-column-definition column-definition)
-                                                                        (values-from-eav (:eav indexes)
-                                                                                         affected-entity-id
-                                                                                         attribute
-                                                                                         transaction-number))))))
-                                            old-combinations (clojure.core/set (apply combinatorics/cartesian-product (values (dec transaction-number))))
-                                            new-combinations (clojure.core/set (apply combinatorics/cartesian-product (values transaction-number)))]
+                                    (let [values (fn [transaction-number]
+                                                   (into []
+                                                         (map (fn [column-definition]
+                                                                (let [value-function (value-function-from-column-definition column-definition)]
+                                                                  (into []
+                                                                        (mapcat (fn [attribute]
+                                                                                  (eduction (mapcat value-function)
+                                                                                            (values-from-eav (:eav indexes)
+                                                                                                             affected-entity-id
+                                                                                                             attribute
+                                                                                                             transaction-number))))
+                                                                        (attributes-from-column-definition column-definition)))))
+                                                         column-definitions))
+                                          old-combinations (set (apply combinatorics/cartesian-product (values (dec transaction-number))))
+                                          new-combinations (set (apply combinatorics/cartesian-product (values transaction-number)))]
 
-                                        (concat (for [combination (set/difference old-combinations
-                                                                                  new-combinations)]
-                                                  (vec (concat combination
-                                                               [affected-entity-id
-                                                                transaction-number
-                                                                :remove])))
+                                      (concat (for [combination (set/difference old-combinations
+                                                                                new-combinations)]
+                                                (vec (concat combination
+                                                             [affected-entity-id
+                                                              transaction-number
+                                                              :remove])))
 
-                                                (for [combination (set/difference new-combinations
-                                                                                  old-combinations)]
-                                                  (vec (concat combination
-                                                               [affected-entity-id
-                                                                transaction-number
-                                                                :add])))))))))})
+                                              (for [combination (set/difference new-combinations
+                                                                                old-combinations)]
+                                                (vec (concat combination
+                                                             [affected-entity-id
+                                                              transaction-number
+                                                              :add]))))))))})
 
 (defn enumeration-count [index value]
   (let [[value-from-index _transaction-number count-from-index] (query/transduce-pattern (:collection index)
@@ -1187,7 +1215,7 @@
 (defrecord PropositionsSortedReducible [sorted-reducible last-transaction-number]
   sorted-reducible/SortedReducible
   (subreducible-method [this starting-key direction]
-    (eduction (comp (filter-datoms-by-transaciton-number last-transaction-number)
+    (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
                     propositions-transducer)
               (query/reducible-for-pattern sorted-reducible
                                            starting-key

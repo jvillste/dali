@@ -16,7 +16,7 @@
 
 (def value common/value)
 
-(def set common/set)
+(def set common/set-value)
 
 (def transact common/transact)
 

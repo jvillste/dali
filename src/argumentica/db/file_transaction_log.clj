@@ -75,6 +75,9 @@
                                     2 [[1 :name :set "Bar 1"]
                                        [2 :name :set "Bar 2"]])))))
 
+(defn- last-transaction-number [state]
+  (first (last (:in-memory-log state))))
+
 
 (defn truncate! [state log-file-path first-preserved-transaction-number]
   (let [truncated-log (util/filter-sorted-map-keys (:in-memory-log state)
@@ -86,6 +89,7 @@
       (reset-log-file! log-file-path truncated-log))
 
     (-> state
+        (assoc :last-indexed-transaction-number-before-truncate (last-transaction-number state))
         (assoc :in-memory-log truncated-log)
         (cond-> (:is-transient? state)
           (assoc  :output-stream (io/output-stream log-file-path :append true))))))
@@ -105,9 +109,12 @@
                                  (:log-file-path this)
                                  first-preserved-transaction-number))
 
+
 (defmethod transaction-log/last-transaction-number FileTransactionLog
   [this]
-  (first (last (:in-memory-log @(:state-atom this)))))
+  (let [state @(:state-atom this)]
+    (or (last-transaction-number state)
+        (:last-indexed-transaction-number-before-truncate state))))
 
 (defmethod transaction-log/add!-method FileTransactionLog
   [this transaction-number statements]
