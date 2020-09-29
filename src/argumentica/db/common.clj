@@ -1129,19 +1129,26 @@
                            (apply concat
                                   (for [affected-entity-id (affected-entity-ids column-definitions statements)]
 
-                                    (let [values (fn [transaction-number]
+                                    (let [eav-datoms (memoize (fn [entity-id attribute]
+                                                                (into []
+                                                                      (comp (take-while-pattern-matches [entity-id attribute])
+                                                                            (filter-datoms-by-transaction-number transaction-number))
+                                                                      (query/reducible-for-pattern (:collection (:eav indexes))
+                                                                                                   [entity-id attribute]))))
+                                          values (fn [transaction-number]
                                                    (into []
                                                          (map (fn [column-definition]
                                                                 (let [value-function (value-function-from-column-definition column-definition)]
                                                                   (into []
                                                                         (mapcat (fn [attribute]
-                                                                                  (eduction (mapcat value-function)
-                                                                                            (values-from-eav (:eav indexes)
-                                                                                                             affected-entity-id
-                                                                                                             attribute
-                                                                                                             transaction-number))))
+                                                                                  (eduction (comp (filter-datoms-by-transaction-number transaction-number)
+                                                                                                  (value-transducer affected-entity-id attribute)
+                                                                                                  (mapcat value-function))
+                                                                                            (eav-datoms affected-entity-id
+                                                                                                        attribute))))
                                                                         (attributes-from-column-definition column-definition)))))
                                                          column-definitions))
+
                                           old-combinations (set (apply combinatorics/cartesian-product (values (dec transaction-number))))
                                           new-combinations (set (apply combinatorics/cartesian-product (values transaction-number)))]
 
