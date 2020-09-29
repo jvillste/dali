@@ -4,7 +4,8 @@
             [me.raynes.fs :as fs])
   (:import [java.io File]
            [java.nio.file Files Paths OpenOption LinkOption]
-           [java.nio.file.attribute FileAttribute])
+           [java.nio.file.attribute FileAttribute]
+           java.nio.file.NoSuchFileException)
   (:use clojure.test))
 
 
@@ -28,7 +29,8 @@
   [this key]
   (if (file-exists? (key-path this key))
     (Files/readAllBytes (string-to-path (str (:path this) "/" key)))
-    nil))
+    (do (println "WARNING: Tried to get nonexistent file from storage: " (str (key-path this key)))
+      nil)))
 
 (defmethod storage/put-to-storage!
   DirectoryStorage
@@ -41,7 +43,10 @@
 (defmethod storage/remove-from-storage!
   DirectoryStorage
   [this key]
-  (Files/delete (key-path this key))
+  (try
+    (Files/delete (key-path this key))
+    (catch NoSuchFileException e
+        (println "WARNING: Tried to remove nonexistent file from storage: " (str (key-path this key)))))
   this)
 
 (defmethod storage/storage-keys!
