@@ -153,6 +153,16 @@
           (assoc-in [:nodes new-node-id :child-ids] (vec greater-child-ids))))
     btree))
 
+(defn distribute-children-2 [btree old-node-path new-node-path]
+  (if-let [children (get-in btree (conj old-node-path :children))]
+    (let [[lesser-children greater-children] (partition (/ (count children)
+                                                             2)
+                                                          children)]
+      (-> btree
+          (assoc-in (conj old-node-path :children) (vec lesser-children))
+          (assoc-in (conj new-node-path :children) (vec greater-children))))
+    btree))
+
 (defn insert-after [sequence old-value new-value]
   (loop [head []
          tail sequence]
@@ -183,6 +193,15 @@
                                 0))
       (update :next-usage-number
               (fnil inc 0))))
+
+(defn insert-to-vector [vector index value]
+  (into (vec (take index vector))
+        (concat [value]
+                (drop index vector))))
+
+(deftest test-insert-to-vector
+  (is (= [1 :x 2 3]
+         (insert-to-vector [1 2 3] 1 :x))))
 
 (defn split-child [btree parent-id old-child-id]
   (let [{:keys [lesser-values greater-values median-value]} (split-sorted-set (get-in btree [:nodes old-child-id :values]))
@@ -244,6 +263,125 @@
                        :root-id 5}
                       5
                       6))))
+
+
+(defn- new-node-path [splitted-node-path]
+  (conj (vec (drop-last splitted-node-path))
+        (inc (last splitted-node-path))))
+
+(deftest test-new-node-path
+  (is (= [0 1 1] (new-node-path [0 1 0]))))
+
+(defn parent-path [child-path]
+  (vec (drop-last 2 child-path)))
+
+
+(defn split-sequence-in-three [sequence]
+  (let [count (count sequence)
+        middle-index (int (/ count 2 ))]
+
+    (assert (odd? count))
+
+    [(take middle-index
+           sequence)
+
+     (nth sequence
+          middle-index)
+
+     (drop (inc middle-index)
+           sequence)]))
+
+(deftest test-split-sequence-in-three
+  (is (= '[(1) 2 (3)]
+         (split-sequence-in-three [1 2 3]))))
+
+(defn split-sequence-in-two [sequence]
+  (let [count (count sequence)]
+
+    (assert (even? count))
+
+    [(take (/ count 2)
+           sequence)
+     (drop (/ count 2)
+           sequence)]))
+
+(deftest test-split-sequence-in-two
+  (is (= '[(1 2) (3 4)]
+         (split-sequence-in-two [1 2 3 4]))))
+
+(defn assoc-if-not-empty [map key value]
+  (if (empty? value)
+    map
+    (assoc map key value)))
+
+(defn split-child-2 [btree old-node-path]
+  (let [old-node (get-in btree old-node-path)
+        [lesser-values median-value greater-values] (split-sequence-in-three (seq (:values old-node)))
+        new-node-path (new-node-path old-node-path)
+        [lesser-children greater-children] (split-sequence-in-two (:children old-node))]
+    (-> btree
+        (record-usage new-node-path) ;; TODO: could this be somewhere elese? Do we need it?
+        (update-in old-node-path
+                   (fn [old-node]
+                     (-> old-node
+                         (assoc :values (apply create-sorted-set lesser-values))
+                         (assoc-if-not-empty :children (vec lesser-children)))))
+        (update-in (parent-path old-node-path)
+                   (fn [parent-node]
+                     (-> parent-node
+                         (update :values conj median-value)
+                         (update :children
+                                 insert-to-vector
+                                 (inc (last old-node-path))
+                                 (-> {:values (apply create-sorted-set greater-values)}
+                                     (assoc-if-not-empty :children (vec greater-children))))))))))
+
+(deftest test-split-child-2
+  (is (= {:root {:values #{2 4},
+                 :children [{:values #{1}}
+                            {:values #{3}}
+                            {:values #{5}}]},
+          :usages {[:root :children 1] 0},
+          :next-usage-number 1}
+         (split-child-2 {:root {:values (create-sorted-set 4)
+                                :children [{:values (create-sorted-set 1 2 3)}
+                                           {:values (create-sorted-set 5)}]}}
+                        [:root :children 0])))
+
+  (is (= {:root
+          {:values #{4 8},
+           :children [{:values #{2},
+                       :children [{:values #{1}}
+                                  {:values #{3}}]}
+                      {:values #{6}
+                       :children [{:values #{5}}
+                                  {:values #{7}}]}
+                      {:values #{9}}]},
+          :usages {[:root :children 1] 0},
+          :next-usage-number 1}
+         (split-child-2 {:root {:values (create-sorted-set 8)
+                                :children [{:values (create-sorted-set 2 4 6)
+                                            :children [{:values (create-sorted-set 1)}
+                                                       {:values (create-sorted-set 3)}
+                                                       {:values (create-sorted-set 5)}
+                                                       {:values (create-sorted-set 7)}]}
+                                           {:values (create-sorted-set 9)}]}}
+                        [:root :children 0])))
+
+  (is (= {:root {:children [{:values #{2}
+                             :children [{:values #{1}} {:values #{3}}]}
+                            {:values #{6}
+                             :children [{:values #{5}} {:values #{7}}]}],
+                 :values #{4}},
+          :usages {[:root :children 1] 0},
+          :next-usage-number 1}
+         (split-child-2 {:root {:children [{:children [{:values (create-sorted-set 1)}
+                                                       {:values (create-sorted-set 3)}
+                                                       {:values (create-sorted-set 5)}
+                                                       {:values (create-sorted-set 7)}]
+                                            :values (create-sorted-set 2 4 6)}]
+                                :values (create-sorted-set)}}
+                        [:root :children 0]))))
 
 (defn add-root-to-usages [usages root-id]
   (apply priority-map/priority-map
@@ -313,7 +451,40 @@
                       :next-node-id 5,
                       :root-id 1}))))
 
+(defn split-root-2 [btree]
+  (-> btree
+      (update :root
+              (fn [old-root-node]
+                {:children [old-root-node]
+                 :values (create-sorted-set)}))
+      (record-usage [:root])
+      (split-child-2 [:root :children 0])))
 
+(deftest test-split-child-2
+  (is (= {:root {:children [{:values #{1}}
+                            {:values #{3}}]
+                 :values #{2}},
+          :usages {[:root] 0
+                   [:root :children 1] 1}
+          :next-usage-number 2}
+         (split-root-2 {:root {:values (create-sorted-set 1 2 3)}})))
+
+  (is (= {:root
+          {:children [{:values #{2}
+                       :children [{:values #{1}}
+                                  {:values #{3}}]}
+                      {:values #{6}
+                       :children [{:values #{5}}
+                                  {:values #{7}}]}]
+           :values #{4}}
+          :usages {[:root] 0
+                   [:root :children 1] 1}
+          :next-usage-number 2}
+         (split-root-2 {:root {:values (create-sorted-set 2 4 6)
+                               :children [{:values (create-sorted-set 1)}
+                                          {:values (create-sorted-set 3)}
+                                          {:values (create-sorted-set 5)}
+                                          {:values (create-sorted-set 7)}]}}))))
 
 (defn child-index [splitter-values value]
   (loop [splitter-values splitter-values
