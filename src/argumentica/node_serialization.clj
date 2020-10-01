@@ -44,12 +44,7 @@
   (with-data-output-stream
     (fn [data-output-stream]
       (write-value-to-data-output-stream data-output-stream (metadata node))
-      (write-value-to-data-output-stream data-output-stream (:values node))
-
-      #_(let [metadata-byte-array (nippy/freeze (metadata node))]
-        (.writeInt data-output-stream (alength metadata-byte-array))
-        (.write data-output-stream metadata-byte-array)
-        (.write data-output-stream (nippy/freeze (:values node)))))))
+      (write-value-to-data-output-stream data-output-stream (:values node)))))
 
 (defn deserialize [bytes]
   (with-open [data-input-stream (DataInputStream. (ByteArrayInputStream. bytes))]
@@ -71,15 +66,15 @@
                                               :storage-key "2"}]
                                   :values #{2}})))))
 
-(defn deserialize-metadata [bytes]
-  (with-open [data-input-stream (DataInputStream. (ByteArrayInputStream. bytes))]
+(defn deserialize-metadata [input-stream]
+  (with-open [data-input-stream (DataInputStream. input-stream)]
     (read-value-from-data-input-stream data-input-stream)))
 
 (deftest test-deserialize-metadata
   (is (= {:children ["1" "2"]
           :count 1}
-         (deserialize-metadata (serialize {:children [{:values #{1}
-                                                       :storage-key "1"}
-                                                      {:values #{3}
-                                                       :storage-key "2"}]
-                                           :values #{2}})))))
+         (deserialize-metadata (ByteArrayInputStream. (serialize {:children [{:values #{1}
+                                                                              :storage-key "1"}
+                                                                             {:values #{3}
+                                                                              :storage-key "2"}]
+                                                                  :values #{2}}))))))

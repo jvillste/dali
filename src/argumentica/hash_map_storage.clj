@@ -1,5 +1,6 @@
 (ns argumentica.hash-map-storage
-  (:require [argumentica.storage :as storage]))
+  (:require [argumentica.storage :as storage]
+            [clojure.java.io :as io]))
 
 (defrecord HashMapStorage [hash-map-atom])
 
@@ -11,6 +12,16 @@
   [storage key]
   (get @(:hash-map-atom storage)
        key))
+
+(defmethod storage/stream-from-storage!
+  HashMapStorage
+  [storage key]
+  (if (contains? @(:hash-map-atom storage)
+                 key)
+    (io/input-stream (get @(:hash-map-atom storage)
+                          key))
+    (do (println "WARNING: Tried to stream nonexistent key from storage: " key)
+        nil)))
 
 (defmethod storage/put-to-storage!
   HashMapStorage

@@ -10,6 +10,10 @@
   (fn [storage key]
     (type storage)))
 
+(defmulti stream-from-storage!
+  (fn [storage key]
+    (type storage)))
+
 (defmulti remove-from-storage!
   (fn [storage key]
     (type storage)))
