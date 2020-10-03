@@ -14,7 +14,10 @@
             [argumentica.log :as log]
             [argumentica.util :as util]
             [argumentica.transducible-collection :as transducible-collection]
-            [argumentica.node-serialization :as node-serialization]))
+            [argumentica.node-serialization :as node-serialization]
+            [nucalc.serialization :as serialization]
+            [medley.core :as medley])
+  (:import java.io.ByteArrayInputStream))
 
 (defn create-sorted-set [& keys]
   (apply sorted-set-by
@@ -949,6 +952,77 @@
                                          :next-usage-number 34}
                                         [14 10 9]))))
 
+(defn- store-if-new! [storage storage-key bytes]
+  (when (not (storage/storage-contains? storage
+                                        storage-key))
+
+    (storage/put-to-storage! storage
+                             storage-key
+                             bytes)))
+
+(defn store-node [btree path]
+  (let [the-node (get-in btree path)
+        bytes (node-serialization/serialize the-node)
+        the-storage-key (storage-key bytes)]
+
+    (assert (empty? (filter (complement loaded?)
+                            (:children the-node)))
+            "Can not unload a node with loaded children")
+
+    (store-if-new! (:node-storage btree)
+                   the-storage-key
+                   bytes)
+
+    (-> btree
+        (assoc-in (concat path [:storage-key]) the-storage-key)
+        (update :usages dissoc path))))
+
+(defn- extract-storage [storage]
+  (into {} (for [storage-key (storage/storage-keys! storage)]
+             [storage-key (node-serialization/deserialize (ByteArrayInputStream. (storage/get-from-storage! storage storage-key)))])))
+
+(defn- extract-node-storage [btree]
+  (update btree :node-storage extract-storage))
+
+(deftest test-store-node
+  (is (= {:root
+          {:children
+           [{:values #{2},
+             :storage-key "4C9B597F8C171876E562EF78D7B7489B3C7616D0036ACA9988B647F867E7594E"}
+            {:values #{4}}],
+           :values #{3}},
+          :node-storage {"4C9B597F8C171876E562EF78D7B7489B3C7616D0036ACA9988B647F867E7594E"
+                         {:children [], :values #{2}}},
+          :usages nil}
+         (extract-node-storage (store-node {:root {:children [{:values (create-sorted-set 2)}
+                                                              {:values (create-sorted-set 4)}]
+                                                   :values (create-sorted-set 3)}
+                                            :node-storage (hash-map-storage/create)}
+                                           [:root :children 0])))))
+
+(defn unload-node-2 [btree path]
+  (-> btree
+      (store-node path)
+      (update-in path dissoc :values)))
+
+(deftest test-unload-node-2
+  (is (= {:root {:children
+                 [{:storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"}
+                  {:values #{4}}],
+                 :values #{3}},
+          :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
+                         {:values #{2}}},
+          :usages {[:root :children 1] 1
+                   [:root] 2}}
+         (extract-node-storage (unload-node-2 (store-node {:root {:children [{:values (create-sorted-set 2)}
+                                                                             {:values (create-sorted-set 4)}]
+                                                                  :values   (create-sorted-set 3)}
+                                                           :node-storage (hash-map-storage/create)
+                                                           :usages (priority-map/priority-map [:root :children 0] 0
+                                                                                              [:root :children 1] 1
+                                                                                              [:root] 2)}
+                                                          [:root :children 0])
+                                              [:root :children 0])))))
 
 (declare add)
 
@@ -1190,12 +1264,37 @@
   (some? (:values node)))
 
 (defn load-node-2 [btree node-path]
-  (update btree
-          node-path
-          merge
-          (node-serialization/deserialize (storage/get-from-storage! (:node-storage btree)
-                                                                     (:storage-key (get-in btree
-                                                                                           node-path))))))
+  (update-in btree
+             node-path
+             merge
+             (node-serialization/deserialize (storage/stream-from-storage! (:node-storage btree)
+                                                                           (:storage-key (get-in btree
+                                                                                                 node-path))))))
+
+(deftest test-load-node-2
+
+  (is (= {:root
+          {:children
+           [{:storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623",
+             :values #{2}}
+            {:values #{4}}],
+           :values #{3}},
+          :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
+                         {:values #{2}}},
+          :usages {[:root :children 1] 1
+                   [:root] 2}}
+         (extract-node-storage (load-node-2 (unload-node-2 (store-node {:root {:children [{:values (create-sorted-set 2)}
+                                                                                          {:values (create-sorted-set 4)}]
+                                                                               :values   (create-sorted-set 3)}
+                                                                        :node-storage (hash-map-storage/create)
+                                                                        :usages (priority-map/priority-map [:root :children 0] 0
+                                                                                                           [:root :children 1] 1
+                                                                                                           [:root] 2)}
+                                                                       [:root :children 0])
+                                                           [:root :children 0])
+                                            [:root :children 0])))))
+
+
 
 (defn load-root-if-needed-2 [btree]
   (if (loaded? (:root btree))
@@ -1338,48 +1437,6 @@
            (:cursor (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                3))))))
 
-(defn load-nodes-for-value [btree value]
-  (loop [btree (load-root-if-needed btree)
-         cursor [(:root-id btree)]
-         node-id (:root-id btree)]
-
-    (let [the-node (node btree
-                         node-id)]
-      (if (leaf-node? the-node)
-        {:btree btree
-         :cursor cursor}
-        (if-let [the-child-id (child-id the-node
-                                        value)]
-          (if (storage-key? the-child-id)
-            (recur (set-node-content btree
-                                     node-id
-                                     the-child-id
-                                     (get-node-content (:node-storage btree)
-                                                       the-child-id))
-                   (conj cursor
-                         (:next-node-id btree))
-
-                   (:next-node-id btree))
-            (recur btree
-                   (conj cursor
-                         the-child-id)
-                   the-child-id))
-          {:cursor cursor
-           :btree btree})))))
-
-
-(defspec propertytest-load-nodes-for-value
-  (properties/for-all [values (gen/vector gen/int)]
-                      (if-let [value (first values)]
-                        (let [{:keys [cursor btree]} (load-nodes-for-value (unload-btree (reduce add
-                                                                                                 (create (full-after-maximum-number-of-values 3))
-                                                                                                 values))
-                                                                           value)]
-                          (contains? (:values (get (:nodes btree)
-                                                   (last cursor)))
-                                     value))
-                        true)))
-
 
 (defn least-used-cursor [btree]
   (if (empty? (:nodes btree))
@@ -1474,15 +1531,29 @@
           (range value-count)))
 
 (defn unload-least-used-node [btree]
-  (if-let [cursor (least-used-cursor btree)]
-    (unload-node btree
-                 cursor)
+  (if-let [least-used-path (ffirst (:usages btree))]
+    (store-node btree
+                least-used-path)
     btree))
+
+(comment
+  (ffirst (priority-map/priority-map :a 2 :b 1))
+  ) ;; TODO: remove-me
+
+(defn loaded-node-count-2 [btree]
+  (count (:usages btree)))
 
 (defn unload-excess-nodes [btree maximum-node-count]
   (loop [btree btree]
     (if (< maximum-node-count
-           (loaded-node-count btree))
+           (loaded-node-count-2 btree))
+      (recur (unload-least-used-node btree))
+      btree)))
+
+(defn unload-excess-nodes-2 [btree maximum-node-count]
+  (loop [btree btree]
+    (if (< maximum-node-count
+           (loaded-node-count-2 btree))
       (recur (unload-least-used-node btree))
       btree)))
 
