@@ -15,7 +15,6 @@
             [argumentica.util :as util]
             [argumentica.transducible-collection :as transducible-collection]
             [argumentica.node-serialization :as node-serialization]
-            [nucalc.serialization :as serialization]
             [medley.core :as medley])
   (:import java.io.ByteArrayInputStream))
 
@@ -960,6 +959,9 @@
                              storage-key
                              bytes)))
 
+(defn loaded? [node]
+  (some? (:values node)))
+
 (defn store-node [btree path]
   (let [the-node (get-in btree path)
         bytes (node-serialization/serialize the-node)
@@ -1260,8 +1262,7 @@
            (:nodes (reduce add
                            (create (full-after-maximum-number-of-values 3))
                            (range 10)))))))
-(defn loaded? [node]
-  (some? (:values node)))
+
 
 (defn load-node-2 [btree node-path]
   (update-in btree
@@ -1437,6 +1438,56 @@
            (:cursor (cursor-and-btree-for-value-and-btree-atom btree-atom
                                                                3))))))
 
+
+(defn child-path [parent-path child-index]
+  (concat parent-path [:children child-index]))
+
+(defn value-path [btree value]
+  (loop [btree btree
+         path [:root]]
+
+    (let [the-node (get-in btree path)]
+      (if (loaded? the-node)
+        (if (leaf-node-2? the-node)
+          {:btree btree
+           :path path}
+          (if-let [the-child-index (child-index (:values the-node)
+                                                value)]
+            (recur btree
+                   (child-path path the-child-index))
+            {:btree btree
+             :path path}))
+        (recur (load-node-2 btree path)
+               path)))))
+
+(deftest test-value-path
+  (testing "no need for loading"
+    (is (= {:btree
+            {:root {:children [{:values #{2}} {:values #{4}}], :values #{3}}},
+            :path (:root :children 0)}
+           (value-path {:root {:children [{:values (create-sorted-set 2)}
+                                          {:values (create-sorted-set 4)}]
+                               :values (create-sorted-set 3)}}
+                       1))))
+
+  (testing "the node is unloaded"
+    (is (= {:btree
+            {:root {:children [{:storage-key
+                                "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623",
+                                :values #{2}}
+                               {:values #{4}}],
+                    :values #{3}},
+             :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
+                            {:values #{2}}},
+             :usages nil},
+            :path (:root :children 0)}
+           (-> (value-path (unload-node-2 {:root {:children [{:values (create-sorted-set 2)}
+                                                             {:values (create-sorted-set 4)}]
+                                                  :values (create-sorted-set 3)}
+                                           :node-storage (hash-map-storage/create)}
+                                          [:root :children 0])
+                           1)
+               (update :btree extract-node-storage))))))
 
 (defn least-used-cursor [btree]
   (if (empty? (:nodes btree))
