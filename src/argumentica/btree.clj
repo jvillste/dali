@@ -1442,7 +1442,10 @@
 (defn child-path [parent-path child-index]
   (concat parent-path [:children child-index]))
 
-(defn value-path [btree value]
+(defn value-path
+  "Retuns node path corresponding to the given value while loading all the nodes on the path.
+  Both the path and loaded btree are returned."
+  [btree value]
   (loop [btree btree
          path [:root]]
 
@@ -1802,6 +1805,79 @@
       50  [6 5 4 3]
       ::comparator/min nil
       ::comparator/max [6 5 4 3])))
+
+(defn- last-child? [parent child-index direction]
+  (if (= direction :forwards)
+    (= child-index
+       (dec (count (:children parent))))
+    (= child-index
+       0)))
+
+(defn following-value [sorted value direction]
+  (first (if (= :forwards direction)
+           (subseq sorted
+                   >=
+                   value)
+           (rsubseq sorted
+                    <=
+                    value))))
+
+(defn splitter-next-to-path [btree path value direction]
+  (assert (direction? direction))
+
+  (loop [path path]
+    (if (= [:root] path)
+      nil
+      (let [parent (get-in btree (parent-path path))]
+        (if (last-child? parent (last path) direction)
+          (recur (parent-path path))
+          (following-value (:values parent)
+                           value
+                           direction))))))
+
+(defn sequence-for-value-2 [btree value direction]
+  (let [{:keys [path btree]} (value-path btree
+                                         value)]
+    (let [the-node (get-in btree path)]
+      (if (leaf-node-2? the-node)
+        (combine-splitter-and-values (if (= :forwards direction)
+                                       (subseq (:values the-node)
+                                               >=
+                                               value)
+                                       (rsubseq (:values the-node)
+                                                <=
+                                                value))
+                                     (splitter-next-to-path btree
+                                                            path
+                                                            value
+                                                            direction)
+                                     direction)
+        [value]))))
+
+(deftest test-sequence-for-value2
+  (testing "leaf"
+    (is (= '(2 3)
+           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+                                                    {:values (create-sorted-set 4)}]
+                                         :values (create-sorted-set 3)}}
+                                 1
+                                 :forwards))))
+
+  (testing "splitter"
+    (is (= [3]
+           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+                                                    {:values (create-sorted-set 4)}]
+                                         :values (create-sorted-set 3)}}
+                                 3
+                                 :forwards))))
+
+  (testing "last child"
+    (is (= [4 5]
+           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+                                                    {:values (create-sorted-set 4 5)}]
+                                         :values (create-sorted-set 3)}}
+                                 4
+                                 :forwards)))))
 
 (defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))
