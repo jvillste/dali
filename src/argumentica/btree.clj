@@ -15,7 +15,8 @@
             [argumentica.util :as util]
             [argumentica.transducible-collection :as transducible-collection]
             [argumentica.node-serialization :as node-serialization]
-            [medley.core :as medley])
+            [medley.core :as medley]
+            [argumentica.transducing :as transducing])
   (:import java.io.ByteArrayInputStream))
 
 (defn create-sorted-set [& keys]
@@ -1440,7 +1441,7 @@
 
 
 (defn child-path [parent-path child-index]
-  (concat parent-path [:children child-index]))
+  (vec (concat parent-path [:children child-index])))
 
 (defn value-path
   "Retuns node path corresponding to the given value while loading all the nodes on the path.
@@ -1835,7 +1836,7 @@
                            value
                            direction))))))
 
-(defn sequence-for-value-2 [btree value direction]
+(defn sequence-after-value [btree value direction]
   (let [{:keys [path btree]} (value-path btree
                                          value)]
     (let [the-node (get-in btree path)]
@@ -1854,10 +1855,10 @@
                                      direction)
         [value]))))
 
-(deftest test-sequence-for-value2
+(deftest test-sequence-after-value
   (testing "leaf"
     (is (= '(2 3)
-           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+           (sequence-after-value {:root {:children [{:values (create-sorted-set 2)}
                                                     {:values (create-sorted-set 4)}]
                                          :values (create-sorted-set 3)}}
                                  1
@@ -1865,7 +1866,7 @@
 
   (testing "splitter"
     (is (= [3]
-           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+           (sequence-after-value {:root {:children [{:values (create-sorted-set 2)}
                                                     {:values (create-sorted-set 4)}]
                                          :values (create-sorted-set 3)}}
                                  3
@@ -1873,11 +1874,251 @@
 
   (testing "last child"
     (is (= [4 5]
-           (sequence-for-value-2 {:root {:children [{:values (create-sorted-set 2)}
+           (sequence-after-value {:root {:children [{:values (create-sorted-set 2)}
                                                     {:values (create-sorted-set 4 5)}]
                                          :values (create-sorted-set 3)}}
                                  4
                                  :forwards)))))
+
+(defn reduce-without-completion [reducing-function initial-value collection]
+  (loop [reduced-value initial-value
+         values collection]
+    (if-let [value (first values)]
+      (let [result (reducing-function reduced-value
+                                      value)]
+        (if (reduced? result)
+          result
+          (recur result
+                 (rest values))))
+      reduced-value)))
+
+
+(defn child-map [& entries]
+  (apply sorted-map-by
+         comparator/compare-datoms
+         entries))
+
+(defn minimum-greater-or-equal [sorted value]
+  (first (subseq sorted
+                 >=
+                 value)))
+
+(deftest test-minimum-greater-or-equal
+  (is (= 3
+         (minimum-greater-or-equal (sorted-set 1 3 5) 2)))
+
+  (is (= 3
+         (minimum-greater-or-equal (sorted-set 1 3 5) 3)))
+
+  (is (= nil
+         (minimum-greater-or-equal (sorted-set 1 3 5) 6)))
+
+  (is (= ##Inf
+         (minimum-greater-or-equal (sorted-set 1 3 5 ##Inf) 6)))
+
+  (is (= [4 :b]
+         (minimum-greater-or-equal (child-map 2 :a
+                                              4 :b)
+                                   4))))
+
+(defn leaf-node-3? [node]
+  (not (contains? node :children)))
+
+(defn divider-for-value [node value]
+  (first (minimum-greater-or-equal (:children node)
+                                   value)))
+
+(defn path-for-value [btree value]
+  (loop [path [:root]]
+    (let [node (get-in btree path)]
+      (if (leaf-node-3? node)
+        path
+        (recur (concat path [:children (divider-for-value node value)]))))))
+
+(deftest test-path-for-value
+  (is (= '(:root :children :argumentica.comparator/max :children 4)
+         (path-for-value {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                      ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                             ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                         4))))
+
+(defn minimum-greater-than [sorted value]
+  (first (subseq sorted
+                 >
+                 value)))
+
+(deftest test-minimum-greater-than
+  (is (= 3
+         (minimum-greater-than (sorted-set 1 3 5) 1)))
+
+  (is (= nil
+         (minimum-greater-than (sorted-set 1 3 5) 5))))
+
+
+(defn maximum-less-than [sorted value]
+  (first (rsubseq sorted
+                  <
+                  value)))
+
+(deftest test-maximum-less-than
+  (is (= 3
+         (maximum-less-than (sorted-set 1 3 5) 5)))
+
+  (is (= nil
+         (maximum-less-than (sorted-set 1 3 5) 1))))
+
+(defn next-divider [node divider direction]
+  (first (if (= :forwards direction)
+           (minimum-greater-than (:children node)
+                                 divider)
+           (maximum-less-than (:children node)
+                              divider))))
+
+(deftest test-next-divider
+  (is (= :argumentica.comparator/max
+         (next-divider {:children (child-map 2 {}
+                                             ::comparator/max {})}
+                       2
+                       :forwards)))
+
+  (is (= 2
+         (next-divider {:children (child-map 2 {}
+                                             ::comparator/max {})}
+                       ::comparator/max
+                       :backwards)))
+
+  (is (= nil
+         (next-divider {:children (child-map 2 {}
+                                             ::comparator/max {})}
+                       2
+                       :backwards))))
+
+(defn first-leaf-path [btree path direction]
+  (loop [path path]
+    (let [node (get-in btree path)]
+      (if (leaf-node-3? node)
+        path
+        (recur (concat path [:children (first (if (= :forwards direction)
+                                                (first (:children node))
+                                                (last (:children node))))]))))))
+
+(deftest test-first-leaf-path
+  (is (= [:root :children 2]
+         (first-leaf-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root]
+                          :forwards)))
+
+  (is (= [:root :children :argumentica.comparator/max :children 4]
+         (first-leaf-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root :children ::comparator/max]
+                          :forwards)))
+
+  (is (= '(:root :children :argumentica.comparator/max :children :argumentica.comparator/max)
+         (first-leaf-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root]
+                          :backwards))))
+
+(defn next-child-path [btree path direction]
+  (loop [path path]
+    (if (= [:root] path)
+      nil
+
+      (let [the-parent-path (parent-path path)
+            parent (get-in btree the-parent-path)]
+        (if-let [the-next-divider (next-divider parent
+                                                (last path)
+                                                direction)]
+          (first-leaf-path btree
+                           (concat the-parent-path
+                                   [:children the-next-divider])
+                           direction)
+          (recur the-parent-path))))))
+
+(deftest test-next-child-path
+  (is (= '(:root :children :argumentica.comparator/max :children 4)
+         (next-child-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root :children 2]
+                          :forwards)))
+
+  (is (= '(:root :children ::comparator/max :children ::comparator/max)
+         (next-child-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root :children ::comparator/max :children 4]
+                          :forwards)))
+
+  (is (= nil
+         (next-child-path {:root {:children (child-map 2 {}
+                                                       ::comparator/max {:children (child-map 4 {}
+                                                                                              ::comparator/max {})})}}
+                          [:root :children ::comparator/max :children ::comparator/max]
+                          :forwards))))
+
+(defn subsequence [sorted starting-value direction]
+  (if (= :forwards direction)
+    (subseq sorted
+            >=
+            starting-value)
+    (rsubseq sorted
+             <=
+             starting-value)))
+
+;; TODO: load nodes on the way
+(defn reduce-btree [reducing-function initial-reduced-value btree starting-value direction]
+  (loop [reduced-value initial-reduced-value
+         btree btree
+         path (path-for-value btree starting-value)]
+
+    (if path
+      (let [node (get-in btree path)]
+        (let [reduced-value (reduce-without-completion reducing-function
+                                                       reduced-value
+                                                       (subsequence (:values node)
+                                                                    starting-value
+                                                                    direction))]
+          (if (reduced? reduced-value)
+            (reducing-function @reduced-value)
+            (recur reduced-value
+                   btree
+                   (next-child-path btree path direction)))))
+      (reducing-function reduced-value))))
+
+(deftest test-reduce-btree
+  (is (= [1 2 3 4 5 6]
+         (reduce-btree conj
+                       []
+                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       1
+                       :forwards)))
+
+  (is (= [2 3 4]
+         (reduce-btree ((comp (take 3)
+                              (map inc)) conj)
+                       []
+                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       1
+                       :forwards)))
+
+  (is (= [4 3 2 1]
+         (reduce-btree conj
+                       []
+                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       4
+                       :backwards))))
 
 (defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))
@@ -2002,13 +2243,14 @@
                                                           values))
                                             (last values)))))))
 
+
 (defn next-sequence [sequence btree-atom direction]
   (if (first (rest sequence))
     sequence
     (if-let [value (first sequence)]
       (cons value
             (sequence-after-splitter btree-atom
-                                     (first sequence)
+                                     value
                                      direction))
       nil)))
 
