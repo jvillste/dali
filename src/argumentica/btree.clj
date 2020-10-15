@@ -24,6 +24,11 @@
          comparator/compare-datoms
          keys))
 
+(defn child-map [& entries]
+  (apply sorted-map-by
+         comparator/compare-datoms
+         entries))
+
 (defn create-node []
   {:values (create-sorted-set)})
 
@@ -126,8 +131,6 @@
 
 (comment
   (create-from-options :full? max))
-
-
 
 
 (defn loaded-node-id? [node-id]
@@ -315,24 +318,23 @@
   (is (= '[(1) 2 (3)]
          (split-sequence-in-three [1 2 3]))))
 
-(defn split-sequence-in-two [sequence]
-  (let [count (count sequence)]
-
-    (assert (even? count))
-
-    [(take (/ count 2)
-           sequence)
-     (drop (/ count 2)
-           sequence)]))
-
-(deftest test-split-sequence-in-two
-  (is (= '[(1 2) (3 4)]
-         (split-sequence-in-two [1 2 3 4]))))
-
 (defn assoc-if-not-empty [map key value]
   (if (empty? value)
     map
     (assoc map key value)))
+
+(defn split-sequence-in-two [sequence]
+  (let [half-count (int (/ (count sequence)
+                           2))]
+    [(take half-count sequence)
+     (drop half-count sequence)]))
+
+(deftest test-split-sequence-in-two
+  (is (= '[(1 2) (3 4)]
+         (split-sequence-in-two [1 2 3 4])))
+
+  (is (= '[(1) (2 3)]
+         (split-sequence-in-two [1 2 3]))))
 
 (defn split-child-2 [btree child-path]
   (let [old-node (get-in btree child-path)
@@ -402,6 +404,93 @@
                                             :values (create-sorted-set 2 4 6)}]
                                 :values (create-sorted-set)}}
                         [:root :children 0]))))
+
+(defn change-last [sequence new-last-value]
+  (concat (drop-last sequence)
+          [new-last-value]))
+
+
+(defn split-node [btree path children-key splitter-from-children create-child-node]
+  (let [old-node (get-in btree path)
+        [lesser-children greater-children] (split-sequence-in-two (seq (children-key old-node)))
+        new-node-splitter (splitter-from-children lesser-children)]
+    (-> btree
+        (record-usage-2 (change-last path new-node-splitter)) ;; TODO: could this be somewhere elese? Do we need it?
+        (update-in (parent-path path)
+                   update
+                   :children
+                   assoc
+
+                   new-node-splitter
+                   (create-child-node lesser-children)
+
+                   (last path)
+                   (create-child-node greater-children)))))
+
+(defn split-inner-node [btree path]
+  (split-node btree
+              path
+              :children
+              (fn [children]
+                (first (last children)))
+              (fn [children]
+                {:children (apply child-map (apply concat children))})))
+
+(deftest test-split-inner-node
+  (is (= {:root {:children {4 {:children {4 {:values #{1 2 3 4}}}},
+                            :argumentica.comparator/max {:children {:argumentica.comparator/max {:values #{5 6}}}}}},
+          :usages {[:root :children 4] 0},
+          :next-usage-number 1}
+         (split-inner-node {:root {:children (child-map ::comparator/max {:children (child-map 4 {:values (create-sorted-set 1 2 3 4)}
+                                                                                               ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                           [:root :children ::comparator/max]))))
+
+(defn split-leaf-node [btree path]
+  (split-node btree
+              path
+              :values
+              (fn [values]
+                (last values))
+              (fn [values]
+                {:values (apply create-sorted-set values)})))
+
+(deftest test-split-leaf-node
+  (is (= {:root
+          {:children
+           #:argumentica.comparator{:max
+                                    {:children
+                                     {2 {:values #{1 2}},
+                                      4 {:values #{3 4}},
+                                      :argumentica.comparator/max
+                                      {:values #{5 6}}}}}},
+          :usages
+          {[:root :children :argumentica.comparator/max :children 2] 0},
+          :next-usage-number 1}
+         (split-leaf-node {:root {:children (child-map ::comparator/max {:children (child-map 4 {:values (create-sorted-set 1 2 3 4)}
+                                                                                              ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                          [:root :children ::comparator/max :children 4]))))
+
+(defn inner-node? [node]
+  (contains? node :children))
+
+(defn leaf-node-3? [node]
+  (not (inner-node? node)))
+
+(defn split-child-3 [btree child-path]
+  (let [old-node (get-in btree child-path)]
+    (if (inner-node? old-node)
+      (split-inner-node btree child-path)
+      (split-leaf-node btree child-path))))
+
+(deftest test-split-child-2
+  (is (= {:root {:children {1 {:values #{1}},
+                            3 {:values #{2 3}},
+                            :argumentica.comparator/max {:values #{4 5}}}},
+          :usages {[:root :children 1] 0},
+          :next-usage-number 1}
+         (split-child-3 {:root {:children (child-map 3 {:values (create-sorted-set 1 2 3)}
+                                                     ::comparator/max {:values (create-sorted-set 4 5)})}}
+                        [:root :children 3]))))
 
 (defn add-root-to-usages [usages root-id]
   (apply priority-map/priority-map
@@ -1893,11 +1982,6 @@
       reduced-value)))
 
 
-(defn child-map [& entries]
-  (apply sorted-map-by
-         comparator/compare-datoms
-         entries))
-
 (defn minimum-greater-or-equal [sorted value]
   (first (subseq sorted
                  >=
@@ -1921,8 +2005,6 @@
                                               4 :b)
                                    4))))
 
-(defn leaf-node-3? [node]
-  (not (contains? node :children)))
 
 (defn divider-for-value [node value]
   (first (minimum-greater-or-equal (:children node)
