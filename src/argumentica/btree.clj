@@ -595,6 +595,30 @@
                                           {:values (create-sorted-set 5)}
                                           {:values (create-sorted-set 7)}]}}))))
 
+(defn split-root-3 [btree]
+  (-> btree
+      (update :root
+              (fn [old-root-node]
+                {:children (child-map ::comparator/max old-root-node)}))
+      (record-usage-2 [:root])
+      (split-child-3 [:root :children ::comparator/max])))
+
+(deftest test-split-child-3
+  (is (= {:root {:children {1 {:values #{1}}
+                            :argumentica.comparator/max {:values #{2 3}}}},
+          :usages {[:root] 0
+                   [:root :children 1] 1},
+          :next-usage-number 2}
+         (split-root-3 {:root {:values (create-sorted-set 1 2 3)}})))
+
+  (is (= {:root
+          {:children {1 {:children {1 {:values #{1}}}},
+            :argumentica.comparator/max {:children {::comparator/max {:values #{2}}}}}},
+          :usages {[:root] 0, [:root :children 1] 1},
+          :next-usage-number 2}
+         (split-root-3 {:root {:children (child-map 1 {:values (create-sorted-set 1)}
+                                                    ::comparator/max {:values (create-sorted-set 2)})}}))))
+
 (defn child-index [splitter-values value]
   (loop [splitter-values splitter-values
          child-index 0]
