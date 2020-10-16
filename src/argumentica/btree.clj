@@ -33,8 +33,6 @@
   {:values (create-sorted-set)})
 
 (defn full-after-maximum-number-of-values [maximum]
-  (assert (odd? maximum)
-          "Maximum node size must be odd")
   (assert (< 1 maximum)
           "Maximum node size must be creater than one")
   (fn [node]
@@ -1091,12 +1089,15 @@
   (or (some? (:values node))
       (some? (:children node))))
 
+(defn has-loaded-children? [node]
+  (not (empty? (filter loaded-2? (vals (:children node))))))
+
 (defn store-node-by-path [btree path]
   (let [the-node (get-in btree path)
         bytes (node-serialization/serialize the-node)
         the-storage-key (storage-key bytes)]
 
-    (assert (empty? (filter loaded? (:children the-node)))
+    (assert (not (has-loaded-children? the-node))
             "Can not unload a node with loaded children")
 
     (store-if-new! (:node-storage btree)
@@ -1143,7 +1144,7 @@
 (defn unload-node-2 [btree path]
   (-> btree
       (store-node-by-path path)
-      (update-in path dissoc :values)))
+      (update-in path dissoc :values :children)))
 
 (deftest test-unload-node-2
   (is (= {:root
@@ -1867,7 +1868,10 @@
           (range value-count)))
 
 (defn unload-least-used-node [btree]
-  (if-let [least-used-path (ffirst (:usages btree))]
+  (if-let [least-used-path (->> (:usages btree)
+                                (map first)
+                                (remove #(has-loaded-children? (get-in btree %)))
+                                (first))]
     (unload-node-2 btree
                    least-used-path)
     btree))
@@ -1894,36 +1898,12 @@
 
 
 (deftest test-unload-excess-nodes
-  (is (match/contains-map? {:nodes
-                            {5 {:child-ids [match/any-string
-                                            6],
-                                :values #{3}},
-                             6 {:values #{5 7},
-                                :child-ids [match/any-string
-                                            match/any-string
-                                            7]},
-                             7 {:values #{8 9}}},
-                            :next-node-id 8,
-                            :root-id 5,
-                            :usages {5 12, 6 13, 7 16},
-                            :next-usage-number 17}
-                           (unload-excess-nodes (reduce add
-                                                        (create (full-after-maximum-number-of-values 3))
-                                                        (range 10))
-                                                3)))
-
-  (is (= 5
-         (count (keys (:nodes (unload-excess-nodes (reduce add-3
-                                                           (create (full-after-maximum-number-of-values 3))
-                                                           (range 30))
-                                                   5))))))
-  (is (= 5
-         (count (keys (:nodes (-> (create (full-after-maximum-number-of-values 3))
-                                  (as-> btree
-                                      (reduce add btree (range 10))
-                                    (unload-excess-nodes btree 5)
-                                    (reduce add btree (range 10))
-                                    (unload-excess-nodes btree 5)))))))))
+  (is (= {:storage-key "6EE178034F575BC9E510EDC3F89F63E4F528D3F00C718C2DCDBDF20F274A11CA"}
+         (:root (unload-excess-nodes (reduce add-3
+                                             (create-2 (hash-map-storage/create)
+                                                       (full-after-maximum-number-of-values 3))
+                                             (range 5))
+                                     0)))))
 
 (defn btree-and-node-id-next-to-splitter [btree-atom splitter direction]
   (let [{:keys [cursor btree]} (cursor-and-btree-for-value-and-btree-atom btree-atom
@@ -2383,7 +2363,18 @@
                                                     ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
                                                                                            ::comparator/max {:values (create-sorted-set 5 6)})})}}
                        4
-                       :backwards))))
+                       :backwards)))
+
+  (is (= (range 10)
+         (reduce-btree conj
+                       []
+                       (unload-excess-nodes (reduce add-3
+                                             (create-2 (hash-map-storage/create)
+                                                       full-after-three)
+                                             (range 10))
+                                            0)
+                       1
+                       :forwards))))
 
 (defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))
@@ -2801,11 +2792,14 @@
            :latest-root
            new-root)))
 
-(defn store-root-2 [btree metadata]
-  (-> (reduce store-node-by-path
-              btree
-              (reverse (sort-by count (keys (:usages btree)))))
-      (add-stored-root-2 metadata)))
+(defn store-root-2
+  ([btree]
+   (store-root btree nil))
+  ([btree metadata]
+   (-> (reduce store-node-by-path
+               btree
+               (reverse (sort-by count (keys (:usages btree)))))
+       (add-stored-root-2 metadata))))
 
 (deftest test-store-root-2
   (let [btree (reduce add-3
@@ -2816,11 +2810,11 @@
                                                          nil))]
     (is (= '(0 1 2 3 4 5 6 7 8 9)
            (->> stored-btree
-               :node-storage
-               vals
-               (map :values)
-               (apply concat)
-               sort)))))
+                :node-storage
+                vals
+                (map :values)
+                (apply concat)
+                sort)))))
 
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-leaf-cursor @btree-atom)]
