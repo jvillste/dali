@@ -703,6 +703,7 @@
   (-> btree
       (update-in (concat path [:values])
                  conj value)
+      (update-in path dissoc :storage-key)
       (record-usage-2 path)))
 
 (defn parent-id [cursor]
@@ -1093,20 +1094,22 @@
   (not (empty? (filter loaded-2? (vals (:children node))))))
 
 (defn store-node-by-path [btree path]
-  (let [the-node (get-in btree path)
-        bytes (node-serialization/serialize the-node)
-        the-storage-key (storage-key bytes)]
+  (let [the-node (get-in btree path)]
+    (if (not (:storage-key the-node))
+      (let [bytes (node-serialization/serialize the-node)
+            the-storage-key (storage-key bytes)]
 
-    (assert (not (has-loaded-children? the-node))
-            "Can not unload a node with loaded children")
+        (assert (not (has-loaded-children? the-node))
+                "Can not unload a node with loaded children")
 
-    (store-if-new! (:node-storage btree)
-                   the-storage-key
-                   bytes)
+        (store-if-new! (:node-storage btree)
+                       the-storage-key
+                       bytes)
 
-    (-> btree
-        (assoc-in (concat path [:storage-key]) the-storage-key)
-        (update :usages dissoc path))))
+        (-> btree
+            (assoc-in (concat path [:storage-key]) the-storage-key)
+            (update :usages dissoc path)))
+      btree)))
 
 (defn- extract-storage [storage]
   (into {} (for [storage-key (storage/storage-keys! storage)]
@@ -1118,7 +1121,7 @@
 (defn- extract-node-storage [btree]
   (update btree :node-storage extract-storage))
 
-(deftest test-store-node
+(deftest test-store-node-by-path
   (is (= {:root {:children {2 {:values #{2},
                                :storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"},
                             :argumentica.comparator/max {:values #{4}}}},
@@ -1548,7 +1551,15 @@
             :next-usage-number 3}
            (add-2 {:root {:values (create-sorted-set 1 2 3)}
                    :full? full-after-three}
-                  4)))))
+                  4))))
+
+  (testing "storage-key is removed"
+    (is (= nil
+           (:storage-key (:root (add-2 (unload-node-2 {:root {:values (create-sorted-set 1 2)}
+                                                       :node-storage (hash-map-storage/create)
+                                                       :full? full-after-three}
+                                                      [:root])
+                                       4)))))))
 
 (defn load-root-if-needed-3 [btree]
   (if (loaded-2? (:root btree))
