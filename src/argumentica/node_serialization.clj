@@ -18,19 +18,20 @@
                                              (.writeInt data-output-stream 5)))))))
 
 (defn- metadata [node]
-  (merge {:count (count (:values node))}
-         (if (:children node)
-           {:children (mapv :storage-key (:children node))}
-           {})))
+  (if (:values node)
+    {:count (count (:values node))}
+    {:children (mapv (fn [[splitter child]]
+                       {:splitter splitter
+                        :storage-key (:storage-key child)})
+                     (:children node))}))
 
 (deftest test-metadata
-  (is (= {:children ["1" "2"], :count 1}
-         (metadata {:children [{:values #{1}
-                                :storage-key "1"}
-                               {:values #{3}
-                                :storage-key "2"}]
-                    :values #{2}})))
-
+  (is (= {:children [{:splitter 1, :storage-key "1"}
+                     {:splitter 2, :storage-key "2"}]}
+         (metadata {:children {1 {:values #{1}
+                                  :storage-key "1"}
+                               2 {:values #{2}
+                                  :storage-key "2"}}})))
   (is (= {:count 1}
          (metadata {:values #{2}}))))
 
@@ -41,45 +42,40 @@
     (.write data-output-stream byte-array 0 length)))
 
 (defn- read-value-from-data-input-stream [data-input-stream]
-  (let [buffer (byte-array (.readInt data-input-stream))]
-    (.read data-input-stream buffer)
-    (nippy/thaw buffer)))
+  (try (let [buffer (byte-array (.readInt data-input-stream))]
+         (.read data-input-stream buffer)
+         (nippy/thaw buffer))
+       (catch EOFException e
+         nil)))
 
 (defn serialize [node]
   (with-data-output-stream
     (fn [data-output-stream]
       (write-value-to-data-output-stream data-output-stream (metadata node))
-      (write-value-to-data-output-stream data-output-stream (:values node)))))
+      (when-let [values (:values node)]
+       (write-value-to-data-output-stream data-output-stream values)))))
 
 (defn deserialize [input-stream]
   (with-open [data-input-stream (DataInputStream. input-stream)]
-    (let [children (:children (read-value-from-data-input-stream data-input-stream))
-          values (read-value-from-data-input-stream data-input-stream)]
-      (if children
-        {:values values
-         :children (mapv #(hash-map :storage-key %)
-                         children)}
-        {:values values}))))
+    (if-let [children (:children (read-value-from-data-input-stream data-input-stream))]
+      {:children children}
+      {:values (read-value-from-data-input-stream data-input-stream)})))
 
 (deftest test-serialization
-  (is (= {:children [{:storage-key "1"}
-                     {:storage-key "2"}]
-          :values #{2}}
-         (deserialize (ByteArrayInputStream. (serialize {:children [{:values #{1}
-                                                                     :storage-key "1"}
-                                                                    {:values #{3}
-                                                                     :storage-key "2"}]
-                                                         :values #{2}}))))))
+  (is (= {:children [{:splitter 1, :storage-key "1"}
+                     {:splitter 2, :storage-key "2"}]}
+         (deserialize (ByteArrayInputStream. (serialize {:children {1 {:values #{1}
+                                                                       :storage-key "1"}
+                                                                    2 {:values #{2}
+                                                                       :storage-key "2"}}})))))
+
+  (is (= {:values #{1}}
+         (deserialize (ByteArrayInputStream. (serialize {:values #{1}}))))))
 
 (defn deserialize-metadata [input-stream]
   (with-open [data-input-stream (DataInputStream. input-stream)]
     (read-value-from-data-input-stream data-input-stream)))
 
 (deftest test-deserialize-metadata
-  (is (= {:children ["1" "2"]
-          :count 1}
-         (deserialize-metadata (ByteArrayInputStream. (serialize {:children [{:values #{1}
-                                                                              :storage-key "1"}
-                                                                             {:values #{3}
-                                                                              :storage-key "2"}]
-                                                                  :values #{2}}))))))
+  (is (= {:count 1}
+         (deserialize-metadata (ByteArrayInputStream. (serialize {:values #{1}}))))))
