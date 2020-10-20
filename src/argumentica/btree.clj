@@ -1442,12 +1442,10 @@
                (if-let [children (:children node-data)]
                  {:children (apply child-map (apply concat
                                                     (for [child children]
-                                                             [(:splitter child)
-                                                              {:storage-key (:storage-key child)}])))
+                                                      [(:splitter child)
+                                                       {:storage-key (:storage-key child)}])))
                   :storage-key (:storage-key node-data)}
                  node-data))))
-
-
 
 (defn load-root-if-needed-2 [btree]
   (if (loaded? (:root btree))
@@ -2192,33 +2190,32 @@
   (first (minimum-greater-or-equal (:children node)
                                    value)))
 
-(defn path-for-value [btree value]
-  (loop [btree btree
+(defn path-for-value [btree-atom value]
+  (loop [btree @btree-atom
          path [:root]]
     (let [node (get-in btree path)]
       (if (loaded-2? node)
         (if (leaf-node-3? node)
-          {:btree btree
-           :path path}
+          path
           (recur btree
                  (concat path [:children (divider-for-value node value)])))
-        (recur (load-node-3 btree path)
+        (recur (swap! btree-atom load-node-3 path)
                path)))))
 
 (deftest test-path-for-value
   (is (= '(:root :children :argumentica.comparator/max :children 4)
-         (:path (path-for-value {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
-                                                             ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
-                                                                                                    ::comparator/max {:values (create-sorted-set 5 6)})})}}
-                                4))))
+         (path-for-value (atom {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                            ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                                   ::comparator/max {:values (create-sorted-set 5 6)})})}})
+                         4)))
 
   (is (= '(:root :children :argumentica.comparator/max)
-         (:path (path-for-value (unload-excess-nodes (reduce add-3
-                                                             (create-2 (hash-map-storage/create)
-                                                                       (full-after-maximum-number-of-values 2))
-                                                             (range 3))
-                                                     0)
-                                4)))))
+         (path-for-value (atom (unload-excess-nodes (reduce add-3
+                                                            (create-2 (hash-map-storage/create)
+                                                                      (full-after-maximum-number-of-values 2))
+                                                            (range 3))
+                                                    0))
+                         4))))
 
 (defn minimum-greater-than [sorted value]
   (first (subseq sorted
@@ -2351,37 +2348,35 @@
              <=
              starting-value)))
 
-;; TODO: load nodes on the way
-(defn reduce-btree [reducing-function initial-reduced-value btree starting-value direction]
-  (let [{:keys [btree path]} (path-for-value btree starting-value)]
-    (loop [reduced-value initial-reduced-value
-           btree btree
-           path path]
-      (if path
-        (let [node (get-in btree path)]
-          (if (loaded-2? node)
-            (let [reduced-value (reduce-without-completion reducing-function
-                                                           reduced-value
-                                                           (subsequence (:values node)
-                                                                        starting-value
-                                                                        direction))]
-              (if (reduced? reduced-value)
-                (reducing-function @reduced-value)
-                (recur reduced-value
-                       btree
-                       (next-child-path btree path direction))))
-            (recur reduced-value
-                   (load-node-3 btree path)
-                   path)))
-        (reducing-function reduced-value)))))
+(defn reduce-btree [reducing-function initial-reduced-value btree-atom starting-value direction]
+  (loop [reduced-value initial-reduced-value
+         path (path-for-value btree-atom starting-value)
+         btree @btree-atom]
+    (if path
+      (let [node (get-in btree path)]
+        (if (loaded-2? node)
+          (let [reduced-value (reduce-without-completion reducing-function
+                                                         reduced-value
+                                                         (subsequence (:values node)
+                                                                      starting-value
+                                                                      direction))]
+            (if (reduced? reduced-value)
+              (reducing-function @reduced-value)
+              (recur reduced-value
+                     (next-child-path btree path direction)
+                     btree)))
+          (recur reduced-value
+                 path
+                 (swap! btree-atom load-node-3 path))))
+      (reducing-function reduced-value))))
 
 (deftest test-reduce-btree
   (is (= [1 2 3 4 5 6]
          (reduce-btree conj
                        []
-                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
-                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
-                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       (atom {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                          ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                                 ::comparator/max {:values (create-sorted-set 5 6)})})}})
                        1
                        :forwards)))
 
@@ -2389,29 +2384,29 @@
          (reduce-btree ((comp (take 3)
                               (map inc)) conj)
                        []
-                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
-                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
-                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       (atom {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                          ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                                 ::comparator/max {:values (create-sorted-set 5 6)})})}})
                        1
                        :forwards)))
 
   (is (= [4 3 2 1]
          (reduce-btree conj
                        []
-                       {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
-                                                    ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
-                                                                                           ::comparator/max {:values (create-sorted-set 5 6)})})}}
+                       (atom {:root {:children (child-map 2 {:values (create-sorted-set 1 2)}
+                                                          ::comparator/max {:children (child-map 4 {:values (create-sorted-set 3 4)}
+                                                                                                 ::comparator/max {:values (create-sorted-set 5 6)})})}})
                        4
                        :backwards)))
 
   (is (= (range 3)
          (reduce-btree conj
                        []
-                       (unload-excess-nodes (reduce add-3
-                                                    (create-2 (hash-map-storage/create)
-                                                              (full-after-maximum-number-of-values 2))
-                                                    (range 3))
-                                            0)
+                       (atom (unload-excess-nodes (reduce add-3
+                                                          (create-2 (hash-map-storage/create)
+                                                                    (full-after-maximum-number-of-values 2))
+                                                          (range 3))
+                                                  0))
                        0
                        :forwards))))
 
