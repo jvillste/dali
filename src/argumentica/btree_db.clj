@@ -16,7 +16,7 @@
                        :last-transaction-number)
                    0)))
     (btree-collection/locking-apply-to-btree! (:collection index)
-                                              btree/store-root
+                                              btree/store-root-2
                                               {:last-transaction-number last-transaction-number}))
   index)
 
@@ -39,7 +39,7 @@
 
 (defn remove-old-roots [db]
   (apply-to-btrees db
-                   btree/remove-old-roots))
+                   btree/remove-old-roots-2))
 
 (defn unload-nodes [db maximum-loaded-node-count]
   (apply-to-btrees db

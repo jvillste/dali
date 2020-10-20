@@ -45,19 +45,19 @@
   (reify
     IReduceInit
     (reduce [this reducing-function initial-reduced-value]
-      (reduce-btree reducing-function
-                    initial-reduced-value
-                    btree-atom
-                    starting-key
-                    direction))
+      (btree/reduce-btree reducing-function
+                          initial-reduced-value
+                          btree-atom
+                          starting-key
+                          direction))
 
     IReduce
     (reduce [this reducing-function]
-      (reduce-btree reducing-function
-                    (reducing-function)
-                    btree-atom
-                    starting-key
-                    direction))))
+      (btree/reduce-btree reducing-function
+                          (reducing-function)
+                          btree-atom
+                          starting-key
+                          direction))))
 
 (defrecord BtreeCollection [btree-atom]
   ;; clojure.lang.Sorted
@@ -85,7 +85,7 @@
   mutable-collection/MutableCollection
   (add! [this value]
     (locking-apply-to-btree! this
-                             btree/add
+                             btree/add-3
                              value))
   transducible-collection/TransducibleCollection
   (transduce [this value options]
@@ -104,16 +104,14 @@
 (util/defno create-on-disk [base-path options :- create-options]
   (let [options (merge default-create-options
                        options)]
-    (create-for-btree (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
-                                                 :node-storage (directory-storage/create (str base-path "/nodes"))
-                                                 :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
+    (create-for-btree (btree/create-from-options-2 :node-storage (directory-storage/create (str base-path "/nodes"))
+                                                   :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
 
 (util/defno create-in-memory [options :- create-options]
   (let [options (merge default-create-options
                        options)]
-    (create-for-btree (btree/create-from-options :metadata-storage (hash-map-storage/create)
-                                                 :node-storage (hash-map-storage/create)
-                                                 :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
+    (create-for-btree (btree/create-from-options-2 :node-storage (hash-map-storage/create)
+                                                   :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
 
 (defn create-test-btree-collection []
   (reduce mutable-collection/add!

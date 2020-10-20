@@ -2766,7 +2766,7 @@
                   :metadata metadata}]
     (storage/put-edn-to-storage! (:metadata-storage btree)
                                  "roots"
-                                 (conj (roots btree)
+                                 (conj (roots-2 btree)
                                        new-root))
     (assoc btree
            :latest-root
@@ -2828,11 +2828,9 @@
 
 (defn store-root-2
   ([btree]
-   (store-root btree nil))
+   (store-root-2 btree nil))
   ([btree metadata]
-   (-> (reduce store-node-by-path
-               btree
-               (reverse (sort-by count (keys (:usages btree)))))
+   (-> (unload-excess-nodes btree 0)
        (add-stored-root-2 metadata))))
 
 (deftest test-store-root-2
@@ -2840,8 +2838,7 @@
                       (create-2 (hash-map-storage/create)
                                 full-after-three)
                       (range 10))
-        stored-btree (extract-node-storage (store-root-2 btree
-                                                         nil))]
+        stored-btree (extract-node-storage (store-root-2 btree))]
     (is (= '(0 1 2 3 4 5 6 7 8 9)
            (->> stored-btree
                 :node-storage
@@ -2867,26 +2864,24 @@
             root-key))
 
 
-(defn storage-keys-from-metadata [metadata-storage root-key]
+(defn storage-keys-from-metadata [node-storage root-key]
   (tree-seq (fn [storage-key]
-              (:child-ids (storage/get-edn-from-storage! metadata-storage
-                                                         storage-key)))
+              (:children (node-serialization/deserialize-metadata (storage/stream-from-storage! node-storage
+                                                                                                storage-key))))
             (fn [storage-key]
-              (:child-ids (storage/get-edn-from-storage! metadata-storage
-                                                         storage-key)))
+              (map :storage-key
+                   (:children (node-serialization/deserialize-metadata (storage/stream-from-storage! node-storage
+                                                                                                     storage-key)))))
             root-key))
 
 (deftest test-storage-keys-from-metadata-and-stored-nodes
-  (let [btree (unload-btree (reduce add
-                                    (create-from-options :full? (full-after-maximum-number-of-values 3))
+  (let [btree (unload-btree (reduce add-3
+                                    (create-from-options-2 :full? (full-after-maximum-number-of-values 3))
                                     (range 20)))
-        the-storage-keys-from-metadata (storage-keys-from-metadata (:metadata-storage btree)
-                                                                   (:root-id btree))]
-    (is (= 17 (count the-storage-keys-from-metadata)))
-    (is (every? string? the-storage-keys-from-metadata))
-    (is (= the-storage-keys-from-metadata
-           (storage-keys-from-stored-nodes (:node-storage btree)
-                                           (:root-id btree))))))
+        the-storage-keys-from-metadata (storage-keys-from-metadata (:node-storage btree)
+                                                                   (-> btree :root :storage-key))]
+    (is (= 19 (count the-storage-keys-from-metadata)))
+    (is (every? string? the-storage-keys-from-metadata))))
 
 (defn get-metadata [btree key]
   (storage/get-edn-from-storage! (:metadata-storage btree)
@@ -2895,11 +2890,21 @@
 (defn used-storage-keys [btree]
   (reduce (fn [keys storage-key]
             (apply conj keys
-                   (storage-keys-from-metadata (:metadata-storage btree)
-                                               (:storage-key storage-key))))
+                   (storage-keys-from-metadata (:node-storage btree)
+                                               storage-key)))
           #{}
-          (get-metadata btree
-                        "roots")))
+          (map :storage-key (storage/get-edn-from-storage! (:node-storage btree)
+                                                           "roots"))))
+
+(deftest test-used-storage-keys
+  (is (= #{"376E288A1C697B50D6BB53003C1EB7A8607823597A2D636CC3CA955F65C9D815"
+           "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
+         (used-storage-keys (-> (create-2 (hash-map-storage/create)
+                                          (full-after-maximum-number-of-values 2))
+                                (add-3 0)
+                                (store-root-2)
+                                (add-3 1)
+                                (store-root-2))))))
 
 (defn unused-storage-keys [btree]
   (remove (used-storage-keys btree)
@@ -2922,14 +2927,12 @@
   (reduce + (stored-node-sizes btree)))
 
 (defn collect-storage-garbage [btree]
-  (let [unused-storage-keys (unused-storage-keys btree)
-        remove-from-storage (fn [storage]
-                              (reduce storage/remove-from-storage!
-                                      storage
-                                      unused-storage-keys))]
-    (-> btree
-        (update :node-storage remove-from-storage)
-        (update :metadata-storage remove-from-storage))))
+  (let [unused-storage-keys (unused-storage-keys btree)]
+    (update btree :node-storage
+            (fn [storage]
+              (reduce storage/remove-from-storage!
+                      storage
+                      unused-storage-keys)))))
 
 
 (deftest test-garbage-collection
