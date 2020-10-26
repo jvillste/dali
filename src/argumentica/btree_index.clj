@@ -80,17 +80,14 @@
       :last-transaction-number))
 
 (defn create-directory-btree-index [base-path node-size]
-  (let [btree (btree/create-from-options :metadata-storage (directory-storage/create (str base-path "/metadata"))
-                                         :node-storage (directory-storage/create (str base-path "/nodes"))
-                                         :full? (btree/full-after-maximum-number-of-values node-size))]
+  (let [btree (btree/create-from-options-2 :node-storage (directory-storage/create base-path)
+                                           :full? (btree/full-after-maximum-number-of-values node-size))]
     (->BtreeIndex (atom (assoc btree
                                :last-indexed-transaction-number (last-stored-transaction-number btree))))))
 
 (defn create-memory-btree-index [node-size]
-  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (hash-map-storage/create)
-                                                 :node-storage (hash-map-storage/create)
-                                                 :full? (btree/full-after-maximum-number-of-values node-size)))))
+  (->BtreeIndex (atom (btree/create-from-options-2 :node-storage (hash-map-storage/create)
+                                                   :full? (btree/full-after-maximum-number-of-values node-size)))))
 
 (defn create-memory-btree-index-from-btree-index [btree-index]
-  (->BtreeIndex (atom (btree/create-from-options :metadata-storage (-> btree-index :btree-index-atom deref :metadata-storage)
-                                                 :node-storage (-> btree-index :btree-index-atom deref :node-storage)))))
+  (->BtreeIndex (atom (btree/create-from-options-2 :node-storage (-> btree-index :btree-index-atom deref :node-storage)))))

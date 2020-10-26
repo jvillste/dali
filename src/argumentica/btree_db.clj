@@ -11,7 +11,7 @@
 (defn store-index-root-after-maximum-number-of-transactions [index last-transaction-number maximum-number-of-transactions-after-previous-flush]
   (when (<= maximum-number-of-transactions-after-previous-flush
             (- last-transaction-number
-               (or (-> (btree/get-latest-root (btree-collection/btree (:collection index)))
+               (or (-> (btree/get-latest-root-2 (btree-collection/btree (:collection index)))
                        :metadata
                        :last-transaction-number)
                    0)))

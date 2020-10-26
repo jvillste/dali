@@ -8,7 +8,8 @@
             [argumentica.sorted-reducible :as sorted-reducible]
             [argumentica.util :as util]
             [schema.core :as schema]
-            [clojure.test :refer :all])
+            [clojure.test :refer :all]
+            [argumentica.storage :as storage])
   (:import argumentica.comparator.DatomComparator
            [clojure.lang IReduceInit IReduce]))
 
@@ -104,7 +105,7 @@
 (util/defno create-on-disk [base-path options :- create-options]
   (let [options (merge default-create-options
                        options)]
-    (create-for-btree (btree/create-from-options-2 :node-storage (directory-storage/create (str base-path "/nodes"))
+    (create-for-btree (btree/create-from-options-2 :node-storage (directory-storage/create base-path)
                                                    :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
 
 (util/defno create-in-memory [options :- create-options]
