@@ -2837,7 +2837,7 @@
                                   (store-node-by-path [:root])))))
 
   (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
-         (storage-keys-related-to-loaded-nodes (-> (create-2 (full-after-maximum-number-of-values 2))
+         (loaded-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
                                                    (add-3 0)
                                                    (add-3 1)
                                                    (add-3 2)
