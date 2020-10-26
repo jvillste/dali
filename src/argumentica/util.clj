@@ -107,3 +107,55 @@
   ([accumulator_ value] value))
 
 (def open-schema {schema/Keyword schema/Any})
+
+(defmacro def-with-macro
+  "Defines a macro that calls the given body as a function.
+  The function will always be the last argument.
+  For example:
+
+  (def-with-macro with-start-and-end-logging [name body-function]
+    (println \"start\" name)
+    (body-function)
+    (println \"end\" name))"
+  [macro-name & docstring-arguments-body]
+
+  (let [[docstring arguments & body] (if (string? (first docstring-arguments-body))
+                                       docstring-arguments-body
+                                       (concat [nil]
+                                               docstring-arguments-body))
+        function-name-symbol (with-meta (symbol (str (name macro-name) "*"))
+                               (meta macro-name))
+        body-symbol (gensym "body")
+        macro-arguments-without-body (vec (map #(symbol (str "argument-" %))
+                                               (range (dec (count arguments)))))]
+
+    `(do (defn ~function-name-symbol ~arguments ~@body)
+         (defmacro ~macro-name ~(vec (concat macro-arguments-without-body
+                                             ['& body-symbol]))
+           (list (symbol ~(str (ns-name *ns*))
+                         ~(str (name function-name-symbol)))
+                 ~@macro-arguments-without-body
+                 (concat (list 'bound-fn [])
+                         ~body-symbol)))
+         (when ~docstring
+           (alter-meta! (var ~macro-name) assoc :arglists (quote ~[(vec (concat (drop-last arguments)
+                                                                                ['& 'body]))])
+                        :doc ~docstring)))))
+
+(alter-meta! #'def-with-macro assoc :arglists '([name doc-string [arguments*] & body]
+                                                [name [arguments*] & body]))
+
+(def-with-macro cancel-after-timeout [timeout return-value-if-timeout body-function]
+  (let [the-future (future-call body-function)
+        result (deref the-future timeout ::timeout)]
+    (if (= ::timeout result)
+      (do (future-cancel the-future)
+          return-value-if-timeout)
+      result)))
+
+(comment
+  (cancel-after-timeout 1000
+                        :timeout
+                        (Thread/sleep 100)
+                        (println "hello"))
+  )
