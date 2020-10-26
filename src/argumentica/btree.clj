@@ -612,6 +612,7 @@
               (fn [old-root-node]
                 {:children (child-map ::comparator/max old-root-node)}))
       (record-usage-2 [:root])
+      (record-usage-2 [:root :children ::comparator/max])
       (split-child-3 [:root :children ::comparator/max])))
 
 (deftest test-split-child-3
@@ -2733,7 +2734,9 @@
 (defn remove-old-roots-2 [btree]
   (storage/put-edn-to-storage! (:node-storage btree)
                                "roots"
-                               [(get-latest-root-2 btree)])
+                               (if-let [latest-root (get-latest-root-2 btree)]
+                                 [latest-root]
+                                 []))
   btree)
 
 (defn add-stored-root-2 [btree metadata]
@@ -2816,26 +2819,43 @@
        (concat ["roots"])
        (into #{})))
 
-(defn loaded-node-storage-keys [btree]
-  (->> (keys (:usages btree))
-       (concat [[:root]])
-       (map #(get-in btree %))
+(defn sub-tree-nodes [root-node]
+  (tree-seq :children
+            (comp vals :children)
+            root-node))
+
+(defn loaded-storage-keys [btree]
+  (->> (sub-tree-nodes (:root btree))
        (map :storage-key)
        (remove nil?)
        (into #{})))
 
-(deftest test-loaded-node-storage-keys
+(deftest test-loaded-storage-keys
   (is (= #{"55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
-         (loaded-node-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
-                                       (add-3 0)
-                                       (store-node-by-path [:root]))))))
+         (loaded-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
+                                  (add-3 0)
+                                  (store-node-by-path [:root])))))
+
+  (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
+         (storage-keys-related-to-loaded-nodes (-> (create-2 (full-after-maximum-number-of-values 2))
+                                                   (add-3 0)
+                                                   (add-3 1)
+                                                   (add-3 2)
+                                                   (unload-node-2 [:root :children ::comparator/max]))))))
 
 (defn storage-keys-related-to-loaded-nodes [btree]
-  (->> (loaded-node-storage-keys btree)
+  (->> (loaded-storage-keys btree)
        (mapcat #(storage-keys-from-metadata (:node-storage btree) %))
        (into #{})))
 
-(deftest test-loaded-node-storage-keys
+(deftest test-storage-keys-related-to-loaded-nodes
+  (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
+         (storage-keys-related-to-loaded-nodes (-> (create-2 (full-after-maximum-number-of-values 2))
+                                                   (add-3 0)
+                                                   (add-3 1)
+                                                   (add-3 2)
+                                                   (unload-node-2 [:root :children ::comparator/max])))))
+
   (is (= #{"3109F2BE15C32C595A8F03D8927DBAE5E5912BFD5D81FD988E7E6AFD99BE24E3"
            "999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"
            "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
@@ -2892,12 +2912,10 @@
   (reduce + (stored-node-sizes btree)))
 
 (defn collect-storage-garbage [btree]
-  (let [unused-storage-keys (unused-storage-keys btree)]
-    (update btree :node-storage
-            (fn [storage]
-              (reduce storage/remove-from-storage!
-                      storage
-                      unused-storage-keys)))))
+  (run! #(storage/remove-from-storage! (:node-storage btree)
+                                       %)
+        (unused-storage-keys btree))
+  btree)
 
 
 (deftest test-garbage-collection
