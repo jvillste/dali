@@ -22,24 +22,29 @@
                 (into-array LinkOption
                             [LinkOption/NOFOLLOW_LINKS])))
 
+(defn key-path-string [directory-storage key]
+  (str (:path directory-storage) "/" key))
+
 (defn key-path [directory-storage key]
-  (string-to-path (str (:path directory-storage) "/" key)))
+  (string-to-path (key-path-string directory-storage key)))
 
 (defmethod storage/get-from-storage!
   DirectoryStorage
   [this key]
-  (if (file-exists? (key-path this key))
-    (Files/readAllBytes (string-to-path (str (:path this) "/" key)))
-    (do (println "WARNING: Tried to get nonexistent file from storage: " (str (key-path this key)))
-        nil)))
+  (let [path (key-path this key)]
+    (if (file-exists? path)
+      (Files/readAllBytes path)
+      (do (println "WARNING: Tried to get nonexistent file from storage: " (str path))
+          nil))))
 
 (defmethod storage/stream-from-storage!
   DirectoryStorage
   [this key]
-  (if (file-exists? (key-path this key))
-    (io/input-stream (string-to-path (str (:path this) "/" key)))
-    (do (println "WARNING: Tried to stream nonexistent file from storage: " (str (key-path this key)))
-      nil)))
+  (let [key-path-string (key-path-string this key)]
+    (if (file-exists? (string-to-path key-path-string))
+      (io/input-stream key-path-string)
+      (do (println "WARNING: Tried to stream nonexistent file from storage: " key-path-string)
+          nil))))
 
 (defmethod storage/put-to-storage!
   DirectoryStorage
@@ -73,13 +78,3 @@
 (defn create [directory-path]
   (fs/mkdirs directory-path)
   (->DirectoryStorage directory-path))
-
-(comment
-
-  (String. (btree/get-from-storage (DirectoryStorage. "src/argumentica")
-                                   "directory_storage.clj"))
-
-  (btree/put-to-storage (DirectoryStorage. "data")
-                        "test.txt"
-                        (.getBytes "test"
-                                   "UTF-8")))
