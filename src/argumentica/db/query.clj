@@ -182,6 +182,8 @@
             ::comparator/max))
 
 (util/defno transduce-pattern [transducible-collection pattern options :- transducible-collection/transduce-options]
+  (throw (Exception. "transduce-pattern is deprecated!"))
+
   (let [options (merge transducible-collection/default-transduce-options
                        options)
         pattern-has-trailing-constants? (has-trailing-constants? pattern)]
@@ -225,7 +227,7 @@
 
 (deftest test-reducible-for-pattern
 
-  
+
   (is (= [2 3]
          (into [] (reducible-for-pattern (apply sorted-set-by
                                                 comparator/compare-datoms
