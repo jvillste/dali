@@ -1167,12 +1167,11 @@
                                                               :add]))))))))})
 
 (defn enumeration-count [index value]
-  (let [[value-from-index _transaction-number count-from-index] (query/transduce-pattern (:collection index)
-                                                                                         [value]
-                                                                                         {:direction :backwards
-                                                                                          :transducer (take 1)
-                                                                                          :reducer util/last-value})]
-
+  (let [[value-from-index _transaction-number count-from-index] (transduce (take 1)
+                                                                           util/last-value
+                                                                           (query/reducible-for-pattern (:collection index)
+                                                                                                        [value]
+                                                                                                        {:direction :backwards}))]
     (if (= value-from-index value)
       count-from-index
       0)))
