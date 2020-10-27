@@ -100,16 +100,38 @@
                              :datom-transaction-number-index 2})
 
 (def eav-index-definition {:key :eav
-                           ;;                           :eatcv-to-datoms (fn [_indexes e a t c v] [[e a v t c]])
-                           :statements-to-datoms (fn [indexes transaction-number statements]
-                                                   (for [[e a o v] statements]
-                                                     [e a v transaction-number o]))})
+                           :statements-to-changes (fn [indexes transaction-number statements]
+                                                    (for [[e a o v] statements]
+                                                      [e a v o]))})
 
 (def avetc-index-definition {:key :avetc
                              :eatcv-to-datoms eatcv-to-avetc-datoms})
 
 (def base-index-definitions [eatcv-index-definition
                              avtec-index-definition])
+
+(defn datom-transaction-number [datom]
+  (first (take-last 2 datom)))
+
+(defn command [datom]
+  (last datom))
+
+(defn datom-proposition [datom]
+  (vec (drop-last 2 datom)))
+
+(defn- accumulate-propositions [propositions datom]
+  (case (command datom)
+    :add (conj propositions (datom-proposition datom))
+    :remove (disj propositions (datom-proposition datom))
+    propositions))
+
+(defn reduce-propositions [datoms]
+  (sort (reduce accumulate-propositions
+                #{}
+                datoms)))
+
+(def propositions-transducer (comp (partition-by datom-proposition)
+                                   (mapcat reduce-propositions)))
 
 (defn set-statement [entity attribute value]
   [entity attribute :set value])
@@ -129,25 +151,54 @@
                         eacv-statements)
   db)
 
+(defn take-while-pattern-matches
+  ([pattern]
+   (take-while #(query/match? % pattern)))
+  ([pattern propositions]
+   (take-while #(query/match? % pattern)
+               propositions)))
+
+(defn existing-proposition? [index proposition]
+  (not (empty? (into []
+                     (comp propositions-transducer
+                           (take-while-pattern-matches proposition)
+                           (take 1))
+                     (query/reducible-for-pattern (:collection index)
+                                                  proposition)))))
+
+(defn change-to-datom [change transaction-number]
+  (vec (concat (drop-last change)
+               [transaction-number]
+               (take-last 1 change))))
+
 (defn statements-to-datoms [index indexes transaction-number statements]
   (assert (every? (fn [statement]
                     (= 4 (count statement)))
                   statements)
           "Statement must have four values")
 
-  (if-let [statements-to-datoms (:statements-to-datoms index)]
-    (statements-to-datoms indexes
-                          transaction-number
-                          statements)
-    (for [[e a c v] statements
-          datom ((:eatcv-to-datoms index)
-                 indexes
-                 e
-                 a
-                 transaction-number
-                 c
-                 v)]
-      datom)))
+  (if-let [statements-to-changes (:statements-to-changes index)]
+    (->> (statements-to-changes indexes
+                                transaction-number
+                                statements)
+         (map #(change-to-datom % transaction-number))
+         (remove #(existing-proposition? index
+                                         (datom-proposition %))))
+    (if-let [statements-to-datoms (:statements-to-datoms index)]
+      (->> (statements-to-datoms indexes
+                                 transaction-number
+                                 statements)
+           (remove #(existing-proposition? index
+                                           (datom-proposition %))))
+      (for [[e a c v] statements
+            datom ((:eatcv-to-datoms index)
+                   indexes
+                   e
+                   a
+                   transaction-number
+                   c
+                   v)]
+        datom))))
 
 (defn add-transaction-to-index! [index indexes transaction-number statements]
   (run! #(mutable-collection/add! (:collection index)
@@ -276,23 +327,6 @@
                                pattern
                                options))
 
-(defn datom-proposition [datom]
-  (vec (drop-last 2 datom)))
-
-(defn datom-transaction-number [datom]
-  (first (take-last 2 datom)))
-
-(defn command [datom]
-  (last datom))
-
-(defn- accumulate-propositions [propositions datom]
-  (case (command datom)
-    :add (conj propositions (datom-proposition datom))
-    :remove (disj propositions (datom-proposition datom))
-    propositions))
-
-
-
 (defn- take-until-transaction-number [last-transaction-numer datoms]
   (take-while (fn [datom]
                 (if last-transaction-numer
@@ -301,10 +335,7 @@
                   true))
               datoms))
 
-(defn reduce-propositions [datoms]
-  (sort (reduce accumulate-propositions
-                #{}
-                datoms)))
+
 
 (util/defno datoms-by-proposition [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (->> (datoms-from-index-map index
@@ -348,12 +379,6 @@
                                  pattern
                                  last-transaction-number))))
 
-(defn take-while-pattern-matches
-  ([pattern]
-   (take-while #(query/match? % pattern)))
-  ([pattern propositions]
-   (take-while #(query/match? % pattern)
-               propositions)))
 
 (defn matching-datoms-from-index
   ([index pattern]
@@ -381,8 +406,6 @@
                                  last-transaction-number
                                  options)))
 
-(def propositions-transducer (comp (partition-by datom-proposition)
-                                   (mapcat reduce-propositions)))
 
 (util/defno propositions-reducible [sorted-reducible pattern last-transaction-number options :- query/reducible-for-pattern-options]
   (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)

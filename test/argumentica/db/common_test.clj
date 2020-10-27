@@ -175,6 +175,12 @@
                                        #{[1 :friend :set 3]})
                         :indexes :eav))
 
+(deftest test-adding-same-datom-multiple-times
+  (is (= [[1 :friend 2 0 :add]]
+         (into [] (common/datoms-from (create-eav-db #{[1 :friend :add 2]}
+                                                     #{[1 :friend :add 2]})
+                                      :eav
+                                      [])))))
 (deftest test-values-from-eav
   (let [db (-> (create-eav-db #{[1 :friend :set 2]
                                 [2 :friend :set 1]}
@@ -209,7 +215,7 @@
   (is (= [:value-3 :value-3-2]
          (common/transduce-values-from-eav-collection (sorted-set-by comparator/compare-datoms
                                                                      [:entity-1 :attribute-1 :value-1 0 :add]
-                                                                    [:entity-1 :attribute-1 :value-1 1 :remove]
+                                                                     [:entity-1 :attribute-1 :value-1 1 :remove]
                                                                      [:entity-1 :attribute-1 :value-3 1 :add]
                                                                      [:entity-1 :attribute-1 :value-3-2 1 :add]
                                                                      [:entity-1 :attribute-2 :value-2 0 :add]
