@@ -16,19 +16,19 @@
 (defn subreducible
   ([this starting-key]
    (subreducible-method this
-                     starting-key
-                     :forwards))
+                        starting-key
+                        :forwards))
   ([this starting-key direction]
    (subreducible-method this
-                     starting-key
-                     direction)))
+                        starting-key
+                        direction)))
 
 (deftest test-subreducible
   (is (= [2 3]
          (subreducible (sorted-set 1 2 3)
-                    2)))
+                       2)))
 
   (is (= [2 1]
          (subreducible (sorted-set 1 2 3)
-                    2
-                    :backwards))))
+                       2
+                       :backwards))))

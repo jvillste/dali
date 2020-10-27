@@ -1,22 +1,30 @@
 (ns argumentica.btree-test
   (:require (argumentica [btree :as btree])
-            (clojure.test.check [clojure-test :refer [defspec]]
-                                [generators :as gen]
+            (clojure.test.check [clojure-test :as clojure-test]
+                                [generators :as generators]
                                 [properties :as properties])
             [clojure.test.check :as check]
             [argumentica.util :as util])
   (:use clojure.test))
 
 
-(def command-generator (gen/frequency [[8 (gen/tuple (gen/return #'btree/add-3)
-                                                     gen/pos-int)]
-                                       [1 (gen/tuple (gen/return #'btree/unload-least-used-node))]
-                                       [1 (gen/tuple (gen/return #'btree/unload-btree))]
-                                       [1 (gen/tuple (gen/return #'btree/unload-excess-nodes)
-                                                     (gen/return 2))]
-                                       [1 (gen/tuple (gen/return #'btree/store-root-2))]
-                                       [1 (gen/tuple (gen/return #'btree/remove-old-roots-2))]
-                                       [1 (gen/tuple (gen/return #'btree/collect-storage-garbage))]]))
+(def command-generator (generators/frequency [[8 (generators/tuple (generators/return #'btree/add-3)
+                                                                   generators/pos-int)]
+                                              [1 (generators/tuple (generators/return #'btree/unload-least-used-node))]
+                                              [1 (generators/tuple (generators/return #'btree/unload-btree))]
+                                              [1 (generators/tuple (generators/return #'btree/unload-excess-nodes)
+                                                                   (generators/return 2))]
+                                              [1 (generators/tuple (generators/return #'btree/store-root-2))]
+                                              [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
+                                              [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]]))
+
+(comment
+  (generators/sample (generators/tuple (generators/return #'btree/add-3)
+                                       generators/pos-int))
+
+  (generators/sample command-generator)
+
+  ) ;; TODO: remove-me
 
 (defn apply-commands-to-new-btree [commands]
   (reduce (fn [btree [command & arguments]]
@@ -53,8 +61,8 @@
 
 (defn sorted-set-result-for-parameters [[commands smallest]]
   (or (subseq (apply-commands-to-new-sorted-set commands)
-           >=
-           smallest)
+              >=
+              smallest)
       []))
 
 (comment
@@ -72,9 +80,9 @@
   (btree-result-for-parameters test-parameters)
   )
 
-(defspec property-test-btree 100
-  (properties/for-all [commands (gen/vector command-generator)
-                       start-value gen/int]
+(clojure-test/defspec property-test-btree 100
+  (properties/for-all [commands (generators/vector command-generator)
+                       start-value generators/int]
                       (try
                         (util/cancel-after-timeout 1000
                                                    false
@@ -110,9 +118,9 @@
                                 first-value
                                 :backwards)))))
 
-(defspec property-test-reduce 100
-  (properties/for-all* [(gen/vector gen/int)
-                        gen/int]
+(clojure-test/defspec property-test-reduce 100
+  (properties/for-all* [(generators/vector generators/int)
+                        generators/int]
                        property-test-reduce*))
 
 
