@@ -157,6 +157,8 @@
 
 
 (util/defno filter-by-pattern [sorted-set pattern {:keys [reverse?] :or {reverse? false}} :- filter-by-pattern-options]
+  (throw (Exception. "filter-by-pattern is deprecated"))
+
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (or (->> (if reverse?
                (util/inclusive-reverse-subsequence sorted-set
