@@ -98,7 +98,6 @@
                                        node-storage]
                                 :or {full? (full-after-maximum-number-of-values 1000)
                                      node-storage (hash-map-storage/create)}}]
-
   (conj {:full? full?
          :node-storage node-storage
          :usages (priority-map/priority-map [:root] 0)
@@ -128,11 +127,11 @@
 (defn create-2
   ([]
    (create-2 (full-after-maximum-number-of-values 1000)
-           (hash-map-storage/create)))
+             (hash-map-storage/create)))
 
   ([full?]
    (create-2 full?
-           (hash-map-storage/create)))
+             (hash-map-storage/create)))
 
   ([full? storage]
    (create-from-options-2 :full? full?
@@ -1092,7 +1091,7 @@
 (defn store-node-by-path [btree path]
   (let [the-node (get-in btree path)]
     (if (not (:storage-key the-node))
-      (let [bytes (node-serialization/serialize the-node)
+      (let [bytes (taoensso.tufte/p :serialize (node-serialization/serialize the-node))
             the-storage-key (storage-key bytes)]
 
         (assert (not (has-loaded-children? the-node))
@@ -1433,15 +1432,15 @@
                                                                                 (:storage-key (get-in btree
                                                                                                       node-path))))]
     (-> (update-in btree
-                node-path
-                merge
-                (if-let [children (:children node-data)]
-                  {:children (apply child-map (apply concat
-                                                     (for [child children]
-                                                       [(:splitter child)
-                                                        {:storage-key (:storage-key child)}])))
-                   :storage-key (:storage-key node-data)}
-                  node-data))
+                   node-path
+                   merge
+                   (if-let [children (:children node-data)]
+                     {:children (apply child-map (apply concat
+                                                        (for [child children]
+                                                          [(:splitter child)
+                                                           {:storage-key (:storage-key child)}])))
+                      :storage-key (:storage-key node-data)}
+                     node-data))
         (record-usage-2 node-path))))
 
 (defn load-root-if-needed-2 [btree]
@@ -2345,27 +2344,34 @@
              <=
              starting-value)))
 
+(defn lazy-sequence-to-vector [value]
+  (if (instance? clojure.lang.LazySeq value)
+    (vec value)
+    value))
+
 (defn reduce-btree [reducing-function initial-reduced-value btree-atom starting-value direction]
-  (loop [reduced-value initial-reduced-value
-         path (path-for-value btree-atom starting-value)
-         btree @btree-atom]
-    (if path
-      (let [node (get-in btree path)]
-        (if (loaded-2? node)
-          (let [reduced-value (reduce-without-completion reducing-function
-                                                         reduced-value
-                                                         (subsequence (:values node)
-                                                                      starting-value
-                                                                      direction))]
-            (if (reduced? reduced-value)
-              (reducing-function @reduced-value)
-              (recur reduced-value
-                     (next-child-path btree path direction)
-                     btree)))
-          (recur reduced-value
-                 path
-                 (swap! btree-atom load-node-3 path))))
-      (reducing-function reduced-value))))
+  (taoensso.tufte/p :reduce-btree
+   (let [starting-value (lazy-sequence-to-vector starting-value)]
+     (loop [reduced-value initial-reduced-value
+            path (path-for-value btree-atom starting-value)
+            btree @btree-atom]
+       (if path
+         (let [node (get-in btree path)]
+           (if (loaded-2? node)
+             (let [reduced-value (reduce-without-completion reducing-function
+                                                            reduced-value
+                                                            (subsequence (:values node)
+                                                                         starting-value
+                                                                         direction))]
+               (if (reduced? reduced-value)
+                 (reducing-function @reduced-value)
+                 (recur reduced-value
+                        (next-child-path btree path direction)
+                        btree)))
+             (recur reduced-value
+                    path
+                    (swap! btree-atom load-node-3 path))))
+         (reducing-function reduced-value))))))
 
 (deftest test-reduce-btree
   (is (= [1 2 3 4 5 6]
@@ -2838,10 +2844,10 @@
 
   (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
          (loaded-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
-                                                   (add-3 0)
-                                                   (add-3 1)
-                                                   (add-3 2)
-                                                   (unload-node-2 [:root :children ::comparator/max]))))))
+                                  (add-3 0)
+                                  (add-3 1)
+                                  (add-3 2)
+                                  (unload-node-2 [:root :children ::comparator/max]))))))
 
 (defn storage-keys-related-to-loaded-nodes [btree]
   (->> (loaded-storage-keys btree)
