@@ -322,6 +322,11 @@
                            pattern
                            options))
 
+(util/defno datoms-from-index-map-2 [index pattern options :- query/reducible-for-pattern-options]
+  (query/reducible-for-pattern (:collection index)
+                               pattern
+                               options))
+
 (util/defno datoms-from [db index-key pattern options :- query/reducible-for-pattern-options]
   (query/reducible-for-pattern (get-in db [:indexes index-key :collection])
                                pattern
@@ -1323,12 +1328,15 @@
                                           (or (nil? last-transaction-number)
                                               (<= (second datom)
                                                   last-transaction-number)))
-                                        (take-while-pattern-matches [value]
-                                                                    (datoms-from-index-map index [value] {:reverse? true})))
+                                        (into []
+                                              (take-while-pattern-matches [value])
+                                              (datoms-from-index-map-2 index [value] {:direction :backwards})))
         value-exists-after-last-transaction? (and latest-datom
                                                   (< 0 (nth latest-datom
                                                             2)))
-        next-value (first (first (datoms-from-index-map index [value ::comparator/max])))]
+        next-value (first (first (into []
+                                       (take 1)
+                                       (datoms-from-index-map-2 index [value ::comparator/max]))))]
 
     (cond
       (and value-exists-after-last-transaction?
@@ -1344,7 +1352,9 @@
       [])))
 
 (defn values-from-enumeration-index [index last-transaction-number]
-  (if-let [first-value (first (first (datoms-from-index-map index [])))]
+  (if-let [first-value (first (first (into []
+                                           (take 1)
+                                           (datoms-from-index-map-2 index []))))]
     (values-from-enumeration-index* index
                                     last-transaction-number
                                     first-value)

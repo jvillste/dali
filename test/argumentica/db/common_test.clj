@@ -14,7 +14,8 @@
             [argumentica.db.query :as query]
             [argumentica.util :as util]
             schema.test
-            [argumentica.comparator :as comparator])
+            [argumentica.comparator :as comparator]
+            [argumentica.sorted-reducible :as sorted-reducible])
   (:use clojure.test))
 
 (use-fixtures :once schema.test/validate-schemas)
@@ -391,16 +392,15 @@
 
 
 (defn datoms-from-enumeration-index [& transactions]
-  (-> (reduce common/transact
-              (create-in-memory-db [(common/enumeration-index-definition :enumeration
-                                                                         :attribute-1)])
-              transactions)
-      :indexes
-      :enumeration
-      :collection
-      (query/transduce-pattern []
-                               {:take-while-pattern-matches? false
-                                :reducer conj})))
+  (into []
+        (-> (reduce common/transact
+                    (create-in-memory-db [(common/enumeration-index-definition :enumeration
+                                                                               :attribute-1)])
+                    transactions)
+            :indexes
+            :enumeration
+            :collection
+            (sorted-reducible/subreducible ::comparator/min))))
 
 (deftest test-enumeration-index
   (is (= '([:value-1 0 1])

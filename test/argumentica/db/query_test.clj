@@ -307,3 +307,34 @@
                                                             [:c :c :d]])
                                   [:b nil :d]
                                   {:reducer conj}))))
+
+(deftest test-reducible-for-pattern
+  (is (= [[:a :b :c]
+          [:a :b :d]]
+         (into [] (query/reducible-for-pattern (create-btree-collection [:a :b :c]
+                                                                        [:a :b :d])
+                                               [:a :b]))
+         (into [] (query/reducible-for-pattern (create-btree-collection [:a :b :c]
+                                                                        [:a :b :d])
+                                               [:a :b :c]))))
+
+  (is (= [[:a :b :d]
+          [:a :b :c]]
+         (into [] (query/reducible-for-pattern (create-btree-collection [:a :b :c]
+                                                                        [:a :b :d])
+                                               [:a :b]
+                                               {:direction :backwards}))))
+
+  (is (= [[:a :b :d]]
+         (into [] (query/reducible-for-pattern (create-btree-collection [:a :b :c]
+                                                                        [:a :b :d])
+                                               [:a :b :d]))))
+
+
+  (is (= [[:b :b :d]
+          [:b :c :d]]
+         (into [] (query/reducible-for-pattern (create-btree-collection [:a :b :d]
+                                                                        [:b :b :d]
+                                                                        [:b :c :d]
+                                                                        [:c :c :d])
+                                               [:b nil :d])))))

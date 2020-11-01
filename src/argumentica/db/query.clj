@@ -205,9 +205,9 @@
 
 (defn starting-pattern [sorted-reducible pattern direction]
   (if (= :backwards direction)
-    (pattern-for-reverse-iteration pattern (first (transduce (take 1)
-                                                             util/last-value
-                                                             (sorted-reducible/subreducible sorted-reducible nil :forwards))))
+    (pattern-for-reverse-iteration pattern (transduce (take 1)
+                                                      util/last-value
+                                                      (sorted-reducible/subreducible sorted-reducible ::comparator/min)))
     pattern))
 
 (defn transducer-for-pattern-reduction [pattern]
@@ -221,6 +221,7 @@
         pattern (starting-pattern sorted-reducible
                                   pattern
                                   (:direction options))]
+
     (eduction (transducer-for-pattern-reduction pattern)
               (sorted-reducible/subreducible sorted-reducible
                                              pattern
