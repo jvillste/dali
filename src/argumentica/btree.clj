@@ -1094,9 +1094,6 @@
       (let [bytes (taoensso.tufte/p :serialize (node-serialization/serialize the-node))
             the-storage-key (storage-key bytes)]
 
-        (assert (not (has-loaded-children? the-node))
-                "Can not unload a node with loaded children")
-
         (store-if-new! (:node-storage btree)
                        the-storage-key
                        bytes)
@@ -1139,6 +1136,9 @@
                                                    [:root :children 2])))))
 
 (defn unload-node-2 [btree path]
+  (assert (not (has-loaded-children? (get-in btree path)))
+          "Can not unload a node with loaded children")
+
   (-> btree
       (store-node-by-path path)
       (update :usages dissoc path)
@@ -2795,6 +2795,7 @@
 
 (defn store-all-nodes [btree]
   (reduce store-node-by-path
+          btree
           (->> (loaded-paths btree)
                (sort-by count)
                (reverse))))
@@ -2807,17 +2808,22 @@
        (add-stored-root-2 metadata))))
 
 (deftest test-store-root-2
-  (let [btree (reduce add-3
-                      (create-2 full-after-three)
-                      (range 10))
-        stored-btree (extract-node-storage (store-root-2 btree))]
-    (is (= '(0 1 2 3 4 5 6 7 8 9)
-           (->> stored-btree
+  (let [btree (-> (reduce add-3
+                          (create-2 full-after-three)
+                          (range 4))
+                  (store-root-2)
+                  (extract-node-storage))]
+    (is (= #{0 1 3 2}
+           (->> btree
                 :node-storage
                 vals
                 (map :values)
                 (apply concat)
-                sort)))))
+                (into #{}))))
+
+    (is (= #{0}
+           (get-in btree [:root :children 0 :values])))))
+
 
 (defn load-first-cursor [btree-atom]
   (loop [cursor (first-leaf-cursor @btree-atom)]
