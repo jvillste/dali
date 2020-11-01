@@ -1,6 +1,7 @@
 (ns argumentica.sorted-reducible
   (:require [schema.core :as schema]
-            [clojure.test :refer :all])
+            [clojure.test :refer :all]
+            [argumentica.comparator :as comparator])
   (:import [clojure.lang IReduceInit IReduce Seqable Sequential ISeq]))
 
 (defprotocol SortedReducible
@@ -14,6 +15,10 @@
       (rsubseq sorted <= starting-key))))
 
 (defn subreducible
+  ([this]
+   (subreducible-method this
+                        nil
+                        :forwards))
   ([this starting-key]
    (subreducible-method this
                         starting-key
@@ -24,6 +29,9 @@
                         direction)))
 
 (deftest test-subreducible
+  (is (= [1 2 3]
+         (subreducible (sorted-set 1 2 3))))
+
   (is (= [2 3]
          (subreducible (sorted-set 1 2 3)
                        2)))
