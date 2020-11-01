@@ -2764,12 +2764,46 @@
     (assoc btree
            :latest-root
            new-root)))
+(defn unload-least-used-node [btree]
+  (if-let [least-used-path (->> (:usages btree)
+                                (map first)
+                                (remove #(has-loaded-children? (get-in btree %)))
+                                (first))]
+    (unload-node-2 btree
+                   least-used-path)
+    btree))
+
+(defn loaded-paths [btree]
+  (->> (:usages btree)
+       (map first)
+       (filter (fn [path]
+                 (loaded-2? (get-in btree path))))))
+
+(deftest test-loaded-paths
+  (is (= '([:root :children :argumentica.comparator/max]
+           [:root :children 6]
+           [:root :children 5]
+           [:root :children 4]
+           [:root :children 3]
+           [:root :children 2]
+           [:root :children 1]
+           [:root :children 0]
+           [:root])
+         (loaded-paths (reduce add-3
+                               (create-2 full-after-three)
+                               (range 10))))))
+
+(defn store-all-nodes [btree]
+  (reduce store-node-by-path
+          (->> (loaded-paths btree)
+               (sort-by count)
+               (reverse))))
 
 (defn store-root-2
   ([btree]
    (store-root-2 btree nil))
   ([btree metadata]
-   (-> (unload-excess-nodes btree 0)
+   (-> (store-all-nodes btree)
        (add-stored-root-2 metadata))))
 
 (deftest test-store-root-2
