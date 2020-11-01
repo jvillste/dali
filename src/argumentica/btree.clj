@@ -1440,7 +1440,7 @@
                                                           [(:splitter child)
                                                            {:storage-key (:storage-key child)}])))
                       :storage-key (:storage-key node-data)}
-                     node-data))
+                     (update node-data :values #(apply create-sorted-set %))))
         (record-usage-2 node-path))))
 
 (defn load-root-if-needed-2 [btree]
@@ -1897,8 +1897,8 @@
            :values #{3}},
           :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
                          {:values #{2}}},
-          :usages {[:root :children 1] 1
-                   [:root] 2}}
+          :usages {[:root :children 0] 0, [:root :children 1] 1, [:root] 2},
+          :next-usage-number 1}
          (extract-node-storage (load-node-3 (unload-node-2 {:root {:children [{:values (create-sorted-set 2)}
                                                                               {:values (create-sorted-set 4)}]
                                                                    :values   (create-sorted-set 3)}
@@ -1908,6 +1908,14 @@
                                                                                                [:root] 2)}
                                                            [:root :children 0])
                                             [:root :children 0]))))
+
+  (is (= [2]
+         (-> {:root {:values (create-sorted-set 2)}
+              :node-storage (hash-map-storage/create)}
+             (unload-node-2 [:root])
+             (load-node-3 [:root])
+             (get-in [:root :values])
+             (subseq >= ::comparator/min))))
 
   (is (= {:storage-key nil,
           :children {0 {:storage-key "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"},
