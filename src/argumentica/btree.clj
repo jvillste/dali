@@ -16,7 +16,8 @@
             [argumentica.transducible-collection :as transducible-collection]
             [argumentica.node-serialization :as node-serialization]
             [medley.core :as medley]
-            [argumentica.transducing :as transducing])
+            [argumentica.transducing :as transducing]
+            [argumentica.reducible :as reducible])
   (:import java.io.ByteArrayInputStream))
 
 (defn create-sorted-set [& keys]
@@ -1091,7 +1092,7 @@
 (defn store-node-by-path [btree path]
   (let [the-node (get-in btree path)]
     (if (not (:storage-key the-node))
-      (let [bytes (taoensso.tufte/p :serialize (node-serialization/serialize the-node))
+      (let [bytes (node-serialization/serialize the-node)
             the-storage-key (storage-key bytes)]
 
         (store-if-new! (:node-storage btree)
@@ -2358,28 +2359,27 @@
     value))
 
 (defn reduce-btree [reducing-function initial-reduced-value btree-atom starting-value direction]
-  (taoensso.tufte/p :reduce-btree
-   (let [starting-value (lazy-sequence-to-vector starting-value)]
-     (loop [reduced-value initial-reduced-value
-            path (path-for-value btree-atom starting-value)
-            btree @btree-atom]
-       (if path
-         (let [node (get-in btree path)]
-           (if (loaded-2? node)
-             (let [reduced-value (reduce-without-completion reducing-function
-                                                            reduced-value
-                                                            (subsequence (:values node)
-                                                                         starting-value
-                                                                         direction))]
-               (if (reduced? reduced-value)
-                 (reducing-function @reduced-value)
-                 (recur reduced-value
-                        (next-child-path btree path direction)
-                        btree)))
-             (recur reduced-value
-                    path
-                    (swap! btree-atom load-node-3 path))))
-         (reducing-function reduced-value))))))
+  (let [starting-value (lazy-sequence-to-vector starting-value)]
+    (loop [reduced-value initial-reduced-value
+           path (path-for-value btree-atom starting-value)
+           btree @btree-atom]
+      (if path
+        (let [node (get-in btree path)]
+          (if (loaded-2? node)
+            (let [reduced-value (reducible/reduce-preserving-reduced reducing-function
+                                                                     reduced-value
+                                                                     (subsequence (:values node)
+                                                                                  starting-value
+                                                                                  direction))]
+              (if (reduced? reduced-value)
+                (reducing-function @reduced-value)
+                (recur reduced-value
+                       (next-child-path btree path direction)
+                       btree)))
+            (recur reduced-value
+                   path
+                   (swap! btree-atom load-node-3 path))))
+        (reducing-function reduced-value)))))
 
 (deftest test-reduce-btree
   (is (= [1 2 3 4 5 6]
