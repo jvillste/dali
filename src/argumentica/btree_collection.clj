@@ -24,22 +24,6 @@
                    arguments)))
   btree-collection)
 
-(defn reduce-btree [reducing-function initial-reduced-value btree-atom starting-key direction]
-  (loop [reduced-value initial-reduced-value
-         sequence (btree/sequence-for-value btree-atom
-                                            starting-key
-                                            direction)]
-    (if (reduced? reduced-value)
-      (unreduced reduced-value)
-      (let [next-sequence (btree/next-sequence sequence
-                                               btree-atom
-                                               direction)]
-        (if (nil? (first next-sequence))
-          reduced-value
-          (recur (reducing-function reduced-value
-                                    (first sequence))
-                 (rest next-sequence)))))))
-
 ;; idea from https://juxt.pro/blog/ontheflycollections-with-reducible
 
 (defn btree-reducible [btree-atom starting-key direction]
