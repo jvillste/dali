@@ -14,8 +14,8 @@
             [argumentica.db.query :as query]
             [argumentica.util :as util]
             schema.test
-            [argumentica.comparator :as comparator]
-            [argumentica.sorted-reducible :as sorted-reducible])
+            [argumentica.sorted-reducible :as sorted-reducible]
+            [argumentica.db.query :as query])
   (:use clojure.test))
 
 (use-fixtures :once schema.test/validate-schemas)
@@ -466,14 +466,15 @@
 
 (defn datoms-from-rule-index [& transactions]
   (into [] (common/datoms-from (reduce common/transact
-                                       (create-in-memory-db [common/eav-index-definition
-                                                             (common/rule-index-definition :rule
-                                                                                           {:head [:?category :?nutrient :?amount :?food]
-                                                                                            :body [[:eav
-                                                                                                    [:?measurement :nutirent :?nutrient]
-                                                                                                    [:?measurement :amount :?amount]
-                                                                                                    [:?measurement :food :?food]
-                                                                                                    [:?food :category :?category]]]})])
+                                       (create-in-memory-db
+                                        [common/eav-index-definition
+                                         (common/rule-index-definition :rule
+                                                                       {:head [:?category :?nutrient :?amount :?food]
+                                                                        :body [[:eav
+                                                                                [:?measurement :nutirent :?nutrient]
+                                                                                [:?measurement :amount :?amount]
+                                                                                [:?measurement :food :?food]
+                                                                                [:?food :category :?category]]]})])
                                        transactions)
                                :rule
                                [])))
@@ -550,3 +551,118 @@
                                                  [:measurement-2 :food :add :food-1]}
                                                #{[:food-1 :category :add :beverage]
                                                  [:food-1 :category :remove :pastry]}]))))
+
+(deftest test-dali
+  (let [db (-> (common/db-from-index-definitions [{:key :eav
+                                                   :statements-to-changes (fn [indexes_ transaction-number_ statements]
+                                                                            (for [[e a o v] statements]
+                                                                              [e a v o]))}
+                                                  {:key :names
+                                                   :statements-to-changes (fn [indexes_ transaction-number_ statements]
+                                                                            (for [[e a o v] statements
+                                                                                  :when (= a :name)]
+                                                                              [v e o]))}]
+                                                 (fn [index-key_] (btree-collection/create-in-memory))
+                                                 (sorted-map-transaction-log/create))
+
+               (common/transact [[:food-1 :name :add "potato"]
+                                 [:food-2 :name :add "tomato"]
+                                 [:nutrient-1 :name :add "salt"]])
+               (common/transact [[:measurement-1 :nutrient :add :nutrient-1]
+                                 [:measurement-1 :food :add :food-1]
+                                 [:measurement-1 :value :add 10]])
+               (common/transact [[:measurement-2 :nutrient :add :nutrient-1]
+                                 [:measurement-2 :food :add :food-1]
+                                 [:measurement-2 :value :add 11]]))]
+
+    (testing "both indexes are filled with datoms resulting from the transactions"
+      (is (= [["potato" :food-1 0 :add]
+              ["salt" :nutrient-1 0 :add]
+              ["tomato" :food-2 0 :add]]
+             (into [] (common/datoms-from db :names nil))))
+
+      (is (= [[:food-1 :name "potato" 0 :add]
+              [:food-2 :name "tomato" 0 :add]
+              [:measurement-1 :food :food-1 1 :add]
+              [:measurement-1 :nutrient :nutrient-1 1 :add]
+              [:measurement-1 :value 10 1 :add]
+              [:measurement-2 :food :food-1 2 :add]
+              [:measurement-2 :nutrient :nutrient-1 2 :add]
+              [:measurement-2 :value 11 2 :add]
+              [:nutrient-1 :name "salt" 0 :add]]
+             (into [] (common/datoms-from db :eav nil)))))
+
+    (testing "indexes are just sorted sets that can be reduced forwards or backwards starting from a given value"
+      (is (= [["salt" :nutrient-1 0 :add]
+              ["potato" :food-1 0 :add]]
+             (into [] (sorted-reducible/subreducible (common/collection db :names)
+                                                     ["salt" :comparator/max]
+                                                     :backwards)))))
+
+    (testing "To get the actual propositions we deref the database which means that we fix the latest transaction after which we want to run our query.
+Transactions transacted to the database after the deref do not affect the database value obtained here."
+      (is (= [[:measurement-1 :value 10]]
+             (into [] (common/matching-propositions @db :eav [:measurement-1 :value]))))
+
+      (is (= [[:measurement-1 :food :food-1]
+              [:measurement-1 :nutrient :nutrient-1]
+              [:measurement-1 :value 10]]
+             (into [] (common/matching-propositions @db :eav [:measurement-1])))))
+
+    (testing "We can run a logic programming style query over multiple indexes."
+      (is (= [{:?food :food-1,
+               :?nutrient :nutrient-1,
+               :?measurement :measurement-1,
+               :?value 10}
+              {:?food :food-1,
+               :?nutrient :nutrient-1,
+               :?measurement :measurement-2,
+               :?value 11}]
+             (into [] (query/reducible-query nil
+                                             [(common/collection db :names)
+                                              ["potato" :?food]
+                                              ["salt" :?nutrient]]
+                                             [(common/collection db :eav)
+                                              [:?measurement :food :?food]
+                                              [:?measurement :nutrient :?nutrient]
+                                              [:?measurement :value :?value]])))))
+
+    (testing "The same query can be run to clojure's build in sorted sets with a special comparator."
+      (is (= [{:?food :food-1,
+               :?nutrient :nutrient-1,
+               :?measurement :measurement-1,
+               :?value 10}
+              {:?food :food-1,
+               :?nutrient :nutrient-1,
+               :?measurement :measurement-2,
+               :?value 11}]
+             (into [] (query/reducible-query nil
+                                             [(sorted-set-by comparator/compare-datoms
+                                                             ["potato" :food-1 0 :add]
+                                                             ["salt" :nutrient-1 0 :add]
+                                                             ["tomato" :food-2 0 :add])
+                                              ["potato" :?food]
+                                              ["salt" :?nutrient]]
+                                             [(sorted-set-by comparator/compare-datoms
+                                                             [:food-1 :name "potato" 0 :add]
+                                                             [:food-2 :name "tomato" 0 :add]
+                                                             [:measurement-1 :food :food-1 1 :add]
+                                                             [:measurement-1 :nutrient :nutrient-1 1 :add]
+                                                             [:measurement-1 :value 10 1 :add]
+                                                             [:measurement-2 :food :food-1 2 :add]
+                                                             [:measurement-2 :nutrient :nutrient-1 2 :add]
+                                                             [:measurement-2 :value 11 2 :add]
+                                                             [:nutrient-1 :name "salt" 0 :add])
+                                              [:?measurement :food :?food]
+                                              [:?measurement :nutrient :?nutrient]
+                                              [:?measurement :value :?value]])))))
+
+    (testing "The Entity type implements clojure.lang.Associative for a node in the database graph so that the graph can be traversed like a hashmap structure.
+ It needs a schema that tells what attributes are references to other entities."
+      (is (= "salt"
+             (-> (common/->Entity @db
+                                  {:food {:reference? true}
+                                   :nutrient {:reference? true}}
+                                  :measurement-1)
+                 :nutrient
+                 :name))))))
