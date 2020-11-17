@@ -8,21 +8,26 @@
   (:use clojure.test))
 
 
-(def command-generator (generators/frequency [[8 (generators/tuple (generators/return #'btree/add-3)
-                                                                   generators/pos-int)]
-                                              [1 (generators/tuple (generators/return #'btree/unload-least-used-node))]
-                                              [1 (generators/tuple (generators/return #'btree/unload-btree))]
-                                              [1 (generators/tuple (generators/return #'btree/unload-excess-nodes)
-                                                                   (generators/return 2))]
-                                              [1 (generators/tuple (generators/return #'btree/store-root-2))]
-                                              [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
-                                              [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]]))
+(def command-generator
+  (generators/frequency [[8 (generators/tuple (generators/return #'btree/add-3)
+                                              generators/pos-int)]
+                         [1 (generators/tuple (generators/return #'btree/unload-least-used-node))]
+                         [1 (generators/tuple (generators/return #'btree/unload-btree))]
+                         [1 (generators/tuple (generators/return #'btree/unload-excess-nodes)
+                                              (generators/return 2))]
+                         [1 (generators/tuple (generators/return #'btree/store-root-2))]
+                         [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
+                         [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]]))
 
 (comment
   (generators/sample (generators/tuple (generators/return #'btree/add-3)
                                        generators/pos-int))
 
   (generators/sample command-generator)
+
+  (generators/sample (generators/frequency [[1 (generators/return 1)]
+                                            [2 (generators/return 2)]])
+                     30)
 
   ) ;; TODO: remove-me
 

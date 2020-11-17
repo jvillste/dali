@@ -20,7 +20,8 @@
             [argumentica.sorted-reducible :as sorted-reducible])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
-           java.util.UUID))
+           java.util.UUID
+           [java.text Normalizer Normalizer$Form]))
 
 (defn eatcv-entity [statement]
   (get statement 0))
@@ -1043,9 +1044,32 @@
   (util/inclusive-subsequence [this index-key first-datom]
     []))
 
+(defn- normalize [^String string]
+  (let [sb (StringBuilder.)]
+    (doseq [^Character character string]
+      (let [^String character-string (Character/toString character)]
+
+        (cond
+          (re-matches #"[ a-zA-Z]" character-string)
+          (.append sb character)
+
+          ;; strip diacritics by decomposing character and selecting first char
+          (re-matches #"[\p{IsLatin}]" character-string)
+          (.append sb (.charAt (Normalizer/normalize character-string Normalizer$Form/NFKD) 0))
+
+          :default
+          (.append sb \space))))
+    (.toString sb)))
+
 (defn tokenize [string]
-  (->> (string/split string #" ")
+  (->> (string/split (normalize string)
+                     #" ")
+       (remove #{""})
        (map string/lower-case)))
+
+(deftest test-tokenize
+  (is (= '("beans" "potatos" "tomatos")
+         (tokenize "beañs, ,  / pötatos-Tomatos"))))
 
 (defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
   (if (string? v)
