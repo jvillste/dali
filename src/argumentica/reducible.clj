@@ -12,6 +12,20 @@
        (reduced ret)
        ret)))
 
+(defn reduce-preserving-reduced
+  "like reduce but preserves reduced"
+  [reducing-function initial-value collection]
+  (loop [reduced-value initial-value
+         values collection]
+    (if-let [value (first values)]
+      (let [result (reducing-function reduced-value
+                                      value)]
+        (if (reduced? result)
+          result
+          (recur result
+                 (rest values))))
+      reduced-value)))
+
 (defn chaining-reducible
   "like concat but for reducibles
   takes a coll of colls.
