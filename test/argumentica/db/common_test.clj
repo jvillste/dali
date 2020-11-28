@@ -28,15 +28,14 @@
           transactions))
 
 (deftest test-transact
-  (is (= '([1 :friend 2 0 :add]
-           [1 :friend 2 1 :remove]
-           [1 :friend 3 1 :add]
-           [2 :friend 1 0 :add])
+  (is (= [[1 :friend 2 0 :add]
+          [1 :friend 2 1 :remove]
+          [1 :friend 3 1 :add]
+          [2 :friend 1 0 :add]]
          (let [db (create-eav-db #{[1 :friend :set 2]
                                    [2 :friend :set 1]}
                                  #{[1 :friend :set 3]})]
-           (util/inclusive-subsequence (-> db :indexes :eav :collection)
-                                       [1 :friend nil nil nil])))))
+           (into [] (sorted-reducible/subreducible (-> db :indexes :eav :collection)))))))
 
 (def test-datoms (sorted-set-by comparator/compare-datoms
                                 [:entity-1 :attribute-1 :value-1 0 :add]

@@ -17,7 +17,7 @@
 (defn subreducible
   ([this]
    (subreducible-method this
-                        nil
+                        :comparator/min
                         :forwards))
   ([this starting-key]
    (subreducible-method this

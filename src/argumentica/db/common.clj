@@ -159,14 +159,6 @@
    (take-while #(query/match? % pattern)
                propositions)))
 
-(defn existing-proposition? [index proposition]
-  (not (empty? (into []
-                     (comp propositions-transducer
-                           (take-while-pattern-matches proposition)
-                           (take 1))
-                     (query/reducible-for-pattern (:collection index)
-                                                  proposition)))))
-
 (defn change-to-datom [change transaction-number]
   (vec (concat (drop-last change)
                [transaction-number]
@@ -182,15 +174,11 @@
     (->> (statements-to-changes indexes
                                 transaction-number
                                 statements)
-         (map #(change-to-datom % transaction-number))
-         (remove #(existing-proposition? index
-                                         (datom-proposition %))))
+         (map #(change-to-datom % transaction-number)))
     (if-let [statements-to-datoms (:statements-to-datoms index)]
-      (->> (statements-to-datoms indexes
-                                 transaction-number
-                                 statements)
-           (remove #(existing-proposition? index
-                                           (datom-proposition %))))
+      (statements-to-datoms indexes
+                            transaction-number
+                            statements)
       (for [[e a c v] statements
             datom ((:eatcv-to-datoms index)
                    indexes
@@ -724,12 +712,13 @@
                  attribute)))
 
 (defn- remove-statements [eav-index entity attribute]
-  (into []
-        (map (fn [value]
-               [entity attribute :remove value]))
-        (values-from-eav eav-index
-                         entity
-                         attribute)))
+  (transduce (map (fn [value]
+                    [entity attribute :remove value]))
+             conj
+             []
+             (values-from-eav eav-index
+                              entity
+                              attribute)))
 
 (defn expand-set-statements [eav-index statements]
   (into #{}
