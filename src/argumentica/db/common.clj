@@ -747,6 +747,19 @@
           indexes
           transactions))
 
+(defn add-transaction-to-indexes [db transaction-number statements]
+  (update db :indexes
+          (fn [indexes]
+            (reduce (fn [indexes index-key]
+                      (update indexes
+                              index-key
+                              add-transaction-to-index
+                              indexes
+                              transaction-number
+                              statements))
+                    indexes
+                    (keys indexes)))))
+
 (defn add-transaction-to-indexes! [indexes transaction-number statements]
   (doseq [index (vals indexes)]
     (add-transaction-to-index! index
@@ -774,10 +787,12 @@
 
 (defn transact [db statements]
   (let [statements (expand-set-statements (get-in db [:indexes :eav])
-                                          statements)]
-    (-> db
-        (add-log-entry statements)
-        (update-indexes))))
+                                          statements)
+        transaction-number (transaction-log/add! (:transaction-log db)
+                                                 statements)]
+    (add-transaction-to-indexes db
+                                transaction-number
+                                statements)))
 
 (defn transact! [db statements]
   (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
