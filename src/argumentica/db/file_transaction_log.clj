@@ -116,7 +116,7 @@
     (or (last-transaction-number state)
         (:last-indexed-transaction-number-before-truncate state))))
 
-(defmethod transaction-log/add!-method FileTransactionLog
+#_(defmethod transaction-log/add!-method FileTransactionLog
   [this transaction-number statements]
   (synchronously-apply-to-state! this
                                  add-transaction!

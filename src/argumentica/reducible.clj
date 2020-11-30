@@ -1,5 +1,6 @@
 (ns argumentica.reducible
-  (:import clojure.lang.IReduceInit))
+  (:import clojure.lang.IReduceInit
+           clojure.lang.IReduce))
 
 
 ;; from https://juxt.pro/blog/ontheflycollections-with-reducible
@@ -37,3 +38,13 @@
         (reduce (partial reduce prf)
           init
           coll-of-colls)))))
+
+(defn reducible [reduce]
+  (reify
+    IReduceInit
+    (reduce [this reducing-function initial-value]
+      (reducing-function (reduce reducing-function initial-value)))
+
+    IReduce
+    (reduce [this reducing-function]
+      (reducing-function (reduce reducing-function (reducing-function))))))

@@ -14,11 +14,10 @@
   (or (transaction-log/last-transaction-number (:branch-transaction-log this))
       (:last-base-transaction-number this)))
 
-(defmethod transaction-log/add!-method BranchTransactionLog
-  [this transaction-number statements]
-  (transaction-log/add!-method (:branch-transaction-log this)
-                               transaction-number
-                               statements))
+(defmethod transaction-log/add! BranchTransactionLog
+  [this statements]
+  (transaction-log/add! (:branch-transaction-log this)
+                        statements))
 
 (defmethod transaction-log/subseq BranchTransactionLog
   [this first-transaction-number]

@@ -2710,12 +2710,6 @@
            new-root)))
 
 (defn store-root [btree metadata]
-  #_ (prn (all-cursors btree)
-          (storage/storage-keys! (:node-storage (-> (reduce store-node-by-cursor
-                                                            btree
-                                                            (all-cursors btree))
-                                                    (add-stored-root metadata))))) ;; TODO: remove-me
-
   (-> (reduce store-node-by-cursor
               btree
               (all-cursors btree))

@@ -36,6 +36,12 @@
               :head-value-count 0
               :first-number-in-head 0}))))
 
+(defn last-number [multifile-numbered-sequence]
+  (let [next-number (:next-number multifile-numbered-sequence)]
+    (if (= 0 next-number)
+      nil
+      (dec next-number))))
+
 (defn- append-head-to-archive [multifile-numbered-sequence]
   (.close (:head-output-stream multifile-numbered-sequence))
   (compressed-numbered-sequence/write-values-to-stream! (:archive-output-stream multifile-numbered-sequence)

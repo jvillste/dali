@@ -101,11 +101,6 @@
 (defn inclusive-reverse-subsequence [sorted-collection maximum-value]
   (rsubseq sorted-collection <= maximum-value))
 
-(defn last-value
-  ([] nil)
-  ([result] result)
-  ([accumulator_ value] value))
-
 (def open-schema {schema/Keyword schema/Any})
 
 (defmacro def-with-macro

@@ -5,7 +5,8 @@
             [schema.core :as schema]
             [argumentica.transducible-collection :as transducible-collection]
             [argumentica.sorted-reducible :as sorted-reducible]
-            [argumentica.transducing :as transducing])
+            [argumentica.transducing :as transducing]
+            [argumentica.reduction :as reduction])
   (:use clojure.test))
 
 (defn variable? [value]
@@ -176,7 +177,7 @@
   (transducible-collection/transduce transducible-collection
                                      nil
                                      {:transducer (take 1)
-                                      :reducer util/last-value}))
+                                      :reducer reduction/last-value}))
 
 (defn pattern-for-reverse-iteration [pattern sample-datom]
   (util/pad (count sample-datom)
@@ -206,7 +207,7 @@
 (defn starting-pattern [sorted-reducible pattern direction]
   (if (= :backwards direction)
     (pattern-for-reverse-iteration pattern (transduce (take 1)
-                                                      util/last-value
+                                                      reduction/last-value
                                                       (sorted-reducible/subreducible sorted-reducible ::comparator/min)))
     pattern))
 

@@ -17,7 +17,8 @@
             [argumentica.db.query :as query]
             [argumentica.mutable-collection :as mutable-collection]
             [argumentica.transducible-collection :as transducible-collection]
-            [argumentica.sorted-reducible :as sorted-reducible])
+            [argumentica.sorted-reducible :as sorted-reducible]
+            [argumentica.reduction :as reduction])
   (:use clojure.test)
   (:import clojure.lang.MapEntry
            java.util.UUID
@@ -787,20 +788,24 @@
 
 (defn transact [db statements]
   (let [statements (expand-set-statements (get-in db [:indexes :eav])
-                                          statements)
-        transaction-number (transaction-log/add! (:transaction-log db)
-                                                 statements)]
+                                          statements)]
+
+    (transaction-log/add! (:transaction-log db)
+                          statements)
+
     (add-transaction-to-indexes db
-                                transaction-number
+                                (transaction-log/last-transaction-number (:transaction-log db))
                                 statements)))
 
 (defn transact! [db statements]
   (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
-                                          statements)
-        transaction-number (transaction-log/add! (:transaction-log db)
-                                                 statements)]
+                                          statements)]
+
+    (transaction-log/add! (:transaction-log db)
+                          statements)
+
     (add-transaction-to-indexes! (:indexes db)
-                                 transaction-number
+                                 (transaction-log/last-transaction-number (:transaction-log db))
                                  statements)))
 
 (defn set-value [db entity attribute value]
@@ -1224,7 +1229,7 @@
 
 (defn enumeration-count [index value]
   (let [[value-from-index _transaction-number count-from-index] (transduce (take 1)
-                                                                           util/last-value
+                                                                           reduction/last-value
                                                                            (query/reducible-for-pattern (:collection index)
                                                                                                         [value]
                                                                                                         {:direction :backwards}))]

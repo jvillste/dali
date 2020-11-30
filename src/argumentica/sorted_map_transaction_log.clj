@@ -1,6 +1,7 @@
 (ns argumentica.sorted-map-transaction-log
-  (:require (argumentica [transaction-log :as transaction-log])
-            [argumentica.util :as util]))
+  (:require [argumentica.transaction-log :as transaction-log]
+            [argumentica.util :as util]
+            [argumentica.reducible :as reducible]))
 
 (defrecord SortedMapTransactionLog [state-atom])
 
@@ -11,23 +12,28 @@
   [this]
   (:last-transaction-number @(:state-atom this)))
 
-(defmethod transaction-log/add!-method SortedMapTransactionLog
-  [this transaction-number statements]
-  (swap! (:state-atom this)
-         (fn [state]
-           (-> state
-               (update :sorted-map
-                       assoc
-                       transaction-number
-                       statements)
-               (assoc :last-transaction-number transaction-number))))
+(defmethod transaction-log/add! SortedMapTransactionLog
+  [this statements]
+  (let [transaction-number (inc (or (transaction-log/last-transaction-number this)
+                                    -1))]
+    (swap! (:state-atom this)
+           (fn [state]
+             (-> state
+                 (update :sorted-map
+                         assoc
+                         transaction-number
+                         statements)
+                 (assoc :last-transaction-number transaction-number)))))
   this)
 
-(defmethod transaction-log/subseq SortedMapTransactionLog
+(defmethod transaction-log/subreducible SortedMapTransactionLog
   [this first-transaction-number]
-  (subseq (:sorted-map @(:state-atom this))
-          >=
-          first-transaction-number))
+  (reducible/reducible (fn [reducing-function initial-value]
+                         (reduce reducing-function
+                                 initial-value
+                                 (subseq (:sorted-map @(:state-atom this))
+                                         >=
+                                         first-transaction-number)))))
 
 (defmethod transaction-log/truncate! SortedMapTransactionLog
   [this first-preserved-transaction-number]
@@ -40,17 +46,6 @@
                transaction-number)))
   this)
 
-
-
-
 (defmethod transaction-log/close! SortedMapTransactionLog
-  [this]
-  this)
-
-(defmethod transaction-log/make-transient! SortedMapTransactionLog
-  [this]
-  this)
-
-(defmethod transaction-log/make-persistent! SortedMapTransactionLog
   [this]
   this)
