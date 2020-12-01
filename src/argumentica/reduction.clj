@@ -27,6 +27,36 @@
   ([result] result)
   ([accumulator_ value] value))
 
+(defn first-value
+  ([] ::initial-value)
+  ([result] result)
+  ([reduced-value value]
+   (reduced (if (= ::initial-value reduced-value)
+              value
+              reduced-value))))
+
+(deftest test-first-value
+  (is (= 0
+         (reduce first-value (range 10))))
+
+  (is (= nil
+         (reduce first-value [nil 1 2])))
+
+  (is (= 4
+         (reduce ((filter #(> % 3))
+                  first-value)
+                 (range 10))))
+
+  (is (= 4
+         (transduce (filter #(> % 3))
+                    first-value
+                    (range 10))))
+
+  (is (= nil
+         (transduce identity
+                    first-value
+                    [nil 1 2]))))
+
 (defn find-first [predicate]
   (fn
     ([] nil)
