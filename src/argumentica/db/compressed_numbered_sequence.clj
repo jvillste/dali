@@ -68,16 +68,10 @@
 
 (defn- seek-chunk! [data-input-stream number]
   (reduce-chunk-metadata data-input-stream
-                         ((comp (drop-while (fn [chunk-metadata]
-                                              (< (+ (:value-count chunk-metadata)
-                                                    (:first-number chunk-metadata))
-                                                 number)))
-                                (take 1))
-                          reduction/last-value)
-                         #_(reduction/find-first (fn [chunk-metadata]
-                                                   (> (+ (:value-count chunk-metadata)
-                                                         (:first-number chunk-metadata))
-                                                      number)))
+                         (reduction/find-first (fn [chunk-metadata]
+                                                 (> (+ (:value-count chunk-metadata)
+                                                       (:first-number chunk-metadata))
+                                                    number)))
                          nil))
 
 (deftest test-seek-chunk!
@@ -163,7 +157,6 @@
                                       []
                                       10)))))
 
-
 (comment
   (with-open [output-stream (io/output-stream "temp/test-compressed-sequence")]
     (write-values-to-stream! output-stream 0 [1 2])
@@ -178,6 +171,5 @@
 
   (with-open [input-stream (io/input-stream #_"temp/test-compressed-sequence"
                                             "/Users/jukka/google-drive/src/nucalc/temp/food_nutrient/transaction-log/archive")]
-    (reduce-values-from-stream input-stream ((take 2) conj) [] 1000))
-
-  ) ;; TODO: remove-me
+    (reduce-values-from-stream input-stream ((take 2) conj) [] 499))
+  )
