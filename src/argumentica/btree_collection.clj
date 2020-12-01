@@ -98,6 +98,10 @@
     (create-for-btree (btree/create-from-options-2 :node-storage (hash-map-storage/create)
                                                    :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
 
+(defn store-root! [btree-collection]
+  (locking-apply-to-btree! btree-collection
+                           btree/store-root-2))
+
 (defn create-test-btree-collection []
   (reduce mutable-collection/add!
           (create-in-memory {:node-size 3})
