@@ -60,7 +60,7 @@
 
     (is (= 1 (transaction-log/last-transaction-number transaction-log)))
 
-    (is (= 2 (common/first-unindexed-transacion-number-for-index-map @indexes-atom)))
+    (is (= 2 (common/first-unindexed-transaction-number-for-index-map @indexes-atom)))
 
     (is (= '([1 :name 0 :set "foo"]
              [1 :name 1 :add "bar"])

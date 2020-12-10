@@ -1,7 +1,7 @@
 (ns argumentica.db.multifile-transaction-log
   (:require [argumentica.db.multifile-numbered-sequence :as multifile-numbered-sequence]
-            [argumentica.reducible :as reducible]
-            [argumentica.transaction-log :as transaction-log]))
+            [argumentica.transaction-log :as transaction-log]
+            [argumentica.reduction :as reduction]))
 
 (defrecord MultifileTransactionLog [multifile-numbered-sequence-atom]
   java.io.Closeable
@@ -29,7 +29,7 @@
 
 (defmethod transaction-log/subreducible MultifileTransactionLog
   [this first-transaction-number]
-  (reducible/reducible (fn [reducing-function initial-value]
+  (reduction/reducible (fn [reducing-function initial-value]
                          (multifile-numbered-sequence/reduce-values @(:multifile-numbered-sequence-atom this)
                                                                     reducing-function
                                                                     initial-value

@@ -1,7 +1,7 @@
 (ns argumentica.sorted-map-transaction-log
   (:require [argumentica.transaction-log :as transaction-log]
             [argumentica.util :as util]
-            [argumentica.reducible :as reducible]))
+            [argumentica.reduction :as reduction]))
 
 (defrecord SortedMapTransactionLog [state-atom])
 
@@ -28,7 +28,7 @@
 
 (defmethod transaction-log/subreducible SortedMapTransactionLog
   [this first-transaction-number]
-  (reducible/reducible (fn [reducing-function initial-value]
+  (reduction/reducible (fn [reducing-function initial-value]
                          (reduce reducing-function
                                  initial-value
                                  (subseq (:sorted-map @(:state-atom this))

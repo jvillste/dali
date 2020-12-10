@@ -1,28 +1,25 @@
 (ns argumentica.db.common
-  (:require [clojure.string :as string]
-            [clojure.set :as set]
-            [clojure.pprint :as pprint]
-            [flatland.useful.map :as map]
-            (argumentica [transaction-log :as transaction-log]
-                         [sorted-map-transaction-log :as sorted-map-transaction-log]
-                         [index :as index])
-            [argumentica.db.db]
-            [argumentica.comparator :as comparator]
+  (:require [argumentica.comparator :as comparator]
             [argumentica.db.db :as db]
-            [argumentica.util :as util]
-            [clojure.math.combinatorics :as combinatorics]
-            [argumentica.log :as log]
-            [schema.core :as schema]
-            [medley.core :as medley]
             [argumentica.db.query :as query]
             [argumentica.mutable-collection :as mutable-collection]
-            [argumentica.transducible-collection :as transducible-collection]
+            [argumentica.reduction :as reduction]
+            [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
             [argumentica.sorted-reducible :as sorted-reducible]
-            [argumentica.reduction :as reduction])
-  (:use clojure.test)
+            [argumentica.transaction-log :as transaction-log]
+            [argumentica.transducible-collection :as transducible-collection]
+            [argumentica.util :as util]
+            [clojure.math.combinatorics :as combinatorics]
+            [clojure.pprint :as pprint]
+            [clojure.set :as set]
+            [clojure.string :as string]
+            [clojure.test :refer :all]
+            [flatland.useful.map :as map]
+            [medley.core :as medley]
+            [schema.core :as schema])
   (:import clojure.lang.MapEntry
-           java.util.UUID
-           [java.text Normalizer Normalizer$Form]))
+           [java.text Normalizer Normalizer$Form]
+           java.util.UUID))
 
 (defn eatcv-entity [statement]
   (get statement 0))
@@ -231,13 +228,13 @@
     (inc last-indexed-transaction-number)
     0))
 
-(defn first-unindexed-transacion-number-for-index-map [index-map]
+(defn first-unindexed-transaction-number-for-index-map [index-map]
   (->> (vals index-map)
        (map first-unindexed-transacion-number-for-index)
        (apply min)))
 
-(defn first-unindexed-transacion-number [db]
-  (first-unindexed-transacion-number-for-index-map (:indexes db)))
+(defn first-unindexed-transaction-number [db]
+  (first-unindexed-transaction-number-for-index-map (:indexes db)))
 
 #_(defn update-index [index transaction-log]
     (reduce (fn [index [transaction-number statements]]
@@ -317,8 +314,17 @@
                                pattern
                                options))
 
+(defn index [db index-key]
+  (if-let [index (get-in db [:indexes index-key])]
+    index
+    (throw (Exception. (str "Unknown index-key: "
+                            index-key)))))
+
+(defn collection [db index-key]
+  (:collection (index db index-key)))
+
 (util/defno datoms-from [db index-key pattern options :- query/reducible-for-pattern-options]
-  (query/reducible-for-pattern (get-in db [:indexes index-key :collection])
+  (query/reducible-for-pattern (collection db index-key)
                                pattern
                                options))
 
@@ -329,8 +335,6 @@
                       (datom-transaction-number datom))
                   true))
               datoms))
-
-
 
 (util/defno datoms-by-proposition [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (->> (datoms-from-index-map index
@@ -384,15 +388,6 @@
                                (datoms-from-index index
                                                   pattern
                                                   last-transaction-number))))
-
-(defn index [db index-key]
-  (if-let [index (get-in db [:indexes index-key])]
-    index
-    (throw (Exception. (str "Unknown index-key: "
-                            index-key)))))
-
-(defn collection [db index-key]
-  (:collection (index db index-key)))
 
 (util/defno propositions-from-index [index pattern last-transaction-number options :- query/filter-by-pattern-options]
   (mapcat reduce-propositions
@@ -761,6 +756,17 @@
                     indexes
                     (keys indexes)))))
 
+(defn add-transaction-to-indexes-2 [indexes transaction-number statements]
+  (reduce (fn [indexes index-key]
+            (update indexes
+                    index-key
+                    add-transaction-to-index
+                    indexes
+                    transaction-number
+                    statements))
+          indexes
+          (keys indexes)))
+
 (defn add-transaction-to-indexes! [indexes transaction-number statements]
   (doseq [index (vals indexes)]
     (add-transaction-to-index! index
@@ -769,18 +775,30 @@
                                statements)))
 
 (defn update-indexes! [indexes transaction-log]
-  (add-transactions-to-indexes indexes
-                               (transaction-log/subseq transaction-log
-                                                       (first-unindexed-transacion-number-for-index-map indexes))))
+  (let [first-transaction-number (first-unindexed-transaction-number-for-index-map indexes)]
+    (:indexes (reduce (completing
+                       (fn [{:keys [indexes transaction-number]} statements]
+                         {:indexes (add-transaction-to-indexes-2 indexes transaction-number statements)
+                          :transaction-number (inc transaction-number)}))
+                      {:indexes indexes
+                       :transaction-number first-transaction-number}
+                      (transaction-log/subreducible transaction-log
+                                                    first-transaction-number)))))
 
 (defn update-indexes-2! [db]
-  (doseq [[transaction-number statements] (transaction-log/subseq (:transaction-log db)
-                                                                  (first-unindexed-transacion-number db))]
-    (doseq [index (vals (:indexes db))]
-      (add-transaction-to-index! index
-                                 (:indexes db)
-                                 transaction-number
-                                 statements)))
+  (reduce (fn [db statements]
+            (add-transaction-to-indexes db statements))
+          db
+          (transaction-log/subreducible (:transaction-log db)
+                                        (first-unindexed-transaction-number db)))
+
+  (reduction/do-reducible [[transaction-number statements] (transaction-log/subreducible (:transaction-log db)
+                                                                                         (first-unindexed-transaction-number db))]
+                          (doseq [index (vals (:indexes db))]
+                            (add-transaction-to-index! index
+                                                       (:indexes db)
+                                                       transaction-number
+                                                       statements)))
   db)
 
 (defn update-indexes [db]
@@ -1040,8 +1058,8 @@
 
 (defn db-from-index-definitions [index-definitions create-collection transaction-log]
   (map->LocalDb (create :indexes (index-definitions-to-indexes create-collection
-                                                               index-definitions)
-                        :transaction-log transaction-log)))
+                                                       index-definitions)
+                :transaction-log transaction-log)))
 
 
 (deftype EmptyDb []

@@ -38,13 +38,3 @@
         (reduce (partial reduce prf)
           init
           coll-of-colls)))))
-
-(defn reducible [reduce]
-  (reify
-    IReduceInit
-    (reduce [this reducing-function initial-value]
-      (reducing-function (reduce reducing-function initial-value)))
-
-    IReduce
-    (reduce [this reducing-function]
-      (reducing-function (reduce reducing-function (reducing-function))))))

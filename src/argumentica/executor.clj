@@ -2,7 +2,6 @@
   (:require [clojure.test :refer :all]
             [clojure.set :as set]
             [argumentica.thread-pool :as thread-pool]
-            [argumentica.blocking-queue :as blocking-queue]
             [clojure.core.async :as async]))
 
 (def print-lock (Object.))
