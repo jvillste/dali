@@ -37,13 +37,13 @@
   (get statement 4))
 
 
-(defn statement-entity [statement]
+(defn statement-operator [statement]
   (get statement 0))
 
-(defn statement-attribute [statement]
+(defn statement-entity [statement]
   (get statement 1))
 
-(defn statement-operator [statement]
+(defn statement-attribute [statement]
   (get statement 2))
 
 (defn statement-value [statement]
@@ -100,7 +100,7 @@
 
 (def eav-index-definition {:key :eav
                            :statements-to-changes (fn [indexes transaction-number statements]
-                                                    (for [[e a o v] statements]
+                                                    (for [[o e a v] statements]
                                                       [e a v o]))})
 
 (def avetc-index-definition {:key :avetc
@@ -177,13 +177,13 @@
       (statements-to-datoms indexes
                             transaction-number
                             statements)
-      (for [[e a c v] statements
+      (for [[o e a v] statements
             datom ((:eatcv-to-datoms index)
                    indexes
                    e
                    a
                    transaction-number
-                   c
+                   o
                    v)]
         datom))))
 
@@ -718,15 +718,15 @@
 
 (defn expand-set-statements [eav-index statements]
   (into #{}
-        (mapcat (fn [[e a c v]]
-                  (if (= :set c)
+        (mapcat (fn [[o e a v]]
+                  (if (= :set o)
                     (do (assert (not (nil? eav-index))
-                                "EAV index is needed for using 'set' operations in statements")
-                        (vec (concat [[e a :add v]]
+                                "EAV index is needed for using 'set' operators in statements")
+                        (vec (concat [[:add e a v]]
                                      (remove-statements eav-index
                                                         e
                                                         a))))
-                    [[e a c v]]))
+                    [[o e a v]]))
                 statements)))
 
 (defn add-transactions-to-indexes [indexes transactions]
@@ -1162,7 +1162,7 @@
            :operator :add}))))
 
 #_(defn statements-to-token-datoms [tokenize propositions indexes transaction-number statements]
-    (for [[e a o v :as statement] statements
+    (for [[o e a v :as statement] statements
           operation (token-operations tokenize
                                       indexes
                                       transaction-number

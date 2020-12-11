@@ -4,7 +4,9 @@
             [argumentica.db.common :as common]
             [clojure.set :as set]
             [clojure.string :as string]
-            [argumentica.comparator :as comparator]))
+            [argumentica.comparator :as comparator]
+            [argumentica.util :as util]
+            [schema.core :as schema]))
 
 (def initial-label-sequence-labeler-state {:id-map {}
                                            :id-sequence (range)})
@@ -169,11 +171,11 @@
 
 (deftest test-assign-ids-to-maps
   (is (= [#:dali{:id 0}
-           #:dali{:id 1}
-           #:dali{:id 100}
-           #:dali{:id 2}
-           #:dali{:id 2}
-           #:dali{:id :bar/foo}]
+          #:dali{:id 1}
+          #:dali{:id 100}
+          #:dali{:id 2}
+          #:dali{:id 2}
+          #:dali{:id :bar/foo}]
          (assign-ids-to-maps (common/create-test-id-generator)
                              [{}
                               {}
@@ -200,59 +202,73 @@
   (is (= :foo (forward-attribute :<-foo)))
   (is (= ::foo (forward-attribute ::<-foo))))
 
-(defn- one-map-to-statements [a-map]
+(def map-to-statements-options {(schema/optional-key :use-set-operator?) schema/Bool})
+
+(util/defno map-to-statements [a-map {:keys [use-set-operator?]
+                                      :or {use-set-operator? false}}
+                               :- map-to-statements-options]
   (reduce (fn [transaction [attribute value]]
-            (cond (and (reverse-attribute? attribute)
+            (cond (= :dali/id attribute)
+                  transaction
+
+                  (and (reverse-attribute? attribute)
                        (set? value))
                   (concat transaction
                           (for [value-in-set value]
-                            [(value-to-transaction-value value-in-set)
+                            [(if use-set-operator?
+                               :set
+                               :add)
+                             (value-to-transaction-value value-in-set)
                              (forward-attribute attribute)
-                             :set
                              (:dali/id a-map)]))
 
                   (and (reverse-attribute? attribute)
                        (not (set? value)))
-                  (conj transaction [(value-to-transaction-value value)
+                  (conj transaction [(if use-set-operator?
+                                       :set
+                                       :add)
+                                     (value-to-transaction-value value)
                                      (forward-attribute attribute)
-                                     :set
                                      (:dali/id a-map)])
-
-                  (= :dali/id attribute)
-                  transaction
 
                   (set? value)
                   (concat transaction
                           (for [value-in-set value]
-                            [(:dali/id a-map)
+                            [:add
+                             (:dali/id a-map)
                              attribute
-                             :add
                              (value-to-transaction-value value-in-set)]))
 
-
                   :default
-                  (conj transaction [(:dali/id a-map)
+                  (conj transaction [(if use-set-operator?
+                                       :set
+                                       :add)
+                                     (:dali/id a-map)
                                      attribute
-                                     :set
                                      (value-to-transaction-value value)])))
           []
           a-map))
 
-(deftest test-one-map-to-statements
-  (is (= [[1 :type :set :parent]]
-         (one-map-to-statements {:dali/id 1
-                                 :type :parent})))
+(deftest test-map-to-statements
+  (is (= [[:add 1 :type :parent]]
+         (map-to-statements {:dali/id 1
+                             :type :parent})))
 
-  (is (= [[2 :parent :set 1]]
-         (one-map-to-statements {:dali/id 1 :<-parent {:dali/id 2}})))
+  (is (= [[:set 1 :type :parent]]
+         (map-to-statements {:dali/id 1
+                             :type :parent}
+                            {:use-set-operator? true})))
 
-  (is (= [[3 :parent :set 1]
-          [2 :parent :set 1]]
-         (one-map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
-                                                        {:dali/id 3}}}))))
+  (is (= [[:add 2 :parent 1]]
+         (map-to-statements {:dali/id 1 :<-parent {:dali/id 2}})))
+
+  (is (= [[:add 3 :parent 1]
+          [:add 2 :parent 1]]
+         (map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
+                                                    {:dali/id 3}}}))))
 
 (defn- map-with-ids-to-statements [a-map-with-ids]
-  (concat (one-map-to-statements a-map-with-ids)
+  (concat (map-to-statements a-map-with-ids)
           (mapcat map-with-ids-to-statements
                   (filter map? (vals a-map-with-ids)))
           (mapcat map-with-ids-to-statements
@@ -260,28 +276,28 @@
                           (filter set? (vals a-map-with-ids))))))
 
 (deftest test-map-with-ids-to-statements
-  (is (= '([1 :child :set 2]
-           [2 :type :set :child])
+  (is (= '([:add 1 :child 2]
+           [:add 2 :type :child])
          (sort (map-with-ids-to-statements {:dali/id 1
                                             :child {:dali/id 2
                                                     :type :child}}))))
 
-  (is (= '([1 :children :add 2]
-           [1 :children :add 3]
-           [2 :name :set "Child 1"]
-           [3 :name :set "Child 2"])
+  (is (= '([:add 1 :children 2]
+           [:add 1 :children 3]
+           [:add 2 :name "Child 1"]
+           [:add 3 :name "Child 2"])
          (sort (map-with-ids-to-statements {:dali/id 1
                                             :children #{{:dali/id 2
                                                          :name "Child 1"}
                                                         {:dali/id 3
                                                          :name "Child 2"}}}))))
 
-  (is (= '([2 :parent :set 1])
+  (is (= '([:add 2 :parent 1])
          (sort (map-with-ids-to-statements {:dali/id 1
                                             :<-parent {:dali/id 2}}))))
 
-  (is (= '([2 :parent :set 1]
-           [3 :parent :set 1])
+  (is (= '([:add 2 :parent 1]
+           [:add 3 :parent 1])
          (sort comparator/compare-datoms
                (map-with-ids-to-statements {:dali/id 1
                                             :<-parent #{{:dali/id 2}
@@ -296,13 +312,13 @@
                                   maps))))
 
 (deftest test-maps-to-transaction
-  (is (= #{[0 :things :add 2]
-           [2 :tags :add 100]
-           [200 :title :set "tag 2"]
-           [1 :tags :add 100]
-           [100 :title :set "tag 1"]
-           [2 :tags :add 200]
-           [0 :things :add 1]}
+  (is (= #{[:add 0 :things 2]
+           [:add 2 :tags 100]
+           [:add 200 :title "tag 2"]
+           [:add 1 :tags 100]
+           [:add 100 :title "tag 1"]
+           [:add 2 :tags 200]
+           [:add 0 :things 1]}
          (binding [common/create-id-generator common/create-test-id-generator]
            (maps-to-transaction (let [tag-1 {:dali/id 100
                                              :title "tag 1"}
@@ -311,13 +327,13 @@
                                   {:things #{{:tags #{tag-1 tag-2}}
                                              {:tags #{tag-1}}}})))))
 
-  (is (= '([0 :things :add 1]
-           [0 :things :add 3]
-           [1 :tags :add 2]
-           [2 :title :set "tag 1"]
-           [3 :tags :add 2]
-           [3 :tags :add 4]
-           [4 :title :set "tag 2"])
+  (is (= '([:add 0 :things 1]
+           [:add 0 :things 3]
+           [:add 1 :tags 2]
+           [:add 2 :title "tag 1"]
+           [:add 3 :tags 2]
+           [:add 3 :tags 4]
+           [:add 4 :title "tag 2"])
          (binding [common/create-id-generator common/create-test-id-generator]
            (sort (maps-to-transaction {:things #{{:tags #{{:dali/id :tag-1}
                                                           {:dali/id :tag-2}}}
