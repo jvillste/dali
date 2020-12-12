@@ -34,8 +34,8 @@
   (let [path (key-path this key)]
     (if (file-exists? path)
       (Files/readAllBytes path)
-      (do (println "WARNING: Tried to get nonexistent file from storage: " (str path))
-          nil))))
+      #_(do (println "WARNING: Tried to get nonexistent file from storage: " (str path))
+            nil))))
 
 (defmethod storage/stream-from-storage!
   DirectoryStorage
@@ -43,8 +43,8 @@
   (let [key-path-string (key-path-string this key)]
     (if (file-exists? (string-to-path key-path-string))
       (io/input-stream key-path-string)
-      (do (println "WARNING: Tried to stream nonexistent file from storage: " key-path-string)
-          nil))))
+      #_(do (println "WARNING: Tried to stream nonexistent file from storage: " key-path-string)
+            nil))))
 
 (defmethod storage/put-to-storage!
   DirectoryStorage
@@ -60,7 +60,7 @@
   (try
     (Files/delete (key-path this key))
     (catch NoSuchFileException e
-        (println "WARNING: Tried to remove nonexistent file from storage: " (str (key-path this key)))))
+      (println "WARNING: Tried to remove nonexistent file from storage: " (str (key-path this key)))))
   this)
 
 (defmethod storage/storage-keys!
