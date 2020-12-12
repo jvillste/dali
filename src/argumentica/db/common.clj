@@ -1058,8 +1058,8 @@
 
 (defn db-from-index-definitions [index-definitions create-collection transaction-log]
   (map->LocalDb (create :indexes (index-definitions-to-indexes create-collection
-                                                       index-definitions)
-                :transaction-log transaction-log)))
+                                                               index-definitions)
+                        :transaction-log transaction-log)))
 
 
 (deftype EmptyDb []

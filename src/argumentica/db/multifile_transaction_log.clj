@@ -8,7 +8,7 @@
   (close [this]
     (multifile-numbered-sequence/close! @multifile-numbered-sequence-atom)))
 
-(defn create [directory-path]
+(defn open [directory-path]
   (->MultifileTransactionLog (atom (multifile-numbered-sequence/open directory-path 500))))
 
 (defmethod transaction-log/last-transaction-number MultifileTransactionLog

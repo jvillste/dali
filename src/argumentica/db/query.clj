@@ -119,8 +119,6 @@
   (is (= [:a]
          (start-pattern [:a nil :b]))))
 
-(def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
-
 (defn nil-or-varialbe? [value]
   (or (nil? value)
       (variable? value)))
@@ -155,7 +153,7 @@
   (is (has-trailing-constants? [:a nil :a]))
   (is (has-trailing-constants? (concat [:a] [nil] [:a]))))
 
-
+(def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
 
 (util/defno filter-by-pattern [sorted-set pattern {:keys [reverse?] :or {reverse? false}} :- filter-by-pattern-options]
   (throw (Exception. "filter-by-pattern is deprecated"))
