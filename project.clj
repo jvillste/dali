@@ -5,6 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.10.1"]
                  #_[com.datomic/datomic-free "0.9.5697"]
+                 [org.clojure/data.fressian "1.0.0"]
                  [org.clojure/math.combinatorics "0.1.4"]
                  #_[datascript "0.15.5"]
                  #_[com.google.guava/guava "21.0"]
