@@ -9,7 +9,8 @@
             [argumentica.util :as util]
             [schema.core :as schema]
             [clojure.test :refer :all]
-            [argumentica.storage :as storage])
+            [argumentica.storage :as storage]
+            [argumentica.reduction :as reduction])
   (:import argumentica.comparator.DatomComparator
            [clojure.lang IReduceInit IReduce]))
 
@@ -25,24 +26,6 @@
   btree-collection)
 
 ;; idea from https://juxt.pro/blog/ontheflycollections-with-reducible
-
-(defn btree-reducible [btree-atom starting-key direction]
-  (reify
-    IReduceInit
-    (reduce [this reducing-function initial-reduced-value]
-      (btree/reduce-btree reducing-function
-                          initial-reduced-value
-                          btree-atom
-                          starting-key
-                          direction))
-
-    IReduce
-    (reduce [this reducing-function]
-      (btree/reduce-btree reducing-function
-                          (reducing-function)
-                          btree-atom
-                          starting-key
-                          direction))))
 
 (defrecord BtreeCollection [btree-atom]
   ;; clojure.lang.Sorted
@@ -66,7 +49,7 @@
   ;;                                            value))))
   sorted-reducible/SortedReducible
   (subreducible-method [sorted starting-key direction]
-    (btree-reducible btree-atom starting-key direction))
+    (btree/btree-reducible btree-atom starting-key direction))
   mutable-collection/MutableCollection
   (add! [this value]
     (locking-apply-to-btree! this

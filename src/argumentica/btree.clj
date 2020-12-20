@@ -17,7 +17,8 @@
             [argumentica.node-serialization :as node-serialization]
             [medley.core :as medley]
             [argumentica.transducing :as transducing]
-            [argumentica.reducible :as reducible])
+            [argumentica.reducible :as reducible]
+            [argumentica.reduction :as reduction])
   (:import java.io.ByteArrayInputStream))
 
 (defn create-sorted-set [& keys]
@@ -2419,6 +2420,14 @@
                                                   0))
                        0
                        :forwards))))
+
+(defn btree-reducible [btree-atom starting-key direction]
+  (reduction/reducible (fn [reducing-function initial-reduced-value]
+                         (reduce-btree reducing-function
+                                       initial-reduced-value
+                                       btree-atom
+                                       starting-key
+                                       direction))))
 
 (defn lazy-value-sequence [btree-atom sequence direction]
   (if-let [sequence (if (first (rest sequence))

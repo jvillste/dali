@@ -1,6 +1,8 @@
 (ns argumentica.reduction
   (:require [clojure.test :refer :all]
-            [clojure.string :as string])
+            [clojure.string :as string]
+            [argumentica.util :as util]
+            [schema.core :as schema])
   (:import clojure.lang.IReduceInit
            clojure.lang.IReduce))
 
@@ -208,7 +210,11 @@
        ":"
        (int (/ seconds 60))
        ":"
-       (format "%.1f" seconds)))
+       (format "%.1f" (float (mod seconds 60)))))
+
+(deftest test-format-time-interval
+  (is (= "0:1:0.0"
+         (format-time-interval 60))))
 
 (defn- progress-report-lines [{:keys [total-count
                                       latest-batch-size
@@ -229,6 +235,10 @@
    (str "Processing time of the latest batch:      "
         (format-time-interval (nano-seconds-to-seconds (- current-time batch-start-time))))
 
+   (str "Processed values per second:              "
+        (int (/ latest-batch-size
+                (nano-seconds-to-seconds (- current-time batch-start-time)))))
+
    (str "Total time passed:                        "
         (format-time-interval (nano-seconds-to-seconds (- current-time start-time))))
 
@@ -236,7 +246,8 @@
         (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
                                                                 batch-start-time)
                                                              latest-batch-size)
-                                                          (- total-count total-processed-value-count)))))
+                                                          (- total-count
+                                                             total-processed-value-count)))))
    (str "Remaining time based on total progress:   "
         (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
                                                                 start-time)
@@ -256,22 +267,15 @@
                                  :batch-start-time 0
                                  :total-processed-value-count 3}))))
 
-#_(defn create-batch-end-handler [handle-status]
-    (fn [start-time
-         batch-start-time
-         batch-size
-         total-processed-value-count]
-      (handle-status {:latest-batch-size batch-size
-                      :current-time (System/nanoTime)
-                      :start-time start-time
-                      :batch-start-time batch-start-time
-                      :total-processed-value-count total-processed-value-count})))
+(def handle-batch-ending-by-printing-report-options {(schema/optional-key :print-line) fn?})
 
-(defn handle-batch-ending-by-printing-report [title total-count]
+(util/defno handle-batch-ending-by-printing-report [title total-count options :- handle-batch-ending-by-printing-report-options]
   (fn [status]
-    (println (string/join "\n" (concat [title]
-                                       (progress-report-lines (assoc status
-                                                                     :total-count total-count)))))))
+    ((or (:print-line options)
+         println)
+     (string/join "\n" (concat [title]
+                               (progress-report-lines (assoc status
+                                                             :total-count total-count)))))))
 
 (defn report-progress-in-fixed-size-batches [batch-size handle-batch-ending]
   (fn [rf]
@@ -288,13 +292,15 @@
         ([] (rf))
 
         ([result]
-         (run-handle-batch-ending)
-         (rf result))
+         (let [result (rf result)]
+           (run-handle-batch-ending)
+           result))
 
         ([result input]
          (let [result (rf result input)]
            (when (not @start-time)
-             (vreset! start-time (System/nanoTime)))
+             (vreset! start-time (System/nanoTime))
+             (vreset! batch-start-time (System/nanoTime)))
 
            (vreset! total-processed-value-count (inc @total-processed-value-count))
 
@@ -334,9 +340,9 @@
         ([] (rf))
 
         ([result]
-         (run-handle-batch-ending)
-
-         (rf result))
+         (let [result (rf result)]
+           (run-handle-batch-ending)
+           result))
 
         ([result input]
          (let [result  (rf result input)]
@@ -354,7 +360,8 @@
 
              (run-handle-batch-ending)
 
-             (vreset! batch-start-time (System/nanoTime)))
+             (vreset! batch-start-time (System/nanoTime))
+             (vreset! batch-value-count 0))
            result))))))
 
 (comment
@@ -367,3 +374,73 @@
                                              (handle-batch-ending-by-printing-report "\nTest"
                                                                                      15)))
   )
+
+
+(defn run-while-true [run?-atom]
+  (fn [rf]
+    (fn
+      ([]
+       (rf))
+
+      ([result]
+       (rf result))
+
+      ([result input]
+       (if @run?-atom
+         (rf result input)
+         (reduced result))))))
+
+
+(comment
+  (def run?-atom (atom true))
+  (reset! run?-atom false)
+
+  (future (process! (range 15)
+                    (map (fn [number]
+                           (Thread/sleep 1000)
+                           number))
+                    (report-progress-every-n-seconds 1
+                                                     ;; #(prn %)
+                                                     (handle-batch-ending-by-printing-report "\nTest"
+                                                                                             15))
+                    (run-while-true run?-atom))
+          (println "ended"))
+  )
+
+
+(def run-every-nth-opotions {(schema/optional-key :run-after-completion?) boolean?})
+
+(util/defno run-every-nth [n function {:keys [run-after-completion?]
+                                       :or {run-after-completion? true}} :- run-every-nth-opotions ]
+  (let [the-count (volatile! 0)]
+    (fn [rf]
+      (fn
+        ([]
+         (rf))
+
+        ([result]
+         (let [result (rf result)]
+           (when run-after-completion?
+             (function))
+           result))
+
+        ([result input]
+         (let [result (rf result input)]
+           (vreset! the-count (inc @the-count))
+           (when (= @the-count n)
+             (vreset! the-count 0)
+             (function))
+           result))))))
+
+(comment
+  (process! (range 5)
+            (report-progress-in-fixed-size-batches 2 (handle-batch-ending-by-printing-report "" 5))
+            (run-every-nth 3 (fn [] (println "ran!")) {:run-after-completion? false}))
+  )
+
+
+(defn count-inputs
+  ([] 0)
+  ([result] result)
+  ([result _input]
+   (inc result)))
