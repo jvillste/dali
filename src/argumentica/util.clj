@@ -2,7 +2,8 @@
   (:use clojure.test)
   (:require [clojure.string :as string]
             [flatland.useful.map :as map]
-            [schema.core :as schema]))
+            [schema.core :as schema]
+            [medley.core :as medley]))
 
 (defn pad [n coll val]
   (take n (concat coll (repeat val))))
@@ -154,3 +155,34 @@
                         (Thread/sleep 100)
                         (println "hello"))
   )
+
+(defn hexify [number]
+  (format "%02x" number))
+
+(deftest test-hexify
+  (is (= "01"
+         (hexify 1)))
+  (is (= "10"
+         (hexify 16))))
+
+(defn unhexify [hex]
+  (get (byte-array [(Integer/parseInt hex 16)]) 0))
+
+(defn byte-array-values-to-vectors [the-map]
+  (medley/map-vals (fn [value]
+                     (cond (bytes? value)
+                           (vec (map hexify value))
+
+                           (map? value)
+                           (byte-array-values-to-vectors value)
+
+                           (vector? value)
+                           (vec (map byte-array-values-to-vectors value))
+
+                           :default
+                           value))
+                   the-map))
+
+(deftest test-byte-array-values-to-vectors
+  (is (= {:a ["61"]}
+         (byte-array-values-to-vectors {:a (.getBytes "a")}))))
