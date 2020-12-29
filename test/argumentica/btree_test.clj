@@ -7,6 +7,9 @@
             [argumentica.util :as util])
   (:use clojure.test))
 
+(defn recreate-btree [btree]
+  (btree/create-2 (btree/full-after-maximum-number-of-values 3)
+                  (:node-storage (btree/store-root-2 btree))))
 
 (def command-generator
   (generators/frequency [[8 (generators/tuple (generators/return #'btree/add-3)
@@ -16,7 +19,8 @@
                                               generators/pos-int)]
                          [1 (generators/tuple (generators/return #'btree/store-root-2))]
                          [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
-                         [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]]))
+                         [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]
+                         [1 (generators/tuple (generators/return #'recreate-btree))]]))
 
 (comment
   (generators/sample (generators/tuple (generators/return #'btree/add-3)
@@ -70,13 +74,8 @@
       []))
 
 
-(def test-parameters [[[#'argumentica.btree/add-3 1]
-                       [#'argumentica.btree/add-3 2]
-                       [#'argumentica.btree/add-3 0]
-                       [#'argumentica.btree/add-3 0]
-                       [#'argumentica.btree/store-root-2]
-                       [#'argumentica.btree/add-3 3]
-                       [#'argumentica.btree/unload-btree]]
+(def test-parameters [[[#'argumentica.btree/add-3 0]
+                       [#'argumentica.btree-test/recreate-btree]]
                       0])
 
 (comment
@@ -90,7 +89,7 @@
   (btree-result-for-parameters test-parameters) ;; TODO: this does not work
   )
 
-(clojure-test/defspec property-test-btree 100
+(clojure-test/defspec property-test-btree 1000
   (properties/for-all [commands (generators/vector command-generator)
                        start-value generators/int]
                       (try
