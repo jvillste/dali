@@ -39,8 +39,10 @@
   (assert (< 1 maximum)
           "Maximum node size must be creater than one")
   (fn [node]
-    (= maximum
-       (count (:values node)))))
+    (or (= maximum
+           (count (:values node)))
+        (= maximum
+           (count (:children node))))))
 
 
 (defn roots-from-storage [metadata-storage]
@@ -102,9 +104,7 @@
                                 :or {full? (full-after-maximum-number-of-values 1000)
                                      node-storage (hash-map-storage/create)}}]
   (conj {:full? full?
-         :node-storage node-storage
-         :usages (priority-map/priority-map [:root] 0)
-         :next-usage-number 1}
+         :node-storage node-storage}
         (if-let [latest-root (latest-of-roots (roots-from-storage node-storage))]
           {:latest-root latest-root
            :root {:storage-key (:storage-key latest-root)}}
@@ -220,15 +220,6 @@
       (update :usages
               assoc node-id (or (:next-usage-number btree)
                                 0))
-      (update :next-usage-number
-              (fnil inc 0))))
-
-
-(defn record-usage-2 [btree path]
-  (-> btree
-      (update :usages
-              assoc (vec path) (or (:next-usage-number btree)
-                                   0))
       (update :next-usage-number
               (fnil inc 0))))
 
@@ -355,7 +346,6 @@
         new-node-path (new-node-path child-path)
         [lesser-children greater-children] (split-sequence-in-two (:children old-node))]
     (-> btree
-        (record-usage-2 new-node-path) ;; TODO: could this be somewhere elese? Do we need it?
         (update-in child-path
                    (fn [old-node]
                      (-> old-node
@@ -428,7 +418,6 @@
         [lesser-children greater-children] (split-sequence-in-two (seq (children-key old-node)))
         new-node-splitter (splitter-from-children lesser-children)]
     (-> btree
-        (record-usage-2 (change-last path new-node-splitter)) ;; TODO: could this be somewhere elese? Do we need it?
         (update-in (parent-path path)
                    update
                    :children
@@ -440,6 +429,12 @@
                    (last path)
                    (create-child-node greater-children)))))
 
+(defn last-splitter-to-max [children]
+  (let [last-key (first (last children))]
+    (-> children
+        (dissoc last-key)
+        (assoc ::comparator/max (get children last-key)))))
+
 (defn split-inner-node [btree path]
   (split-node btree
               path
@@ -447,10 +442,10 @@
               (fn [children]
                 (first (last children)))
               (fn [children]
-                {:children (apply child-map (apply concat children))})))
+                {:children (last-splitter-to-max (apply child-map (apply concat children)))})))
 
 (deftest test-split-inner-node
-  (is (= {:root {:children {4 {:children {4 {:values #{1 2 3 4}}}},
+  (is (= {:root {:children {4 {:children {:argumentica.comparator/max {:values #{1 2 3 4}}}},
                             :argumentica.comparator/max {:children {:argumentica.comparator/max {:values #{5 6}}}}}},
           :usages {[:root :children 4] 0},
           :next-usage-number 1}
@@ -579,7 +574,6 @@
               (fn [old-root-node]
                 {:children [old-root-node]
                  :values (create-sorted-set)}))
-      (record-usage-2 [:root])
       (split-child-2 [:root :children 0])))
 
 (deftest test-split-child-2
@@ -613,8 +607,6 @@
       (update :root
               (fn [old-root-node]
                 {:children (child-map ::comparator/max old-root-node)}))
-      (record-usage-2 [:root])
-      (record-usage-2 [:root :children ::comparator/max])
       (split-child-3 [:root :children ::comparator/max])))
 
 (deftest test-split-child-3
@@ -712,8 +704,7 @@
                    (conj (values-to-sorted-set values)
                          value))
                  value)
-      (update-in path dissoc :storage-key)
-      (record-usage-2 path)))
+      (update-in path dissoc :storage-key)))
 
 (defn parent-id [cursor]
   (last (drop-last cursor)))
@@ -1102,12 +1093,11 @@
 (defn has-loaded-children? [node]
   (not (empty? (filter loaded-2? (vals (:children node))))))
 
-(defn store-node-by-path [btree path]
+(defn store-node-by-path [path btree]
   (let [the-node (get-in btree path)]
     (if (not (:storage-key the-node))
       (let [bytes (node-serialization/serialize the-node)
             the-storage-key (storage-key bytes)]
-
         (store-if-new! (:node-storage btree)
                        the-storage-key
                        bytes)
@@ -1121,9 +1111,9 @@
              [storage-key
               (if (= "roots" storage-key)
                 (storage/get-edn-from-storage! storage storage-key)
-                (node-serialization/deserialize (ByteArrayInputStream. (storage/get-from-storage! storage storage-key))))])))
+                (util/byte-array-values-to-vectors (node-serialization/deserialize (ByteArrayInputStream. (storage/get-from-storage! storage storage-key)))))])))
 
-(defn- extract-node-storage [btree]
+(defn extract-node-storage [btree]
   (update btree :node-storage extract-storage))
 
 (deftest test-store-node-by-path
@@ -1132,30 +1122,29 @@
                             :argumentica.comparator/max {:values #{4}}}},
           :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623" {:values #{2}}},
           :usages {}}
-         (extract-node-storage (store-node-by-path {:root {:children (child-map 2 {:values (create-sorted-set 2)}
+         (extract-node-storage (store-node-by-path [:root :children 2]
+                                                   {:root {:children (child-map 2 {:values (create-sorted-set 2)}
                                                                                 ::comparator/max {:values (create-sorted-set 4)})}
                                                     :node-storage (hash-map-storage/create)
-                                                    :usages {[:root :children 2] 0}}
-                                                   [:root :children 2]))))
+                                                    :usages {[:root :children 2] 0}}))))
 
   (is (= {:root {:children {2 {:values #{2},
                                :storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"},
                             :argumentica.comparator/max {:values #{4}}}},
           :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623" {:values #{2}}},
           :usages {}}
-         (extract-node-storage (store-node-by-path {:root {:children (child-map 2 {:values (create-sorted-set 2)}
+         (extract-node-storage (store-node-by-path [:root :children 2]
+                                                   {:root {:children (child-map 2 {:values (create-sorted-set 2)}
                                                                                 ::comparator/max {:values (create-sorted-set 4)})}
                                                     :node-storage (hash-map-storage/create)
-                                                    :usages {[:root :children 2] 0}}
-                                                   [:root :children 2])))))
+                                                    :usages {[:root :children 2] 0}})))))
 
 (defn unload-node-2 [btree path]
   (assert (not (has-loaded-children? (get-in btree path)))
           "Can not unload a node with loaded children")
 
-  (-> btree
-      (store-node-by-path path)
-      (update :usages dissoc path)
+  (-> (store-node-by-path path btree)
+      ;; (update :usages dissoc path)
       (update-in path dissoc :values :children)))
 
 (deftest test-unload-node-2
@@ -1165,11 +1154,11 @@
           :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
                          {:values #{2}}},
           :usages {}}
-         (extract-node-storage (unload-node-2 (store-node-by-path {:root {:children (child-map 2 {:values (create-sorted-set 2)}
+         (extract-node-storage (unload-node-2 (store-node-by-path [:root :children 2]
+                                                                  {:root {:children (child-map 2 {:values (create-sorted-set 2)}
                                                                                                ::comparator/max {:values (create-sorted-set 4)})}
                                                                    :node-storage (hash-map-storage/create)
-                                                                   :usages {[:root :children 2] 0}}
-                                                                  [:root :children 2])
+                                                                   :usages {[:root :children 2] 0}})
                                               [:root :children 2])))))
 
 (declare add)
@@ -1420,26 +1409,26 @@
 
 #_(deftest test-load-node-2
 
-  (is (= {:root
-          {:children
-           [{:storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623",
-             :values #{2}}
-            {:values #{4}}],
-           :values #{3}},
-          :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
-                         {:values #{2}}},
-          :usages {[:root :children 1] 1
-                   [:root] 2}}
-         (extract-node-storage (load-node-2 (unload-node-2 (store-node {:root {:children [{:values (create-sorted-set 2)}
-                                                                                          {:values (create-sorted-set 4)}]
-                                                                               :values   (create-sorted-set 3)}
-                                                                        :node-storage (hash-map-storage/create)
-                                                                        :usages (priority-map/priority-map [:root :children 0] 0
-                                                                                                           [:root :children 1] 1
-                                                                                                           [:root] 2)}
-                                                                       [:root :children 0])
-                                                           [:root :children 0])
-                                            [:root :children 0])))))
+    (is (= {:root
+            {:children
+             [{:storage-key "A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623",
+               :values #{2}}
+              {:values #{4}}],
+             :values #{3}},
+            :node-storage {"A32F78C54A49C7CA308E10AB0D84B96D7A60E29F8084E1722953462C29257623"
+                           {:values #{2}}},
+            :usages {[:root :children 1] 1
+                     [:root] 2}}
+           (extract-node-storage (load-node-2 (unload-node-2 (store-node {:root {:children [{:values (create-sorted-set 2)}
+                                                                                            {:values (create-sorted-set 4)}]
+                                                                                 :values   (create-sorted-set 3)}
+                                                                          :node-storage (hash-map-storage/create)
+                                                                          :usages (priority-map/priority-map [:root :children 0] 0
+                                                                                                             [:root :children 1] 1
+                                                                                                             [:root] 2)}
+                                                                         [:root :children 0])
+                                                             [:root :children 0])
+                                              [:root :children 0])))))
 
 (defn load-node-data [node-storage storage-key]
   (node-serialization/deserialize (storage/stream-from-storage! node-storage
@@ -1449,18 +1438,15 @@
   (let [node-data (node-serialization/deserialize (storage/stream-from-storage! (:node-storage btree)
                                                                                 (:storage-key (get-in btree
                                                                                                       node-path))))]
-    (-> (update-in btree
-                   node-path
-                   merge
-                   (if-let [children (:children node-data)]
-                     {:children (apply child-map (apply concat
-                                                        (for [child children]
-                                                          [(:splitter child)
-                                                           {:storage-key (:storage-key child)}])))
-                      :storage-key (:storage-key node-data)}
-                     node-data
-                     #_(update node-data :values #(apply create-sorted-set %))))
-        (record-usage-2 node-path))))
+    (update-in btree
+               node-path
+               merge
+               (if-let [children (:children node-data)]
+                 {:children (apply child-map (apply concat
+                                                    (for [child children]
+                                                      [(:splitter child)
+                                                       {:storage-key (:storage-key child)}])))}
+                 node-data))))
 
 (defn load-root-if-needed-2 [btree]
   (if (loaded? (:root btree))
@@ -1583,97 +1569,94 @@
   (concat parent-path [:children divider]))
 
 (defn add-3 [btree value]
-  (loop [btree (-> btree
-                   (load-root-if-needed-3)
-                   (split-root-if-needed-3))
+  (loop [btree btree
          path [:root]]
+    (let [the-node (get-in btree path)]
+      (if (loaded-2? the-node)
+        (if ((:full? btree) the-node)
+          (if (= [:root] path)
+            (recur (split-root-3 btree)
+                   path)
+            (recur (split-child-3 btree path)
+                   (parent-path path)))
+          (let [btree (update-in btree path dissoc :storage-key)]
+            (if (leaf-node-3? the-node)
+              (add-value-in-node-2 btree
+                                   path
+                                   value)
+              (recur btree
+                     (child-path path
+                                 (divider-for-value the-node value))))))
+        (recur (load-node-3 btree
+                            path)
+               path)))))
 
-    (let [the-node (get-in btree
-                           path)]
-      (if (leaf-node-3? the-node)
-        (add-value-in-node-2 btree
-                             path
-                             value)
-        (let [divider (divider-for-value the-node value)]
-          (let [child (get-in the-node [:children divider])
-                the-child-path (child-path path divider)]
-            (if (loaded-2? child)
-              (let [btree (if ((:full? btree) child)
-                            (split-child-3 btree the-child-path)
-                            btree)]
-                (recur btree
-                       (child-path path
-                                   (divider-for-value (get-in btree path)
-                                                      value))))
-              (recur (load-node-2 btree
-                                  the-child-path)
-                     the-child-path))))))))
+(declare store-root-2)
 
 (deftest test-add-3
   (testing "no splits needed"
     (is (= {:root {:children {2 {:values #{1 2}}
                               ::comparator/max {:values #{4}}}},
-            :full? full-after-three
-            :usages {[:root :children 2] 0},
-            :next-usage-number 1}
+            :full? full-after-three}
            (add-3 {:root {:children (child-map 2 {:values (create-sorted-set 2)}
                                                ::comparator/max {:values (create-sorted-set 4)})}
-                   :full? full-after-three
-                   :usages {}}
+                   :full? full-after-three}
                   1))))
 
   (testing "leaf is full"
     (is (= {:root {:children {1 {:values #{1}},
                               4 {:values #{2 3 4}},
                               ::comparator/max {:values #{5}}}},
-            :full? full-after-three
-            :usages {[:root :children 1] 0
-                     [:root :children 4] 1},
-            :next-usage-number 2}
+            :full? full-after-three}
            (add-3 {:root {:children (child-map 4 {:values (create-sorted-set 1 2 3)}
                                                ::comparator/max {:values (create-sorted-set 5)})}
-                   :full? full-after-three
-                   :usages {}}
+                   :full? full-after-three}
                   4))))
 
   (testing "leaf is unloaded"
-    (is (= {:root
-            {:children
-             {4 {:values #{1 2 4}},
-              :argumentica.comparator/max {:values #{5}}}},
-            :node-storage
-            {"1A9C471D39AC5FACF2FC2FCF1BFC30C9C59E1AA7F5BC864F191F0D2EE30E04C6"
-             {:values
-              {:dictionary {:index [], :rows []},
-               :row-length 0,
-               :index ["00" "00" "00" "01"],
-               :rows ["01" "02"]}}},
-            :full? full-after-three
-            :usages {[:root :children 4] 0},
-            :next-usage-number 1}
-           (util/byte-array-values-to-vectors
-            (extract-node-storage (add-3 (unload-node-2 {:root {:children (child-map 4 {:values (create-sorted-set 1 2)}
-                                                                                     ::comparator/max {:values (create-sorted-set 5)})}
-                                                         :node-storage (hash-map-storage/create)
-                                                         :full? full-after-three
-                                                         :usages {}}
-                                                        [:root :children 4])
-                                         4))))))
+    (is (= {:children
+            {4 {:values #{1 2 4}},
+             :argumentica.comparator/max {:values #{5}}}}
+           (:root (extract-node-storage (add-3 (unload-node-2 {:root {:children (child-map 4 {:values (create-sorted-set 1 2)}
+                                                                                           ::comparator/max {:values (create-sorted-set 5)})}
+                                                               :node-storage (hash-map-storage/create)
+                                                               :full? full-after-three}
+                                                              [:root :children 4])
+                                               4))))))
+
+  (testing "btree is unloaded"
+    (is (= {:children
+            {4 {:values #{1 2 4}},
+             :argumentica.comparator/max
+             {:storage-key
+              "C0313125AD632BC0E8094EAE6FBA228E6119024F27B810457541294597E8529B"}}}
+           (:root (extract-node-storage (add-3 (unload-btree {:root {:children (child-map 4 {:values (create-sorted-set 1 2)}
+                                                                                          ::comparator/max {:values (create-sorted-set 5)})}
+                                                              :node-storage (hash-map-storage/create)
+                                                              :full? full-after-three})
+                                               4))))))
+
+  (testing "btree is stored"
+    (is (= {:children
+            {4 {:values #{1 2 4}},
+             :argumentica.comparator/max
+             {:values #{5}
+              :storage-key
+              "C0313125AD632BC0E8094EAE6FBA228E6119024F27B810457541294597E8529B"}}}
+           (:root (extract-node-storage (add-3 (store-root-2 {:root {:children (child-map 4 {:values (create-sorted-set 1 2)}
+                                                                                          ::comparator/max {:values (create-sorted-set 5)})}
+                                                              :node-storage (hash-map-storage/create)
+                                                              :full? full-after-three})
+                                               4))))))
 
   (testing "root is full"
     (is (= {:root
             {:children
              {1 {:values #{1}},
               :argumentica.comparator/max {:values #{2 3 4}}}},
-            :full? full-after-three
-            :usages
-            {[:root] 0,
-             [:root :children :argumentica.comparator/max] 3,
-             [:root :children 1] 2},
-            :next-usage-number 4}
+            :full? full-after-three}
            (add-3 {:root {:values (create-sorted-set 1 2 3)}
-                   :full? full-after-three
-                   :usages {}}
+                   :full? full-after-three}
                   4)))))
 
 (defn cursor-and-btree-for-value-and-btree-atom [btree-atom value]
@@ -1880,6 +1863,11 @@
           (create (full-after-maximum-number-of-values node-size))
           (range value-count)))
 
+(defn create-test-btree-2 [node-size value-count]
+  (reduce add-3
+          (create-2 (full-after-maximum-number-of-values node-size))
+          (range value-count)))
+
 (defn unload-least-used-node [btree]
   (if-let [least-used-path (->> (:usages btree)
                                 (map first)
@@ -1889,32 +1877,84 @@
                    least-used-path)
     btree))
 
-(defn loaded-node-count-2 [btree]
-  (count (:usages btree)))
+(defn node-reducible [descend-to-sub-tree? btree]
+  (reduction/depth-first-reducible {:path [:root]
+                                    :node (:root btree)}
+                                   (fn [parent-node]
+                                     (for [[splitter child] (:children (:node parent-node))
+                                           :when (descend-to-sub-tree? child)]
+                                       {:path (vec (concat (:path parent-node)
+                                                           [:children splitter]))
+                                        :node child}))))
+
+(defn path-reducible [descend-to-sub-tree? btree]
+  (reduction/node-reducible [:root]
+                            (fn [parent-path]
+                              (for [[splitter child] (:children (get-in btree parent-path))
+                                    :when (descend-to-sub-tree? child)]
+                                (vec (concat parent-path [:children splitter]))))))
+
+(defn unstored-node-reducible [btree]
+  (node-reducible #(nil? (:storage-key %))
+                  btree))
+
+(deftest test-unstored-node-reducible
+  (let [btree (->> (create-test-btree-2 3 4)
+                   (store-node-by-path [:root :children 0]))]
+    (is (= [{:path [:root]
+             :node (get-in btree [:root])}
+            {:path [:root :children :argumentica.comparator/max]
+             :node (get-in btree [:root :children :argumentica.comparator/max])}]
+           (->> (unstored-node-reducible btree)
+                (into []))))))
+
+(defn loaded-node-reducible [btree]
+  (node-reducible loaded-2?
+                  btree))
+
+(defn remove-one-from-vector [index vector]
+  (vec (concat (take index vector)
+               (drop (inc index) vector))))
+
+(deftest test-remove-one-from-vector
+  (is (= [2 3]
+         (remove-one-from-vector 0 [1 2 3])))
+  (is (= [1 3]
+         (remove-one-from-vector 1 [1 2 3])))
+  (is (= [1 2]
+         (remove-one-from-vector 2 [1 2 3]))))
+
+(defn remove-random-value-from-vector [vector]
+  (let [index (rand-int (count vector))]
+    {:value (get vector index)
+     :vector (remove-one-from-vector index vector)}))
 
 (defn unload-excess-nodes [btree maximum-node-count]
-  (loop [btree btree]
+  (loop [btree btree
+         loaded-paths-set (into #{} (map :path)
+                                (loaded-node-reducible btree))]
+
     (if (< maximum-node-count
-           (loaded-node-count-2 btree))
-      (recur (unload-least-used-node btree))
+           (count loaded-paths-set))
+      (let [path-to-be-unloaded (rand-nth (vec (remove #(has-loaded-children? (get-in btree %))
+                                                       loaded-paths-set)))]
+        (recur (unload-node-2 btree
+                              path-to-be-unloaded)
+               (disj loaded-paths-set
+                     path-to-be-unloaded)))
       btree)))
 
 
-(comment
-  (String. (byte-array [123, 58, 118, 97, 108, 117, 101, 115, 32, 35, 123, 49, 52, 125,
-                        125, 10]))
-
-  (IsFunction.)
-
-  (schema/check {:a (schema/eq :b)}
-                {:a :b}))
-
 (deftest test-unload-excess-nodes
-  (is (= {:storage-key "6EE178034F575BC9E510EDC3F89F63E4F528D3F00C718C2DCDBDF20F274A11CA"}
-         (:root (unload-excess-nodes (reduce add-3
-                                             (create-2 (full-after-maximum-number-of-values 3))
-                                             (range 5))
-                                     0)))))
+  (is (= {:storage-key "910494876599110E081AE85BAB35B3EA7377A678FCCDDCD9AE9704BE89AAC7D8"}
+         (:root (unload-excess-nodes (create-test-btree-2 3 5)
+                                     0))))
+
+  (is (= [[:root]]
+         (into []
+               (map :path)
+               (loaded-node-reducible (unload-excess-nodes (create-test-btree-2 3 5)
+                                                           1))))))
 
 ;; TODO: this should be closer to the function it tests
 (deftest test-load-node-3
@@ -2320,43 +2360,56 @@
 
 
 (defn first-leaf-path [btree path direction]
-  (loop [path path]
+  (loop [path path
+         btree btree]
     (let [node (get-in btree path)]
-      (if (leaf-node-3? node)
-        path
-        (recur (concat path [:children (first (if (= :forwards direction)
-                                                (first (:children node))
-                                                (last (:children node))))]))))))
+      (if (loaded-2? node)
+        (if (leaf-node-3? node)
+          {:btree btree
+           :path path}
+          (recur (concat path [:children (first (if (= :forwards direction)
+                                                  (first (:children node))
+                                                  (last (:children node))))])
+                 btree))
+        (recur path
+               (load-node-3 btree path))))))
 
 (deftest test-first-leaf-path
   (is (= [:root :children 2]
-         (first-leaf-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
-                          [:root]
-                          :forwards)))
+         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {:values :foo})})}}
+                                 [:root]
+                                 :forwards))))
 
   (is (= [:root :children :argumentica.comparator/max :children 4]
-         (first-leaf-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
-                          [:root :children ::comparator/max]
-                          :forwards)))
+         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {:values :foo})})}}
+                                 [:root :children ::comparator/max]
+                                 :forwards))))
 
   (is (= '(:root :children :argumentica.comparator/max :children :argumentica.comparator/max)
-         (first-leaf-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
-                          [:root]
-                          :backwards))))
+         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {:values :foo})})}}
+                                 [:root]
+                                 :backwards))))
+
+  (is (= '(:root :children 0)
+         (:path (first-leaf-path (unload-btree (create-test-btree-2 3 5))
+                                 [:root]
+                                 :forwards)))))
 
 (defn next-child-path [btree path direction]
-  (loop [path path]
+  (loop [path path
+         btree btree]
     (if (= [:root] path)
       nil
 
       (let [the-parent-path (parent-path path)
             parent (get-in btree the-parent-path)]
+
         (if-let [the-next-divider (next-divider parent
                                                 (last path)
                                                 direction)]
@@ -2364,29 +2417,43 @@
                            (concat the-parent-path
                                    [:children the-next-divider])
                            direction)
-          (recur the-parent-path))))))
+          (recur the-parent-path
+                 btree))))))
 
 (deftest test-next-child-path
   (is (= '(:root :children :argumentica.comparator/max :children 4)
-         (next-child-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
-                          [:root :children 2]
-                          :forwards)))
+         (:path (next-child-path {:root {:children (child-map 2 {:values :foo}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {:values :foo})})}}
+                                 [:root :children 2]
+                                 :forwards))))
 
   (is (= '(:root :children ::comparator/max :children ::comparator/max)
-         (next-child-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
-                          [:root :children ::comparator/max :children 4]
-                          :forwards)))
+         (:path (next-child-path {:root {:children (child-map 2 {:values :foo}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {:values :foo})})}}
+                                 [:root :children ::comparator/max :children 4]
+                                 :forwards))))
 
   (is (= nil
-         (next-child-path {:root {:children (child-map 2 {}
-                                                       ::comparator/max {:children (child-map 4 {}
-                                                                                              ::comparator/max {})})}}
+         (next-child-path {:root {:children (child-map 2 {:values :foo}
+                                                       ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                              ::comparator/max {:values :foo})})}}
                           [:root :children ::comparator/max :children ::comparator/max]
-                          :forwards))))
+                          :forwards)))
+
+  (is (= '(:root :children :argumentica.comparator/max :children 4)
+         (:path (next-child-path {:root {:children (child-map 2 {:children (child-map ::comparator/max {:values :foo})}
+                                                              ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                     ::comparator/max {})})}}
+                                 [:root :children 2 :children ::comparator/max]
+                                 :forwards))))
+
+  (is (= '(:root :children 1)
+         (:path (next-child-path (-> (create-test-btree-2 3 5)
+                                     (unload-node-2 [:root :children 1]))
+                                 [:root :children 0]
+                                 :forwards)))))
 
 (defn subsequence [sorted starting-value direction]
   (if (= :forwards direction)
@@ -2420,12 +2487,13 @@
                                                                          direction
                                                                          (reduction/double-reduced reducing-function)
                                                                          reduced-value
-                                                                         (:values node) ))]
+                                                                         (:values node)))]
               (if (reduced? reduced-value)
                 (reducing-function @reduced-value)
-                (recur reduced-value
-                       (next-child-path btree path direction)
-                       btree)))
+                (let [{:keys [btree path]} (next-child-path btree path direction)]
+                 (recur reduced-value
+                        path
+                        btree))))
             (recur reduced-value
                    path
                    (swap! btree-atom load-node-3 path))))
@@ -2816,14 +2884,6 @@
     (assoc btree
            :latest-root
            new-root)))
-(defn unload-least-used-node [btree]
-  (if-let [least-used-path (->> (:usages btree)
-                                (map first)
-                                (remove #(has-loaded-children? (get-in btree %)))
-                                (first))]
-    (unload-node-2 btree
-                   least-used-path)
-    btree))
 
 (defn loaded-paths [btree]
   (->> (:usages btree)
@@ -2846,11 +2906,9 @@
                                (range 10))))))
 
 (defn store-all-nodes [btree]
-  (reduce store-node-by-path
+  (reduce (completing #(store-node-by-path (:path %2) %1))
           btree
-          (->> (loaded-paths btree)
-               (sort-by count)
-               (reverse))))
+          (unstored-node-reducible btree)))
 
 (defn store-root-2
   ([btree]
@@ -2860,16 +2918,15 @@
        (add-stored-root-2 metadata))))
 
 (deftest test-store-root-2
-  (let [btree (-> (reduce add-3
-                          (create-2 full-after-three)
-                          (range 4))
+  (let [btree (-> (create-test-btree-2 3 4)
                   (store-root-2)
                   (extract-node-storage))]
-    (is (= #{0 1 3 2}
+    (is (= #{"00" "01" "02" "03"}
            (->> btree
                 :node-storage
                 vals
                 (map :values)
+                (map :rows)
                 (apply concat)
                 (into #{}))))
 
@@ -2931,18 +2988,19 @@
             root-node))
 
 (defn loaded-storage-keys [btree]
-  (->> (sub-tree-nodes (:root btree))
-       (map :storage-key)
-       (remove nil?)
-       (into #{})))
+  (into #{}
+        (comp (map :node)
+              (filter :storage-key)
+              (map :storage-key))
+        (node-reducible (constantly true) btree)))
 
 (deftest test-loaded-storage-keys
-  (is (= #{"55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
-         (loaded-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
-                                  (add-3 0)
-                                  (store-node-by-path [:root])))))
+  (is (= #{"16095D1818CC689FCB8494417B93B13040AFA0B52D7E530304DA356B68AF3D34"}
+         (loaded-storage-keys (store-node-by-path [:root]
+                                                  (-> (create-2 (full-after-maximum-number-of-values 2))
+                                                      (add-3 0))))))
 
-  (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
+  (is (= #{"EF2D9E026D3ECC1F99F73B77D5010FDE57D8F58062C509C7178D7F98A6C65FD3"}
          (loaded-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
                                   (add-3 0)
                                   (add-3 1)
@@ -2955,16 +3013,16 @@
        (into #{})))
 
 (deftest test-storage-keys-related-to-loaded-nodes
-  (is (= #{"999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"}
+  (is (= #{"EF2D9E026D3ECC1F99F73B77D5010FDE57D8F58062C509C7178D7F98A6C65FD3"}
          (storage-keys-related-to-loaded-nodes (-> (create-2 (full-after-maximum-number-of-values 2))
                                                    (add-3 0)
                                                    (add-3 1)
                                                    (add-3 2)
                                                    (unload-node-2 [:root :children ::comparator/max])))))
 
-  (is (= #{"3109F2BE15C32C595A8F03D8927DBAE5E5912BFD5D81FD988E7E6AFD99BE24E3"
-           "999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"
-           "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
+  (is (= #{"16095D1818CC689FCB8494417B93B13040AFA0B52D7E530304DA356B68AF3D34"
+           "EF2D9E026D3ECC1F99F73B77D5010FDE57D8F58062C509C7178D7F98A6C65FD3"
+           "24F718870EC78BBAE1BA2CEC9977970BA8BF11FADF837D94648EA9BD3EB76B87"}
          (storage-keys-related-to-loaded-nodes (-> (create-2 (full-after-maximum-number-of-values 2))
                                                    (add-3 0)
                                                    (add-3 1)
@@ -2976,26 +3034,26 @@
         (storage-keys-related-to-loaded-nodes btree)))
 
 (deftest test-used-storage-keys
-  (is (= #{"roots"
-           "376E288A1C697B50D6BB53003C1EB7A8607823597A2D636CC3CA955F65C9D815"
-           "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
+  (is (= #{"B2B3785314C1594D6A6D5544F78BEC6CA983AAAA4E05EA1854581CCC21EFA3EF"
+           "roots"
+           "16095D1818CC689FCB8494417B93B13040AFA0B52D7E530304DA356B68AF3D34"}
          (used-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
                                 (add-3 0)
                                 (store-root-2)
                                 (add-3 1)
                                 (store-root-2)))))
 
-  (is (= #{"roots"
-           "376E288A1C697B50D6BB53003C1EB7A8607823597A2D636CC3CA955F65C9D815"
-           "999401492254DD018C3AB3EF55687098C9DD799920345494E60B3755EDB988C7"
-           "55C80A5A235FBBA366D6F38A648A129DA9BD0506F2BC8D4594527CC7442D73D6"}
-         (used-storage-keys (-> (create-2 (full-after-maximum-number-of-values 2))
-                                (add-3 0)
-                                (store-root-2)
-                                (add-3 1)
-                                (store-root-2)
-                                (add-3 2)
-                                (store-node-by-path [:root :children ::comparator/max]))))))
+  (is (= #{"B2B3785314C1594D6A6D5544F78BEC6CA983AAAA4E05EA1854581CCC21EFA3EF"
+           "roots"
+           "16095D1818CC689FCB8494417B93B13040AFA0B52D7E530304DA356B68AF3D34"
+           "EF2D9E026D3ECC1F99F73B77D5010FDE57D8F58062C509C7178D7F98A6C65FD3"}
+         (used-storage-keys (store-node-by-path [:root :children ::comparator/max]
+                                                (-> (create-2 (full-after-maximum-number-of-values 2))
+                                                    (add-3 0)
+                                                    (store-root-2)
+                                                    (add-3 1)
+                                                    (store-root-2)
+                                                    (add-3 2)))))))
 
 (defn unused-storage-keys [btree]
   (remove (used-storage-keys btree)
@@ -3068,3 +3126,7 @@
                       (:storage-key (node btree
                                           (:root-id btree))))
                  "UTF-8")))
+
+(defn loaded-nodes [btree]
+  (->> (sub-tree-nodes (:root btree))
+       (filter loaded-2?)))

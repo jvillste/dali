@@ -11,10 +11,9 @@
 (def command-generator
   (generators/frequency [[8 (generators/tuple (generators/return #'btree/add-3)
                                               generators/pos-int)]
-                         [1 (generators/tuple (generators/return #'btree/unload-least-used-node))]
                          [1 (generators/tuple (generators/return #'btree/unload-btree))]
                          [1 (generators/tuple (generators/return #'btree/unload-excess-nodes)
-                                              (generators/return 2))]
+                                              generators/pos-int)]
                          [1 (generators/tuple (generators/return #'btree/store-root-2))]
                          [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
                          [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]]))
@@ -36,7 +35,7 @@
             (apply command
                    btree
                    arguments))
-          (btree/create-2 (btree/full-after-maximum-number-of-values 2))
+          (btree/create-2 (btree/full-after-maximum-number-of-values 3))
           commands))
 
 (defn apply-commands-to-new-sorted-set [commands]
@@ -70,19 +69,25 @@
               smallest)
       []))
 
+
+(def test-parameters [[[#'argumentica.btree/add-3 1]
+                       [#'argumentica.btree/add-3 2]
+                       [#'argumentica.btree/add-3 0]
+                       [#'argumentica.btree/add-3 0]
+                       [#'argumentica.btree/store-root-2]
+                       [#'argumentica.btree/add-3 3]
+                       [#'argumentica.btree/unload-btree]]
+                      0])
+
 (comment
-  (def test-parameters [[[#'argumentica.btree/add-3 0]
-                         [#'argumentica.btree/add-3 1]
-                         [#'argumentica.btree/add-3 0]
-                         [#'argumentica.btree/unload-least-used-node]
-                         [#'argumentica.btree/collect-storage-garbage]]
-                        0])
 
   (apply-commands-to-new-btree (first test-parameters))
 
+  (btree/extract-node-storage (apply-commands-to-new-btree (first test-parameters)))
+
   (sorted-set-result-for-parameters test-parameters)
 
-  (btree-result-for-parameters test-parameters)
+  (btree-result-for-parameters test-parameters) ;; TODO: this does not work
   )
 
 (clojure-test/defspec property-test-btree 100

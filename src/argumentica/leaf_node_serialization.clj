@@ -549,21 +549,27 @@
 (defn binary-search-node [target-row node]
   (let [index-raw-byte-buffer (raw-byte-buffer (:index node))
         rows-byte-buffer-reader (byte-buffer-reader (:rows node))
-        open-dictionary (open-dictionary (:dictionary node))]
-    (binary-search (dec (row-count node))
-                   (fn [number]
-                     (set-position (read-raw-int-24 index-raw-byte-buffer
-                                                    number)
-                                   rows-byte-buffer-reader)
-                     (comparator/compare-datoms (read-row (:row-length node)
-                                                          open-dictionary
-                                                          rows-byte-buffer-reader)
-                                                target-row)))))
+        open-dictionary (open-dictionary (:dictionary node))
+        row-count (row-count node)]
+    (when (> row-count 0)
+     (binary-search (dec row-count)
+                    (fn [number]
+                      (set-position (read-raw-int-24 index-raw-byte-buffer
+                                                     number)
+                                    rows-byte-buffer-reader)
+                      (comparator/compare-datoms (read-row (:row-length node)
+                                                           open-dictionary
+                                                           rows-byte-buffer-reader)
+                                                 target-row))))))
 
 (defn position-of-smallest-greater-than-or-equal [target-row node]
   (lesser-or-equal (binary-search-node target-row node)))
 
 (deftest test-position-of-smallest-greater-than-or-equal
+  (is (= nil
+         (position-of-smallest-greater-than-or-equal 2
+                                                     (write-node []))))
+
   (is (= 1
          (position-of-smallest-greater-than-or-equal 2
                                                      (write-node [1 3]))))

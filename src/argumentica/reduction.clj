@@ -147,7 +147,62 @@
                       (map inc)
                       (take 2))))))
 
-(defn reduce-tree [root children reducing-function initial-value]
+(defn reducible [the-reduce]
+  (reify
+    IReduceInit
+    (reduce [this reducing-function initial-value]
+      (reducing-function (the-reduce reducing-function initial-value)))
+
+    IReduce
+    (reduce [this reducing-function]
+      (reducing-function (the-reduce reducing-function (reducing-function))))))
+
+(defn reduce-depth-first [root children reducing-function initial-value]
+  (loop [reduced-value initial-value
+         encountered-inner-nodes #{}
+         nodes [root]]
+    (if-let [node (first nodes)]
+      (if (contains? encountered-inner-nodes
+                     node)
+        (let [reusult (reducing-function reduced-value
+                                         node)]
+          (if (reduced? reusult)
+            @reusult
+            (recur reusult
+                   encountered-inner-nodes
+                   (rest nodes))))
+        (if-let [the-children (children node)]
+          (recur reduced-value
+                 (conj encountered-inner-nodes node)
+                 (concat the-children
+                         nodes))
+          (let [reusult (reducing-function reduced-value
+                                           node)]
+            (if (reduced? reusult)
+              @reusult
+              (recur reusult
+                     encountered-inner-nodes
+                     (rest nodes))))))
+      reduced-value)))
+
+(defn depth-first-reducible [root children]
+  (reducible (partial reduce-depth-first root children)))
+
+(deftest test-depth-first-reducible
+  (is (= [1
+          2
+          {:b 1, :c 2}
+          3
+          {:a {:b 1, :c 2}, :d 3}]
+         (into []
+               (depth-first-reducible  {:a {:b 1
+                                            :c 2}
+                                        :d 3}
+                                       (fn [value]
+                                         (when (map? value)
+                                           (vals value))))))))
+
+(defn reduce-leaves [root children reducing-function initial-value]
   (loop [reduced-value initial-value
          nodes [root]]
     (if-let [node (first nodes)]
@@ -163,44 +218,50 @@
                    (rest nodes)))))
       reduced-value)))
 
-(defn tree-reducible [root children]
-  (reify
-    IReduceInit
-    (reduce [this reducing-function initial-reduced-value]
-      (reducing-function (reduce-tree root
-                                      children
-                                      reducing-function
-                                      initial-reduced-value)))
+(defn leaf-reducible [root children]
+  (reducible (partial reduce-leaves root children)))
 
-    IReduce
-    (reduce [this reducing-function]
-      (reducing-function (reduce-tree root
-                                      children
-                                      reducing-function
-                                      (reducing-function))))))
-
-(deftest test-tree-reducible
+(deftest test-leaf-reducible
   (is (= [2 3 4]
          (into []
                (map inc)
-               (tree-reducible {:a {:b 1
+               (leaf-reducible {:a {:b 1
                                     :c 2}
                                 :d 3}
                                (fn [value]
                                  (when (map? value)
                                    (vals value))))))))
 
-(defn reducible [the-reduce]
-  (reify
-    IReduceInit
-    (reduce [this reducing-function initial-value]
-      (reducing-function (the-reduce reducing-function initial-value)))
+(defn reduce-nodes [root children reducing-function initial-value]
+  (loop [reduced-value initial-value
+         nodes [root]]
+    (if-let [node (first nodes)]
+      (let [result (reducing-function reduced-value
+                                      node)]
+        (if (reduced? result)
+          @result
+          (recur result
+                 (concat (children node)
+                         (rest nodes)))))
 
-    IReduce
-    (reduce [this reducing-function]
-      (reducing-function (the-reduce reducing-function (reducing-function))))))
+      reduced-value)))
 
+(defn node-reducible [root children]
+  (reducible (partial reduce-nodes root children)))
 
+(deftest test-node-reducible
+  (is (= [{:a {:b 1, :c 2}, :d 3}
+          {:b 1, :c 2}
+          1
+          2
+          3]
+         (into []
+               (node-reducible {:a {:b 1
+                                    :c 2}
+                                :d 3}
+                               (fn [value]
+                                 (when (map? value)
+                                   (vals value))))))))
 
 (defn- nano-seconds-to-seconds [nano-seconds]
   (/ nano-seconds 1E9))
