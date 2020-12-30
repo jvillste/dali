@@ -176,9 +176,8 @@
        (filter (fn [[value count]]
                  (and (< 1 (.limit (fressian/write value))) ;; TODO: we write everything twice because of this check, some faster heuristic might be enough
                       (< 1 count))))
-       (map (comp vec reverse))
-       (sort-by identity #(compare %2 %1))
-       (map-indexed (fn [index [_count value]]
+       (sort-by second #(compare %2 %1))
+       (map-indexed (fn [index [value _count]]
                       [value index]))
        (into {})))
 
