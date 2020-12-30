@@ -436,6 +436,43 @@
                                                                                      15)))
   )
 
+(defn run-every-n-seconds [seconds task]
+  (fn [rf]
+    (let [batch-start-time (volatile! nil)]
+      (fn
+        ([] (rf))
+
+        ([result]
+         (let [result (rf result)]
+           (task result)
+           result))
+
+        ([result input]
+         (let [result  (rf result input)]
+           (when (not @batch-start-time)
+             (vreset! batch-start-time (System/nanoTime)))
+
+           (when (> (System/nanoTime)
+                    (+ @batch-start-time
+                       (* seconds
+                          1E9)))
+
+             (task result)
+             (vreset! batch-start-time (System/nanoTime)))
+           result))))))
+
+(comment
+  (let [result-atom (atom [])]
+   (process! (range 15)
+             (map (fn [number]
+                    (Thread/sleep 300)
+                    (swap! result-atom conj number)))
+             (run-every-n-seconds 1
+                                  (fn [result]
+                                    (prn @result-atom)))))
+  ) ;; TODO: remove-me
+
+
 
 (defn run-while-true [run?-atom]
   (fn [rf]
