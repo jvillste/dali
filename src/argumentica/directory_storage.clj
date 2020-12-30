@@ -68,7 +68,9 @@
   [this]
   (map (fn [file]
          (.getName file))
-       (.listFiles (File. (:path this)))))
+       (filter (fn [file]
+                 (not (.isDirectory file)))
+               (.listFiles (File. (:path this))))))
 
 (defmethod storage/storage-contains?
   DirectoryStorage
@@ -76,5 +78,4 @@
   (file-exists? (key-path this key)))
 
 (defn create [directory-path]
-  (fs/mkdirs directory-path)
   (->DirectoryStorage directory-path))
