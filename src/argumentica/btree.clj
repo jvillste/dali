@@ -19,11 +19,12 @@
             [argumentica.transducing :as transducing]
             [argumentica.reducible :as reducible]
             [argumentica.reduction :as reduction]
-            [argumentica.leaf-node-serialization :as leaf-node-serialization])
+            [argumentica.leaf-node-serialization :as leaf-node-serialization]
+            [me.tonsky.persistent-sorted-set :as persistent-sorted-set])
   (:import java.io.ByteArrayInputStream))
 
 (defn create-sorted-set [& keys]
-  (apply sorted-set-by
+  (apply persistent-sorted-set/sorted-set-by
          comparator/compare-datoms
          keys))
 
@@ -460,7 +461,9 @@
               (fn [values]
                 (last values))
               (fn [values]
-                {:values (apply create-sorted-set values)})))
+                {:values (if (:transient? btree)
+                           (transient (apply create-sorted-set values))
+                           (apply create-sorted-set values))})))
 
 (deftest test-split-leaf-node
   (is (= {:root
@@ -482,7 +485,7 @@
   (contains? node :children))
 
 (defn leaf-node-3? [node]
-  (not (inner-node? node)))
+  (contains? node :values))
 
 (defn split-child-3 [btree child-path]
   (let [old-node (get-in btree child-path)]
@@ -689,21 +692,25 @@
                  conj value)
       (record-usage node-id)))
 
-(defn values-to-sorted-set [values]
+(defn values-to-sorted-set [transient? values]
+
   (if (sorted? values)
     values
-    (into (sorted-set)
-          (leaf-node-serialization/reducible :comparator/min
-                                             :forwards
-                                             values))))
+    (let [sorted-set (into (create-sorted-set)
+                           (leaf-node-serialization/reducible :comparator/min
+                                                              :forwards
+                                                              values))]
+      (if transient?
+        (transient sorted-set)
+        sorted-set))))
 
 (defn add-value-in-node-2 [btree path value]
   (-> btree
       (update-in (concat path [:values])
-                 (fn [values value]
-                   (conj (values-to-sorted-set values)
-                         value))
-                 value)
+                 (fn [values]
+                   (conj! #_(if (:transient? btree) conj! conj)
+                    values
+                    value)))
       (update-in path dissoc :storage-key)))
 
 (defn parent-id [cursor]
@@ -1568,25 +1575,35 @@
 (defn child-path [parent-path divider]
   (concat parent-path [:children divider]))
 
+(defn sorted-array-leaf? [node]
+  (and (:values node)
+       (not (sorted? (:values node)))))
+
 (defn add-3 [btree value]
   (loop [btree btree
          path [:root]]
     (let [the-node (get-in btree path)]
       (if (loaded-2? the-node)
-        (if ((:full? btree) the-node)
-          (if (= [:root] path)
-            (recur (split-root-3 btree)
-                   path)
-            (recur (split-child-3 btree path)
-                   (parent-path path)))
-          (let [btree (update-in btree path dissoc :storage-key)]
-            (if (leaf-node-3? the-node)
-              (add-value-in-node-2 btree
-                                   path
-                                   value)
-              (recur btree
-                     (child-path path
-                                 (divider-for-value the-node value))))))
+        (if (sorted-array-leaf? the-node)
+          (recur (update-in btree
+                            (concat path [:values])
+                            (partial values-to-sorted-set
+                                     (:transient? btree)))
+                 path)
+          (if ((:full? btree) the-node)
+            (if (= [:root] path)
+              (recur (split-root-3 btree)
+                     path)
+              (recur (split-child-3 btree path)
+                     (parent-path path)))
+            (let [btree (update-in btree path dissoc :storage-key)]
+              (if (leaf-node-3? the-node)
+                (add-value-in-node-2 btree
+                                     path
+                                     value)
+                (recur btree
+                       (child-path path
+                                   (divider-for-value the-node value)))))))
         (recur (load-node-3 btree
                             path)
                path)))))
@@ -3130,3 +3147,37 @@
 (defn loaded-nodes [btree]
   (->> (sub-tree-nodes (:root btree))
        (filter loaded-2?)))
+
+(defn leaf-node-paths [btree]
+  (into []
+        (comp (filter (comp leaf-node-3? :node))
+              (map :path))
+        (node-reducible (constantly true)
+                        btree)))
+(defn make-transient [btree]
+  (if (not (:transient? btree))
+    (-> (reduce (fn [btree leaf-path]
+                  (update-in btree (concat leaf-path [:values]) transient))
+                btree
+                (leaf-node-paths btree))
+        (assoc :transient? true))
+    btree))
+
+(defn make-persistent! [btree]
+  (if (:transient? btree)
+    (-> (reduce (fn [btree leaf-path]
+                  (update-in btree (concat leaf-path [:values]) persistent!))
+                btree
+                (leaf-node-paths btree))
+        (assoc :transient? false))
+    btree))
+
+(deftest test-make-transient
+  (is (=
+       (let [btree (-> (create-test-btree-2 4 10)
+                       (make-transient)
+                       (add-3 10)
+                       (make-persistent!))]
+         (into [] (btree-reducible (atom btree)
+                                   ::comparator/min
+                                   :forwards))))))

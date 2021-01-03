@@ -8,7 +8,7 @@
            clojure.lang.IReduceInit
            clojure.lang.IReduce))
 
-(defn- with-data-output-stream [function]
+(defn with-data-output-stream [function]
   (with-open [byte-array-output-stream (ByteArrayOutputStream.)
               data-output-stream (DataOutputStream. byte-array-output-stream)]
     (function data-output-stream)
@@ -42,7 +42,7 @@
     (.writeInt data-output-stream length)
     (.write data-output-stream byte-array 0 length)))
 
-(defn- write-value-to-data-output-stream [data-output-stream value]
+(defn write-value-to-data-output-stream [data-output-stream value]
   (write-byte-array-to-data-output-stream (nippy/freeze value)
                                           data-output-stream))
 

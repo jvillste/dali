@@ -20,7 +20,9 @@
                          [1 (generators/tuple (generators/return #'btree/store-root-2))]
                          [1 (generators/tuple (generators/return #'btree/remove-old-roots-2))]
                          [1 (generators/tuple (generators/return #'btree/collect-storage-garbage))]
-                         [1 (generators/tuple (generators/return #'recreate-btree))]]))
+                         [1 (generators/tuple (generators/return #'recreate-btree))]
+                         [1 (generators/tuple (generators/return #'btree/make-transient))]
+                         [1 (generators/tuple (generators/return #'btree/make-persistent!))]]))
 
 (comment
   (generators/sample (generators/tuple (generators/return #'btree/add-3)
@@ -39,7 +41,7 @@
             (apply command
                    btree
                    arguments))
-          (btree/create-2 (btree/full-after-maximum-number-of-values 3))
+          (btree/create-2 (btree/full-after-maximum-number-of-values 4))
           commands))
 
 (defn apply-commands-to-new-sorted-set [commands]
@@ -74,22 +76,27 @@
       []))
 
 
-(def test-parameters [[[#'argumentica.btree/add-3 0]
-                       [#'argumentica.btree-test/recreate-btree]]
+(def test-parameters [[[#'argumentica.btree/unload-btree]
+                       [#'argumentica.btree/make-transient]]
                       0])
 
 (comment
 
   (apply-commands-to-new-btree (first test-parameters))
 
-  (btree/extract-node-storage (apply-commands-to-new-btree (first test-parameters)))
+  (btree/extract-node-storage (apply-commands-to-new-btree (first [[[#'argumentica.btree/unload-btree]
+                                                                    #_[#'argumentica.btree/add-3 0]]
+                                                                   0])))
 
   (sorted-set-result-for-parameters test-parameters)
 
-  (btree-result-for-parameters test-parameters) ;; TODO: this does not work
+  (btree-result-for-parameters [[[#'argumentica.btree/unload-btree]
+                                 #_[#'argumentica.btree/add-3 0]
+                                 #_[#'argumentica.btree/unload-btree]]
+                                0])
   )
 
-(clojure-test/defspec property-test-btree 1000
+(clojure-test/defspec property-test-btree 100
   (properties/for-all [commands (generators/vector command-generator)
                        start-value generators/int]
                       (try
