@@ -1575,7 +1575,7 @@
 (defn child-path [parent-path divider]
   (concat parent-path [:children divider]))
 
-(defn sorted-array-leaf? [node]
+(defn sorted-array-leaf-node? [node]
   (and (:values node)
        (not (sorted? (:values node)))))
 
@@ -1584,7 +1584,7 @@
          path [:root]]
     (let [the-node (get-in btree path)]
       (if (loaded-2? the-node)
-        (if (sorted-array-leaf? the-node)
+        (if (sorted-array-leaf-node? the-node)
           (recur (update-in btree
                             (concat path [:values])
                             (partial values-to-sorted-set
@@ -2508,9 +2508,9 @@
               (if (reduced? reduced-value)
                 (reducing-function @reduced-value)
                 (let [{:keys [btree path]} (next-child-path btree path direction)]
-                 (recur reduced-value
-                        path
-                        btree))))
+                  (recur reduced-value
+                         path
+                         btree))))
             (recur reduced-value
                    path
                    (swap! btree-atom load-node-3 path))))
@@ -3147,6 +3147,67 @@
 (defn loaded-nodes [btree]
   (->> (sub-tree-nodes (:root btree))
        (filter loaded-2?)))
+
+(deftest test-loaded-nodes
+  (is (= [2, 3]
+         (let [btree-atom (-> (create-test-btree-2 4 10)
+                              (unload-btree)
+                              (atom))]
+           (into []
+                 (take 1)
+                 (btree-reducible btree-atom
+                                  2
+                                  :forwards))
+           (->> (loaded-nodes @btree-atom)
+                (filter leaf-node-3?)
+                (first)
+                :values
+                :rows
+                vec)))))
+
+(defn node-size [node]
+  (cond (sorted-array-leaf-node? node)
+        (+ (count (get-in node [:values :dictionary :index]))
+           (count (get-in node [:values :dictionary :rows]))
+           (count (get-in node [:values :index]))
+           (count (get-in node [:values :rows])))
+
+        (inner-node? node)
+        (count (node-serialization/serialize node))
+
+        :default
+        nil))
+
+(defn loaded-node-sizes [btree]
+  (->> (loaded-nodes btree)
+       (map (fn [node]
+              (assoc (select-keys node [:storage-key])
+                     :size (node-size node)
+                     :leaf? (leaf-node-3? node))))))
+
+(deftest test-loaded-node-sizes
+  (is (= '({:storage-key
+            "14EEEEB2F8D23B53233AEAAC677A5B99570281710245157CB352280BE6989331",
+            :size 233,
+            :leaf? false}
+           {:storage-key
+            "0EAD3D43AAB9FD0CEE0E87C4AFA00627F26B647123F86513BBE8C63677B43BEC",
+            :size 233,
+            :leaf? false}
+           {:storage-key
+            "20CB71DE5174B6268805DD1FFEF7F666E99951512F35393DB055409D9A808442",
+            :size 8,
+            :leaf? true})
+         (let [btree-atom (-> (create-test-btree-2 4 10)
+                              (unload-btree)
+                              (atom))]
+           (into []
+                 (take 1)
+                 (btree-reducible btree-atom
+                                  2
+                                  :forwards))
+           (loaded-node-sizes @btree-atom)))))
+
 
 (defn leaf-node-paths [btree]
   (into []

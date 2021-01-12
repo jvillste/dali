@@ -80,6 +80,22 @@
                     first-value
                     [nil 1 2]))))
 
+(defn first-from-reducible [reducible]
+  (let [result (transduce (take 1)
+                          first-value
+                          reducible)]
+    (if (= ::initial-value
+           result)
+      nil
+      result)))
+
+(deftest test-first-from-reducible
+  (is (= 1
+         (first-from-reducible [1])))
+
+  (is (= nil
+         (first-from-reducible []))))
+
 (defn find-first [predicate]
   (fn
     ([] nil)
@@ -283,37 +299,38 @@
                                       start-time
                                       batch-start-time
                                       total-processed-value-count]}]
+  (if (nil? start-time)
+    ["Processing has not started yet."]
+    [(str "Progress:                                 "
+          (format "%.1f"
+                  (float (* 100 (/ total-processed-value-count total-count))))
+          "% ("
+          total-processed-value-count
+          "/"
+          total-count
+          ")")
 
-  [(str "Progress:                                 "
-        (format "%.1f"
-                (float (* 100 (/ total-processed-value-count total-count))))
-        "% ("
-        total-processed-value-count
-        "/"
-        total-count
-        ")")
+     (str "Processing time of the latest batch:      "
+          (format-time-interval (nano-seconds-to-seconds (- current-time batch-start-time))))
 
-   (str "Processing time of the latest batch:      "
-        (format-time-interval (nano-seconds-to-seconds (- current-time batch-start-time))))
+     (str "Processed values per second:              "
+          (int (/ latest-batch-size
+                  (nano-seconds-to-seconds (- current-time batch-start-time)))))
 
-   (str "Processed values per second:              "
-        (int (/ latest-batch-size
-                (nano-seconds-to-seconds (- current-time batch-start-time)))))
+     (str "Total time passed:                        "
+          (format-time-interval (nano-seconds-to-seconds (- current-time start-time))))
 
-   (str "Total time passed:                        "
-        (format-time-interval (nano-seconds-to-seconds (- current-time start-time))))
-
-   (str "Remaining time based on the latest batch: "
-        (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
-                                                                batch-start-time)
-                                                             latest-batch-size)
-                                                          (- total-count
-                                                             total-processed-value-count)))))
-   (str "Remaining time based on total progress:   "
-        (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
-                                                                start-time)
-                                                             total-processed-value-count)
-                                                          (- total-count total-processed-value-count)))))])
+     (str "Remaining time based on the latest batch: "
+          (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
+                                                                  batch-start-time)
+                                                               latest-batch-size)
+                                                            (- total-count
+                                                               total-processed-value-count)))))
+     (str "Remaining time based on total progress:   "
+          (format-time-interval (nano-seconds-to-seconds (* (/ (- current-time
+                                                                  start-time)
+                                                               total-processed-value-count)
+                                                            (- total-count total-processed-value-count)))))]))
 
 (deftest test-progress-report
   (is (= ["Progress:                                 50.0% (3/6)"

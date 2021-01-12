@@ -15,6 +15,10 @@
            (.startsWith (name value)
                         "?"))))
 
+(defn anything? [value]
+  (and (keyword? value)
+       (= "*" (name value))))
+
 (deftest test-variable?
   (is (variable? :v/foo))
   (is (variable? :?foo))
@@ -24,7 +28,8 @@
   (cond (variable? term)
         [term value]
 
-        (= value term)
+        (or (= value term)
+            (anything? term))
         :matching-constant
 
         :default
@@ -266,7 +271,8 @@
                                          [:a nil :b])))))
 
 (defn- variable-to-nil [term]
-  (if (variable? term)
+  (if (or (variable? term)
+          (anything? term))
     nil
     term))
 
