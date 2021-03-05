@@ -559,3 +559,88 @@
   ([result] result)
   ([result _input]
    (inc result)))
+
+(defn partition-by-size [maximum-partition-size input-size-function]
+  (let [partition-size (volatile! 0)
+        partition (volatile! (transient []))]
+    (fn [reducing-function]
+      (fn
+        ([]
+         (reducing-function))
+
+        ([result]
+         (reducing-function (reducing-function result
+                                               (persistent! @partition))))
+
+        ([result input]
+         (let [input-size (input-size-function input)]
+           (if (> (+ input-size
+                     @partition-size)
+                  maximum-partition-size)
+             (let [result (if (= 0 (count @partition))
+                            result
+                            (reducing-function result (persistent! @partition)))]
+               (vreset! partition (transient [input]))
+               (vreset! partition-size input-size)
+               result)
+             (do (vreset! partition
+                          (conj! @partition input))
+                 (vreset! partition-size
+                          (+ @partition-size
+                             input-size))
+                 result))))))))
+
+(deftest test-partition-by-size
+
+  (is (= [[1 1] [2] [1]]
+         (into []
+               (partition-by-size 2 identity)
+               [1 1 2 1])))
+
+  (testing "finishing with empty result"
+    (is (= [[1]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [1])))
+
+    (is (= [[2]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [2])))
+
+    (is (= [[3]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [3]))))
+
+  (testing "finishing with preceding full partition"
+    (is (= [[2] [1]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [2 1])))
+
+    (is (= [[2] [2]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [2 2])))
+
+    (is (= [[2] [3]]
+           (into []
+                 (partition-by-size 2 identity)
+                 [2 3]))))
+
+  (testing "finishing with preceding not full partition"
+   (is (= [[1 1]]
+          (into []
+                (partition-by-size 3 identity)
+                [1 1])))
+
+   (is (= [[1 2]]
+          (into []
+                (partition-by-size 3 identity)
+                [1 2])))
+
+   (is (= [[1] [3]]
+          (into []
+                (partition-by-size 3 identity)
+                [1 3])))))
