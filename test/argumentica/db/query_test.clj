@@ -5,7 +5,8 @@
             schema.test
             [argumentica.btree-collection :as btree-collection]
             [argumentica.mutable-collection :as mutable-collection]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.string :as string]))
 
 
 (use-fixtures :once schema.test/validate-schemas)
@@ -223,10 +224,71 @@
                                           [:?x :b :?y]
                                           [:?x :b :c]]))))
 
+  (is (= [{:?x :a, :?y :c}
+          {:?x :a, :?y :e}
+          {:?x :d, :?y :e}]
+         (into [] (query/reducible-query nil
+                                         [(create-btree-collection [:a :b :c]
+                                                                   [:d :b :e]
+                                                                   [:a :b :e])
+                                          [:?x :* :?y]]))))
+
+  (is (= [{:?y 2, :?x :b}
+          {:?y 2, :?x :c}]
+         (into [] (query/reducible-query {:?y 2}
+                                         [(sorted-set-by comparator/compare-datoms
+                                                         [:a 1]
+                                                         [:b 2]
+                                                         [:c 2]
+                                                         [:d 3])
+                                          [:?x :?y]]))))
+
   (is (= [{:?x 4}]
          (into [] (query/reducible-query nil
                                          [(create-btree-collection [:a 1] [:b 2] [:b 4]) [:b :?x]]
-                                         [(create-btree-collection 3 4 5) :?x])))))
+                                         [(create-btree-collection 3 4 5) :?x]))))
+
+  (is (= [{:x "acd"}
+          {:x "ace"}]
+         (into [] (query/reducible-query nil
+                                         [(sorted-set "abc"
+                                                      "acd"
+                                                      "ace"
+                                                      "ada")
+
+                                          {:minimum-value "ac"
+                                           :key :x
+                                           :match (fn [value]
+                                                    (string/starts-with? value "ac"))}]))))
+
+
+  (is (= [{:?number 2}
+          {:?number 3}]
+         (into [] (query/reducible-query nil
+                                         [(sorted-set-by comparator/compare-datoms
+                                                         ["abc" 1]
+                                                         ["acd" 2]
+                                                         ["ace" 3]
+                                                         ["ada" 4])
+
+                                          [{:minimum-value "ac"
+                                            :match (fn [value]
+                                                     (string/starts-with? value "ac"))}
+                                           :?number]]))))
+
+  (is (= [{:?number 1}]
+         (into [] (let [starts-with (fn [string]
+                                      {:minimum-value string
+                                       :match (fn [value]
+                                                (string/starts-with? value string))})]
+                    (query/reducible-query nil
+                                           [(sorted-set-by comparator/compare-datoms
+                                                           ["ab" 1]
+                                                           ["ab" 2]
+                                                           ["bb" 1])
+
+                                            [(starts-with "a") :?number]
+                                            [(starts-with "b") :?number]]))))))
 
 (deftest test-query-with-substitution
 

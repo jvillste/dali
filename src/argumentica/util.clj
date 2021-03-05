@@ -186,3 +186,22 @@
 (deftest test-byte-array-values-to-vectors
   (is (= {:a ["61"]}
          (byte-array-values-to-vectors {:a (.getBytes "a")}))))
+
+(defn with-call-count [counted-function-var body-function]
+  (let [original-counted-function @counted-function-var
+        count-atom (atom 0)]
+    (with-redefs-fn {counted-function-var (fn [& arguments]
+                                            (swap! count-atom inc)
+                                            (apply original-counted-function arguments))}
+      (fn []
+        (let [result (body-function)]
+          {:count @count-atom
+           :result result})))))
+
+(deftest test-with-call-count
+  (defn test-identity [x] x)
+  (is (= {:count 2, :result 3}
+         (with-call-count #'test-identity
+           (fn []
+             (+ (test-identity 1)
+                (test-identity 2)))))))
