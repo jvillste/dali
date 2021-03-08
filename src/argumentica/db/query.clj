@@ -304,9 +304,12 @@
                                                         [:a 3 :b])
                                          [:a nil :b])))))
 
+(defn nonconstant? [term]
+  (or (variable? term)
+      (anything? term)))
+
 (defn- variable-to-nil [term]
-  (if (or (variable? term)
-          (anything? term))
+  (if (nonconstant? term)
     nil
     term))
 
@@ -455,6 +458,29 @@
                                             :match <=}
                                            :?x]))))
 
+
+  (is (= {:scan-length 2
+          :result [{:?y 2} {:?y 3}]}
+         (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                                                  [1 :a 1]
+                                                                                  [2 :b 2]
+                                                                                  [2 :c 3]
+                                                                                  [3 :d 4])
+                                                                   [2
+                                                                    :*
+                                                                    :?y]))))))
+
+  (is (= {:scan-length 2
+          :result [{}]}
+         (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                                                  [1 :a 1]
+                                                                                  [2 :b 2]
+                                                                                  [2 :c 3]
+                                                                                  [3 :d 4])
+                                                                   [2
+                                                                    :*
+                                                                    3]))))))
+
   (is (= {:scan-length 1,
           :result [{:?x :b}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
@@ -571,13 +597,49 @@
       substitutions)))
 
 (deftest test-substitution-reducile-for-patterns
-  (is (= '({:?x :?a} {:?x 1} {:?x 3})
-         (substitution-reducible-for-patterns (sorted-set-by comparator/compare-datoms
-                                                             [:a :?a]
-                                                             [:a 1]
-                                                             [:b 2]
-                                                             [:a 3])
-                                              [[:a :?x]]))))
+  (is (= [{:?x :?a} {:?x 1} {:?x 3}]
+         (into []
+               (substitution-reducible-for-patterns (sorted-set-by comparator/compare-datoms
+                                                                   [:a :?a]
+                                                                   [:a 1]
+                                                                   [:b 2]
+                                                                   [:a 3])
+                                                    [[:a :?x]]))))
+
+  ;; The call counts are doubled because of defno
+  (is (= {:count 8,
+          :result [{:?x 2} {:?x 3}]}
+         (util/with-call-count #'reducible-for-pattern
+           (fn []
+             (into []
+                   (substitution-reducible-for-patterns (sorted-set-by comparator/compare-datoms
+                                                                       [:a 1]
+                                                                       [:a 2]
+                                                                       [:a 3]
+
+                                                                       [:b 2]
+                                                                       [:b 3])
+                                                        [[:a :?x]
+                                                         [:b :?x]]))))))
+
+
+  (is (= {:count 6, :result [{:?x 2}]}
+         (util/with-call-count #'reducible-for-pattern
+           (fn []
+             (into []
+                   (take 1)
+                   (substitution-reducible-for-patterns (sorted-set-by comparator/compare-datoms
+                                                                       [:a 1]
+                                                                       [:a 2]
+                                                                       [:a 3]
+                                                                       [:b 2]
+                                                                       [:b 3])
+                                                        [[:a :?x]
+                                                         [:b :?x]]))))))
+
+  ;;then implement https://en.wikipedia.org/wiki/Sort-merge_join
+
+  )
 
 (defn project [variables substitution]
   ((apply juxt variables) substitution))
