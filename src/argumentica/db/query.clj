@@ -450,7 +450,7 @@
                                            :?x]))))
 
 
-  (is (= {:scan-length 2
+  (is (= {:scan-length 3
           :result [{:?y 2} {:?y 3}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 :a 1]
@@ -461,7 +461,7 @@
                                                                     :*
                                                                     :?y]))))))
 
-  (is (= {:scan-length 2
+  (is (= {:scan-length 3
           :result [{}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 :a 1]
@@ -472,7 +472,7 @@
                                                                     :*
                                                                     3]))))))
 
-  (is (= {:scan-length 1,
+  (is (= {:scan-length 2,
           :result [{:?x :b}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 :a]
@@ -482,7 +482,7 @@
                                                                      :match #(= 2 %)}
                                                                     :?x]))))))
 
-  (is (= {:scan-length 3,
+  (is (= {:scan-length 4,
           :result [{:?x 2} {:?x 3} {:?x 4}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set 1 2 3 4 5 6)
                                                                    {:minimum-value 2
