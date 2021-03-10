@@ -324,6 +324,9 @@
   (is (= [nil]
          (wildcard-pattern [:?a])))
 
+  (is (= [nil 1 nil]
+         (wildcard-pattern [:?a 1 :?b])))
+
   (is (= [1]
          (wildcard-pattern [1])))
 
@@ -380,24 +383,12 @@
                                                  [:a :?x]
                                                  {:reducer conj}))))
 
-(defn continue-scan-for-term? [value term]
-  (or (term-matches? value term)
-      (if-let [continue-scan? (:continue-scan? term)]
-        (continue-scan? value))
-      (and (:match term)
-           (not (:minimum-value term)))))
-
-(defn continue-scan? [pattern value]
-  (if (sequential? pattern)
-    (every? true? (map continue-scan-for-term? value pattern))
-    (continue-scan-for-term? value pattern)))
-
 (defn substitution-reducible [sorted-reducible pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)
         has-trailing-constants? (has-trailing-constants? pattern)]
-    (eduction (comp (take-while #(or has-trailing-constants?
-                                     (continue-scan? pattern %)))
-                    (map #(unify % pattern))
+    (eduction (comp (map #(unify % pattern))
+                    (take-while #(or has-trailing-constants?
+                                     (not (nil? %))))
                     (remove nil?))
               (reducible-for-pattern sorted-reducible
                                      wildcard-pattern))))
