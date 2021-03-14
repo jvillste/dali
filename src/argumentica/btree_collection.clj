@@ -28,25 +28,27 @@
 ;; idea from https://juxt.pro/blog/ontheflycollections-with-reducible
 
 (defrecord BtreeCollection [btree-atom]
-  ;; clojure.lang.Sorted
-  ;; (comparator [this]
-  ;;   (DatomComparator.))
-  ;; (entryKey [this entry]
-  ;;   entry)
-  ;; (seq [this ascending?]
-  ;;   (locking (:btree-atom this)
-  ;;     (if ascending?
-  ;;       (btree/inclusive-subsequence (:btree-atom this)
-  ;;                                    ::comparator/min)
-  ;;       (btree/inclusive-reverse-subsequence (:btree-atom this)
-  ;;                                            ::comparator/max))))
-  ;; (seqFrom [this value ascending?]
-  ;;   (locking (:btree-atom this)
-  ;;     (if ascending?
-  ;;       (btree/inclusive-subsequence (:btree-atom this)
-  ;;                                    value)
-  ;;       (btree/inclusive-reverse-subsequence (:btree-atom this)
-  ;;                                            value))))
+  clojure.lang.Sorted
+  (comparator [this]
+    (DatomComparator.))
+  (entryKey [this entry]
+    entry)
+  (seq [this ascending?]
+    (locking (:btree-atom this)
+      (if ascending?
+        (btree/inclusive-subsequence (:btree-atom this)
+                                     ::comparator/min)
+        (btree/inclusive-reverse-subsequence (:btree-atom this)
+                                             ::comparator/max))))
+  (seqFrom [this value ascending?]
+    (prn 'seqFrom) ;; TODO: remove-me
+
+    (locking (:btree-atom this)
+      (if ascending?
+        (btree/inclusive-subsequence (:btree-atom this)
+                                     value)
+        (btree/inclusive-reverse-subsequence (:btree-atom this)
+                                             value))))
   sorted-reducible/SortedReducible
   (subreducible-method [sorted starting-key direction]
     (btree/btree-reducible btree-atom starting-key direction))
@@ -89,6 +91,12 @@
   (reduce mutable-collection/add!
           (create-in-memory {:node-size 3})
           [1 2 3 4]))
+
+(deftest test-sorted
+  (is (= [2 3 4]
+         (subseq (create-test-btree-collection)
+                 <=
+                 2))))
 
 (deftest test-sorted-reducible
   (is (= [2 3 4]

@@ -11,31 +11,49 @@
             [medley.core :as medley])
   (:use clojure.test))
 
-(defn variable? [value]
+(defn unconditional-variable? [value]
   (and (keyword? value)
        (or (= "v" (namespace value))
            (.startsWith (name value)
                         "?"))))
+
+(defn conditional-variable? [term]
+  (and (some? (:match term))
+       (some? (:key term))))
+
+(defn variable? [term]
+  (or (unconditional-variable? term)
+      (conditional-variable? term)))
+
+(defn variable-key [term]
+  (cond (unconditional-variable? term)
+        term
+
+        (conditional-variable? term)
+        (:key term)
+
+        :default
+        nil))
 
 (defn anything? [value]
   (and (keyword? value)
        (= "*" (name value))))
 
 (deftest test-variable?
-  (is (variable? :v/foo))
-  (is (variable? :?foo))
-  (is (not (variable? :foo))))
+  (is (unconditional-variable? :v/foo))
+  (is (unconditional-variable? :?foo))
+  (is (not (unconditional-variable? :foo))))
 
 (defn term-matches? [value term]
   (or (nil? term)
       (anything? term)
-      (variable? term)
+      (unconditional-variable? term)
       (if-let [match (:match term)]
         (match value)
         (= value term))))
 
 (defn- unify-term [value term]
-  (cond (variable? term)
+  (cond (unconditional-variable? term)
         [term value]
 
         (and (:key term)
@@ -161,7 +179,7 @@
 
 (defn nil-or-varialbe? [value]
   (or (nil? value)
-      (variable? value)
+      (unconditional-variable? value)
       (anything? value)))
 
 (defn has-trailing-constants? [pattern]
@@ -305,7 +323,7 @@
                                          [:a nil :b])))))
 
 (defn nonconstant? [term]
-  (or (variable? term)
+  (or (unconditional-variable? term)
       (anything? term)))
 
 (defn- variable-to-nil [term]
@@ -524,7 +542,7 @@
                                           [:a :?x])))))
 
 (defn substitute-term [term substitution]
-  (if (variable? term)
+  (if (unconditional-variable? term)
     (or (get substitution term)
         term)
     term))

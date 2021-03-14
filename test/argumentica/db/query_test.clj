@@ -290,6 +290,31 @@
                                             [(starts-with "a") :?number]
                                             [(starts-with "b") :?number]]))))))
 
+(defn sort-merge-join [participants]
+
+  )
+
+(deftest test-sort-merge-join
+  (is (=
+       (let [sorted-set (sorted-set-by comparator/compare-datoms
+                                       ["ab" 1]
+                                       ["ab" 2]
+                                       ["bb" 1]
+                                       ["bc" 3])]
+         (sort-merge-join [{:sorted-set sorted-set
+                            :pattern ["ab" :?id]}
+
+                           {:sorted-set sorted-set
+                            :pattern ["bb" :?id]}
+
+                           {:sorted-set (sorted-set-by comparator/compare-datoms
+                                                       [1 "1"
+                                                        2 "2"
+                                                        3 "3"])
+                            :pattern [:?id :?description]}])))))
+
+
+
 (deftest test-query-with-substitution
 
   (is (= '({:?x :a, :?y :c}
