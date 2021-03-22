@@ -1881,6 +1881,7 @@
           (range value-count)))
 
 (defn create-test-btree-2 [node-size value-count]
+  (assert (> node-size 3))
   (reduce add-3
           (create-2 (full-after-maximum-number-of-values node-size))
           (range value-count)))
@@ -2374,103 +2375,98 @@
                        2
                        :backwards))))
 
-
-
-(defn first-leaf-path [btree path direction]
-  (loop [path path
-         btree btree]
-    (let [node (get-in btree path)]
+(defn first-leaf-path [btree-atom path direction]
+  (loop [path path]
+    (let [node (get-in @btree-atom path)]
       (if (loaded-2? node)
-        (if (leaf-node-3? node)
-          {:btree btree
-           :path path}
-          (recur (concat path [:children (first (if (= :forwards direction)
-                                                  (first (:children node))
-                                                  (last (:children node))))])
-                 btree))
-        (recur path
-               (load-node-3 btree path))))))
+          (if (leaf-node-3? node)
+            path
+            (recur (concat path [:children (first (if (= :forwards direction)
+                                                    (first (:children node))
+                                                    (last (:children node))))])))
+          (do (swap! btree-atom load-node-3 path)
+              (recur path))))))
 
 (deftest test-first-leaf-path
   (is (= [:root :children 2]
-         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {:values :foo})})}}
-                                 [:root]
-                                 :forwards))))
+         (first-leaf-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
+                          [:root]
+                          :forwards)))
 
   (is (= [:root :children :argumentica.comparator/max :children 4]
-         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {:values :foo})})}}
-                                 [:root :children ::comparator/max]
-                                 :forwards))))
+         (first-leaf-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
+                          [:root :children ::comparator/max]
+                          :forwards)))
 
   (is (= '(:root :children :argumentica.comparator/max :children :argumentica.comparator/max)
-         (:path (first-leaf-path {:root {:children (child-map 2 {:values :foo}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {:values :foo})})}}
-                                 [:root]
-                                 :backwards))))
+         (first-leaf-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
+                          [:root]
+                          :backwards)))
 
-  (is (= '(:root :children 0)
-         (:path (first-leaf-path (unload-btree (create-test-btree-2 3 5))
-                                 [:root]
-                                 :forwards)))))
+  (is (= '(:root :children 1)
+         (first-leaf-path (atom (unload-btree (create-test-btree-2 4 5)))
+                          [:root]
+                          :forwards))))
 
-(defn next-child-path [btree path direction]
-  (loop [path path
-         btree btree]
+(defn next-child-path [btree-atom path direction]
+  (loop [path path]
     (if (= [:root] path)
       nil
 
       (let [the-parent-path (parent-path path)
-            parent (get-in btree the-parent-path)]
+            parent (get-in @btree-atom the-parent-path)]
 
         (if-let [the-next-divider (next-divider parent
                                                 (last path)
                                                 direction)]
-          (first-leaf-path btree
+          (first-leaf-path btree-atom
                            (concat the-parent-path
                                    [:children the-next-divider])
                            direction)
-          (recur the-parent-path
-                 btree))))))
+          (recur the-parent-path))))))
+
 
 (deftest test-next-child-path
   (is (= '(:root :children :argumentica.comparator/max :children 4)
-         (:path (next-child-path {:root {:children (child-map 2 {:values :foo}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {:values :foo})})}}
-                                 [:root :children 2]
-                                 :forwards))))
+         (next-child-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
+                          [:root :children 2]
+                          :forwards)))
 
   (is (= '(:root :children ::comparator/max :children ::comparator/max)
-         (:path (next-child-path {:root {:children (child-map 2 {:values :foo}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {:values :foo})})}}
-                                 [:root :children ::comparator/max :children 4]
-                                 :forwards))))
+         (next-child-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
+                          [:root :children ::comparator/max :children 4]
+                          :forwards)))
 
   (is (= nil
-         (next-child-path {:root {:children (child-map 2 {:values :foo}
-                                                       ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                              ::comparator/max {:values :foo})})}}
+         (next-child-path (atom {:root {:children (child-map 2 {:values :foo}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {:values :foo})})}})
                           [:root :children ::comparator/max :children ::comparator/max]
                           :forwards)))
 
   (is (= '(:root :children :argumentica.comparator/max :children 4)
-         (:path (next-child-path {:root {:children (child-map 2 {:children (child-map ::comparator/max {:values :foo})}
-                                                              ::comparator/max {:children (child-map 4 {:values :foo}
-                                                                                                     ::comparator/max {})})}}
-                                 [:root :children 2 :children ::comparator/max]
-                                 :forwards))))
+         (next-child-path (atom {:root {:children (child-map 2 {:children (child-map ::comparator/max {:values :foo})}
+                                                             ::comparator/max {:children (child-map 4 {:values :foo}
+                                                                                                    ::comparator/max {})})}})
+                          [:root :children 2 :children ::comparator/max]
+                          :forwards)))
 
   (is (= '(:root :children 1)
-         (:path (next-child-path (-> (create-test-btree-2 3 5)
-                                     (unload-node-2 [:root :children 1]))
-                                 [:root :children 0]
-                                 :forwards)))))
+         (next-child-path (-> (create-test-btree-2 4 5)
+                              (unload-node-2 [:root :children 1])
+                              (atom))
+                          [:root :children 0]
+                          :forwards))))
 
 (defn subsequence [sorted starting-value direction]
   (if (= :forwards direction)
@@ -2489,31 +2485,24 @@
 (defn reduce-btree [reducing-function initial-reduced-value btree-atom starting-value direction]
   (let [starting-value (lazy-sequence-to-vector starting-value)]
     (loop [reduced-value initial-reduced-value
-           path (path-for-value btree-atom starting-value)
-           btree @btree-atom]
+           path (path-for-value btree-atom starting-value)]
       (if path
-        (let [node (get-in btree path)]
-          (if (loaded-2? node)
-            (let [reduced-value (if (sorted? (:values node))
-                                  (reducible/reduce-preserving-reduced reducing-function
+        (let [node (get-in @btree-atom path)]
+          (let [reduced-value (if (sorted? (:values node))
+                                (reducible/reduce-preserving-reduced reducing-function
+                                                                     reduced-value
+                                                                     (subsequence (:values node)
+                                                                                  starting-value
+                                                                                  direction))
+                                (leaf-node-serialization/reduce-values starting-value
+                                                                       direction
+                                                                       (reduction/double-reduced reducing-function)
                                                                        reduced-value
-                                                                       (subsequence (:values node)
-                                                                                    starting-value
-                                                                                    direction))
-                                  (leaf-node-serialization/reduce-values starting-value
-                                                                         direction
-                                                                         (reduction/double-reduced reducing-function)
-                                                                         reduced-value
-                                                                         (:values node)))]
-              (if (reduced? reduced-value)
-                (reducing-function @reduced-value)
-                (let [{:keys [btree path]} (next-child-path btree path direction)]
-                  (recur reduced-value
-                         path
-                         btree))))
-            (recur reduced-value
-                   path
-                   (swap! btree-atom load-node-3 path))))
+                                                                       (:values node)))]
+            (if (reduced? reduced-value)
+              (reducing-function @reduced-value)
+              (recur reduced-value
+                     (next-child-path btree-atom path direction)))))
         (reducing-function reduced-value)))))
 
 (deftest test-reduce-btree
@@ -2545,12 +2534,21 @@
                        4
                        :backwards)))
 
-  (is (= (range 3)
+  (is (= (range 10)
+         (reduce-btree conj
+                       []
+                       (atom (reduce add-3
+                                     (create-2 (full-after-maximum-number-of-values 4))
+                                     (range 10)))
+                       0
+                       :forwards)))
+
+  (is (= (range 10)
          (reduce-btree conj
                        []
                        (atom (unload-excess-nodes (reduce add-3
-                                                          (create-2 (full-after-maximum-number-of-values 2))
-                                                          (range 3))
+                                                          (create-2 (full-after-maximum-number-of-values 4))
+                                                          (range 10))
                                                   0))
                        0
                        :forwards))))

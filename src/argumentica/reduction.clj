@@ -44,6 +44,17 @@
   (completing (fn [count value_]
                 (inc count))))
 
+(deftest test-value-count
+  (is (= 9
+         (reduce value-count
+                 (range 10))))
+
+  (is (= 9
+         (reduce value-count
+                 0
+                 (eduction (filter even?)
+                           (range 10))))))
+
 (defn last-value
   ([] nil)
   ([result] result)
@@ -172,6 +183,19 @@
     IReduce
     (reduce [this reducing-function]
       (reducing-function (the-reduce reducing-function (reducing-function))))))
+
+(defn implement-non-initialized-reducible [reducible]
+  (reify
+    IReduce
+    (reduce [this reducing-function]
+      (reduce reducing-function (reducing-function) reducible))))
+
+(deftest test-non-initialized-reducible
+  (is (= 20
+         (reduce +
+                 (implement-non-initialized-reducible (eduction (filter even?)
+                                                                (range 10)))))))
+
 
 (defn reduce-depth-first [root children reducing-function initial-value]
   (loop [reduced-value initial-value
