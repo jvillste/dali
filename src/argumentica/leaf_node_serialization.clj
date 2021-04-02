@@ -344,7 +344,7 @@
   (is (= {:index ["00" "00" "00" "00" "00" "02"],
           :row-length 1,
           :rows ["b6" "00" "b6" "00"],
-          :dictionary {:index ["00" "00"],
+          :dictionary {:index ["00" "00" "00"]
                        :rows ["b7" "db" "61"]}}
          (util/byte-array-values-to-vectors (write-node [[:a]
                                                          [:a]])))))
@@ -369,74 +369,12 @@
              (* index 3))
   (.readRawInt24 (:raw-input raw-byte-buffer)))
 
+(defn raw-byte-buffer-limit [raw-byte-buffer]
+  (.limit (:byte-buffer raw-byte-buffer)))
 
-(defn reduce-values-from-row-number [row-number direction reducing-function initial-value node]
-  (let [index-raw-byte-buffer (raw-byte-buffer (:index node))
-        rows-byte-buffer-reader (byte-buffer-reader (:rows node))
-        open-dictionary (open-dictionary (:dictionary node))]
-
-    (if (= :forwards direction)
-
-      (do (set-position (read-raw-int-24 index-raw-byte-buffer
-                                         row-number)
-                        rows-byte-buffer-reader)
-          (loop [reduced-value initial-value]
-            (if (has-bytes-left? rows-byte-buffer-reader)
-              (let [reduced-value (reducing-function reduced-value
-                                                     (read-row (:row-length node)
-                                                               open-dictionary
-                                                               rows-byte-buffer-reader))]
-                (if (reduced? reduced-value)
-                  (reducing-function @reduced-value)
-                  (recur reduced-value)))
-              (reducing-function reduced-value))))
-
-      (loop [reduced-value initial-value
-             row-number row-number]
-        (if (<= 0 row-number)
-          (do (set-position (read-raw-int-24 index-raw-byte-buffer
-                                             row-number)
-                            rows-byte-buffer-reader)
-              (let [reduced-value (reducing-function reduced-value
-                                                     (read-row (:row-length node)
-                                                               open-dictionary
-                                                               rows-byte-buffer-reader))]
-                (if (reduced? reduced-value)
-                  (reducing-function @reduced-value)
-                  (recur reduced-value
-                         (if (= :forwards direction)
-                           (inc row-number)
-                           (dec row-number))))))
-          (reducing-function reduced-value))))))
-
-(deftest test-reduce-values
-  (is (= [2 3]
-         (reduce-values-from-row-number 1
-                                        :forwards
-                                        conj
-                                        []
-                                        (write-node [1 2 3]))))
-
-  (is (= [[2 2] [3 2]]
-         (reduce-values-from-row-number 1
-                                        :forwards
-                                        conj
-                                        []
-                                        (write-node [[1 2] [2 2] [3 2]]))))
-
-  (is (= [[2] [1]]
-         (reduce-values-from-row-number 1
-                                        :backwards
-                                        conj
-                                        []
-                                        (write-node [[1] [2] [3]]))))
-
-  (is (= [[:a/b] [3]]
-         (reduce-values-from-row-number 1
-                                        :forwards
-                                        conj
-                                        []
-                                        (write-node [[:a/b] [:a/b] [3]])))))
+(deftest test-raw-byte-buffer-limit
+  (is (= 3
+         (raw-byte-buffer-limit (raw-byte-buffer (byte-array [1 2 3]))))))
 
 (defn row-count [node]
   (/ (alength (:index node))
@@ -626,20 +564,95 @@
                                                   (write-node [[1] [2] [3] [4] [5]])))))
 
 
-(defn reduce-values [starting-value direction reducing-function initial-value node]
-  (if-let [position (if (= :forwards
-                           direction)
-                      (position-of-smallest-greater-than-or-equal starting-value
-                                                                  node)
-                      (position-of-greatest-less-than-or-equal starting-value
-                                                               node))]
-    (reduce-values-from-row-number position
-                                   direction
-                                   reducing-function
-                                   initial-value
-                                   node)
-    initial-value))
+(defn- starting-position [direction starting-value node]
+  (if (= :forwards
+         direction)
+    (position-of-smallest-greater-than-or-equal starting-value
+                                                node)
+    (position-of-greatest-less-than-or-equal starting-value
+                                             node)))
 
+(defn- set-cursor-position! [new-position cursor]
+  (vreset! (:position-volatile cursor)
+          new-position)
+  (set-position (read-raw-int-24 (:index-raw-byte-buffer cursor)
+                                 new-position)
+                (:rows-byte-buffer-reader cursor)))
+
+(defn cursor [starting-value direction node]
+  (when-let [position (starting-position direction starting-value node)]
+    (let [cursor {:index-raw-byte-buffer (raw-byte-buffer (:index node))
+                  :rows-byte-buffer-reader (byte-buffer-reader (:rows node))
+                  :open-dictionary (open-dictionary (:dictionary node))
+                  :position-volatile (volatile! 0)
+                  :row-length (:row-length node)
+                  :direction direction}]
+      (set-cursor-position! position
+                            cursor)
+      cursor)))
+
+(defn maximum-position [cursor]
+  (dec (/ (raw-byte-buffer-limit (:index-raw-byte-buffer cursor))
+          3)))
+
+(deftest test-maximum-position
+  (is (= 2
+         (maximum-position  (cursor 0 :forwards (write-node (range 3)))))))
+
+(defn- at-last-value? [cursor]
+  (if (= :forwards (:direction cursor))
+    (= @(:position-volatile cursor)
+       (maximum-position cursor))
+    (= 0 @(:position-volatile cursor))))
+
+(defn read-from-cursor [cursor]
+  (read-row (:row-length cursor)
+            (:open-dictionary cursor)
+            (:rows-byte-buffer-reader cursor)))
+
+(defn advance! [cursor]
+  (set-cursor-position! ((if (= :forwards (:direction cursor))
+                           inc dec)
+                         @(:position-volatile cursor))
+                        cursor))
+
+(deftest test-cursor
+  (let [cursor (cursor 0 :forwards (write-node (range 2)))]
+    (is (= false (at-last-value? cursor)))
+    (is (= 0 (read-from-cursor cursor)))
+    (advance! cursor)
+    (is (= true (at-last-value? cursor)))
+    (is (= 1 (read-from-cursor cursor))))
+
+  (let [cursor (cursor 1 :backwards (write-node (range 2)))]
+    (is (= false (at-last-value? cursor)))
+    (is (= 1 (read-from-cursor cursor)))
+    (advance! cursor)
+    (is (= true (at-last-value? cursor)))
+    (is (= 0 (read-from-cursor cursor)))))
+
+
+(defn reduce-cursor [reducing-function initial-value cursor]
+  (loop [reduced-value initial-value]
+    (let [reduced-value (reducing-function reduced-value
+                                           (read-from-cursor cursor))]
+      (if (reduced? reduced-value)
+        (reducing-function @reduced-value)
+        (if (at-last-value? cursor)
+          (reducing-function reduced-value)
+          (do (advance! cursor)
+              (recur reduced-value)))))))
+
+
+
+(defn reduce-values [starting-value direction reducing-function initial-value node]
+  (if-let [cursor (cursor starting-value
+                            direction
+                            node)]
+    (reduce-cursor reducing-function
+                   initial-value
+                   cursor)
+    (reducing-function initial-value)))
 
 (defn reducible [starting-value direction node]
   (reduction/reducible (fn [reducing-function initial-value]
@@ -679,7 +692,6 @@
                (reducible -1
                           :backwards
                           (write-node (range 3)))))))
-
 
 (comment
   (comparator/compare-datoms 1 2)
