@@ -18,6 +18,8 @@
            java.io.InputStream))
 
 
+(def index-pointer-byte-count 3)
+
 (defn unsinged-byte [byte]
   (bit-and byte 0xFF))
 
@@ -210,12 +212,10 @@
      :index-raw-input (RawInput. (byte-buffer-input-stream index-byte-buffer))
      :rows-byte-buffer-reader (byte-buffer-reader (:rows dictionary))}))
 
-(def index-pointer-size 3)
-
 (defn value-from-dictionary [value-number open-dictionary]
   (.position (:index-byte-buffer open-dictionary)
              (* value-number
-                index-pointer-size))
+                index-pointer-byte-count))
   (.position (-> open-dictionary
                  :rows-byte-buffer-reader
                  :byte-buffer)
@@ -364,10 +364,11 @@
     {:byte-buffer byte-buffer
      :raw-input (RawInput. (byte-buffer-input-stream byte-buffer))}))
 
-(defn read-raw-int-24 [raw-byte-buffer index]
-  (.position (:byte-buffer raw-byte-buffer)
-             (* index 3))
-  (.readRawInt24 (:raw-input raw-byte-buffer)))
+(defn read-from-index [position index-raw-byte-buffer]
+  (set-position (* position
+                   index-pointer-byte-count)
+                index-raw-byte-buffer)
+  (.readRawInt24 (:raw-input index-raw-byte-buffer)))
 
 (defn raw-byte-buffer-limit [raw-byte-buffer]
   (.limit (:byte-buffer raw-byte-buffer)))
@@ -378,7 +379,7 @@
 
 (defn row-count [node]
   (/ (alength (:index node))
-     index-pointer-size))
+     index-pointer-byte-count))
 
 (defn binary-search [greatest-number compare-to-target-number]
   (loop [lesser-number nil
@@ -491,8 +492,7 @@
     (when (> row-count 0)
      (binary-search (dec row-count)
                     (fn [number]
-                      (set-position (read-raw-int-24 index-raw-byte-buffer
-                                                     number)
+                      (set-position (read-from-index number index-raw-byte-buffer)
                                     rows-byte-buffer-reader)
                       (comparator/compare-datoms (read-row (:row-length node)
                                                            open-dictionary
@@ -574,10 +574,11 @@
 
 (defn- set-cursor-position! [new-position cursor]
   (vreset! (:position-volatile cursor)
-          new-position)
-  (set-position (read-raw-int-24 (:index-raw-byte-buffer cursor)
-                                 new-position)
-                (:rows-byte-buffer-reader cursor)))
+           new-position)
+  (when (<= 0 new-position)
+    (set-position (read-from-index new-position
+                                   (:index-raw-byte-buffer cursor))
+                  (:rows-byte-buffer-reader cursor))))
 
 (defn cursor [starting-value direction node]
   (when-let [position (starting-position direction starting-value node)]
@@ -591,45 +592,51 @@
                             cursor)
       cursor)))
 
+(defn cursor-limit [cursor]
+  (/ (raw-byte-buffer-limit (:index-raw-byte-buffer cursor))
+     index-pointer-byte-count))
+
 (defn maximum-position [cursor]
-  (dec (/ (raw-byte-buffer-limit (:index-raw-byte-buffer cursor))
-          3)))
+  (dec (cursor-limit cursor)))
 
 (deftest test-maximum-position
   (is (= 2
          (maximum-position  (cursor 0 :forwards (write-node (range 3)))))))
 
-(defn- at-last-value? [cursor]
+
+(defn- has-next? [cursor]
   (if (= :forwards (:direction cursor))
-    (= @(:position-volatile cursor)
-       (maximum-position cursor))
-    (= 0 @(:position-volatile cursor))))
+    (< @(:position-volatile cursor)
+       (cursor-limit cursor))
+    (>= @(:position-volatile cursor)
+        0)))
 
 (defn read-from-cursor [cursor]
-  (read-row (:row-length cursor)
-            (:open-dictionary cursor)
-            (:rows-byte-buffer-reader cursor)))
-
-(defn advance! [cursor]
-  (set-cursor-position! ((if (= :forwards (:direction cursor))
-                           inc dec)
-                         @(:position-volatile cursor))
-                        cursor))
+  (let [result (read-row (:row-length cursor)
+                         (:open-dictionary cursor)
+                         (:rows-byte-buffer-reader cursor))]
+    (if (= :forwards (:direction cursor))
+      (vswap! (:position-volatile cursor)
+              inc)
+      (set-cursor-position! (vswap! (:position-volatile cursor)
+                                    dec)
+                            cursor))
+    result))
 
 (deftest test-cursor
   (let [cursor (cursor 0 :forwards (write-node (range 2)))]
-    (is (= false (at-last-value? cursor)))
+    (is (= true (has-next? cursor)))
     (is (= 0 (read-from-cursor cursor)))
-    (advance! cursor)
-    (is (= true (at-last-value? cursor)))
-    (is (= 1 (read-from-cursor cursor))))
+    (is (= true (has-next? cursor)))
+    (is (= 1 (read-from-cursor cursor)))
+    (is (= false (has-next? cursor))))
 
   (let [cursor (cursor 1 :backwards (write-node (range 2)))]
-    (is (= false (at-last-value? cursor)))
+    (is (= true (has-next? cursor)))
     (is (= 1 (read-from-cursor cursor)))
-    (advance! cursor)
-    (is (= true (at-last-value? cursor)))
-    (is (= 0 (read-from-cursor cursor)))))
+    (is (= true (has-next? cursor)))
+    (is (= 0 (read-from-cursor cursor)))
+    (is (= false (has-next? cursor)))))
 
 
 (defn reduce-cursor [reducing-function initial-value cursor]
@@ -638,12 +645,9 @@
                                            (read-from-cursor cursor))]
       (if (reduced? reduced-value)
         (reducing-function @reduced-value)
-        (if (at-last-value? cursor)
-          (reducing-function reduced-value)
-          (do (advance! cursor)
-              (recur reduced-value)))))))
-
-
+        (if (has-next? cursor)
+          (recur reduced-value)
+          (reducing-function reduced-value))))))
 
 (defn reduce-values [starting-value direction reducing-function initial-value node]
   (if-let [cursor (cursor starting-value
@@ -696,7 +700,7 @@
 (comment
   (comparator/compare-datoms 1 2)
   (let [output (initialize-output)]
-    (fressian/write-object (:writer output)
+     (fressian/write-object (:writer output)
                            :a)
     (fressian/write-object (:writer output)
                            :a)
@@ -727,5 +731,7 @@
   ;;("ef" "db" "63" "1" "1" "a0" "1")
   ;;("ef" "db" "63" "1" "1" "a0" "2")
 
+
+  (run! print (repeat 1000 "Lumo on paras "))
 
   ) ;; TODO: remove-me
