@@ -38,17 +38,17 @@
       (if ascending?
         (btree/inclusive-subsequence (:btree-atom this)
                                      ::comparator/min)
-        (btree/inclusive-reverse-subsequence (:btree-atom this)
-                                             ::comparator/max))))
+        (btree/inclusive-subsequence (:btree-atom this)
+                                     ::comparator/max
+                                     {:direction :backwards}))))
   (seqFrom [this value ascending?]
-    (prn 'seqFrom) ;; TODO: remove-me
-
     (locking (:btree-atom this)
       (if ascending?
         (btree/inclusive-subsequence (:btree-atom this)
                                      value)
-        (btree/inclusive-reverse-subsequence (:btree-atom this)
-                                             value))))
+        (btree/inclusive-subsequence (:btree-atom this)
+                                     value
+                                     {:direction :backwards}))))
   sorted-reducible/SortedReducible
   (subreducible-method [sorted starting-key direction]
     (btree/btree-reducible btree-atom starting-key direction))

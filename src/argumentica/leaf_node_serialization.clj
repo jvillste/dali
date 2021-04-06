@@ -15,7 +15,8 @@
            org.fressian.impl.RawOutput
            org.fressian.impl.RawInput
            java.nio.ByteBuffer
-           java.io.InputStream))
+           java.io.InputStream
+           argumentica.comparator.DatomComparator))
 
 
 (def index-pointer-byte-count 3)
@@ -696,6 +697,56 @@
                (reducible -1
                           :backwards
                           (write-node (range 3)))))))
+
+(defn cursor-sequence [cursor]
+  (when (has-next? cursor)
+    (lazy-seq (cons (read-from-cursor cursor)
+                    (cursor-sequence cursor)))))
+
+(defn subsequence [starting-value direction node]
+  (when-let [cursor (cursor starting-value direction node)]
+    (cursor-sequence cursor)))
+
+(deftest test-subsequence
+  (is (= '(1 2)
+         (subsequence 1
+                      :forwards
+                      (write-node (range 3)))))
+
+  (is (= '(1 0)
+         (subsequence 1
+                      :backwards
+                      (write-node (range 3)))))
+
+  (is (= nil
+         (subsequence 5
+                      :forwards
+                      (write-node (range 3))))))
+
+(defn sorted [node]
+  (reify clojure.lang.Sorted
+    (comparator [this]
+      (DatomComparator.))
+    (entryKey [this entry]
+      entry)
+    (seq [this ascending?]
+      (if ascending?
+        (subsequence ::comparator/min :forwards node)
+        (subsequence ::comparator/max :backwards node)))
+    (seqFrom [this value ascending?]
+      (if ascending?
+        (subsequence value :forwards node)
+        (subsequence value :backwards node)))
+    ;; clojure.lang.Seqable
+    ;; (seq [this]
+    ;;   (subsequence ::comparator/min :forwards node))
+    ))
+
+(deftest test-sorted
+  (is (= '(0 1)
+         (subseq (sorted (write-node (range 3)))
+                 <= 1))))
+
 
 (comment
   (comparator/compare-datoms 1 2)

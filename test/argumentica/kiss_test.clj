@@ -212,11 +212,11 @@
                  [:entity-1 :name 2 :set "Name after creation"])
                (common/datoms db-value-3 :eatcv [])))
 
-        (is (= '([:entity-1 :name 0 :set "Name in first root"]
-                 [:entity-1 :name 1 :set "Name after first root"]
-                 [:entity-1 :name 2 :set "Name after creation"])
-               (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :collection :index-atom deref :base-sorted-datom-set :btree-index-atom)
-                                            ::comparator/min)))
+        ;; (is (= '([:entity-1 :name 0 :set "Name in first root"]
+        ;;          [:entity-1 :name 1 :set "Name after first root"]
+        ;;          [:entity-1 :name 2 :set "Name after creation"])
+        ;;        (btree/inclusive-subsequence (-> server-btree-db :indexes :eatcv :collection :index-atom deref :base-sorted-datom-set :btree-index-atom)
+        ;;                                     ::comparator/min)))
 
         (is (= 2 (:last-transaction-number @server-btree-db)))
 

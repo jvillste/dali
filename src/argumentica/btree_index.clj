@@ -14,40 +14,43 @@
          arguments))
 
 (defrecord BtreeIndex [btree-index-atom]
-  clojure.lang.Sorted
-  (comparator [this]
-    (DatomComparator.))
-  (entryKey [this entry]
-    entry)
-  (seq [this ascending?]
-    (if ascending?
-      (btree/inclusive-subsequence (:btree-index-atom this)
-                                   ::comparator/min)
-      (btree/inclusive-reverse-subsequence (:btree-index-atom this)
-                                           ::comparator/max)))
-  (seqFrom [this value ascending?]
-    (if ascending?
-      (btree/inclusive-subsequence (:btree-index-atom this)
-                                   value)
-      (btree/inclusive-reverse-subsequence (:btree-index-atom this)
-                                           value)))
-  mutable-collection/MutableCollection
-  (add! [this value]
-    (swap-btree! this
-                 btree/add
-                 value)))
+  ;; clojure.lang.Sorted
+  ;; (comparator [this]
+  ;;   (DatomComparator.))
+  ;; (entryKey [this entry]
+  ;;   entry)
+  ;; (seq [this ascending?]
+  ;;   (if ascending?
+  ;;     (btree/inclusive-subsequence (:btree-index-atom this)
+  ;;                                  ::comparator/min)
+  ;;     (btree/inclusive-reverse-subsequence (:btree-index-atom this)
+  ;;                                          ::comparator/max)))
+  ;; (seqFrom [this value ascending?]
+  ;;   (if ascending?
+  ;;     (btree/inclusive-subsequence (:btree-index-atom this)
+  ;;                                  value)
+  ;;     (btree/inclusive-reverse-subsequence (:btree-index-atom this)
+  ;;                                          value)))
+  ;; mutable-collection/MutableCollection
+  ;; (add! [this value]
+  ;;   (swap-btree! this
+  ;;                btree/add
+  ;;                value))
+  )
 
 (defmethod index/inclusive-subsequence
   BtreeIndex
   [this value]
-  (btree/inclusive-subsequence (:btree-index-atom this)
-                               value))
+  ;; (btree/inclusive-subsequence (:btree-index-atom this)
+  ;;                              value)
+  )
 
 (defmethod index/inclusive-reverse-subsequence
   BtreeIndex
   [this value]
-  (btree/inclusive-reverse-subsequence (:btree-index-atom this)
-                                       value))
+  ;; (btree/inclusive-reverse-subsequence (:btree-index-atom this)
+  ;;                                      value)
+  )
 
 (defn btree [btree-index]
   @(:btree-index-atom btree-index))

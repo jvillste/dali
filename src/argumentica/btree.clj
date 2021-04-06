@@ -1964,14 +1964,14 @@
 
 
 (deftest test-unload-excess-nodes
-  (is (= {:storage-key "910494876599110E081AE85BAB35B3EA7377A678FCCDDCD9AE9704BE89AAC7D8"}
-         (:root (unload-excess-nodes (create-test-btree-2 3 5)
+  (is (= {:storage-key "D882E49DAAC7A69AAB5672274E22A0EFC9C599991F64D6B6E8DFF457383D37E9"}
+         (:root (unload-excess-nodes (create-test-btree-2 4 5)
                                      0))))
 
   (is (= [[:root]]
          (into []
                (map :path)
-               (loaded-node-reducible (unload-excess-nodes (create-test-btree-2 3 5)
+               (loaded-node-reducible (unload-excess-nodes (create-test-btree-2 4 5)
                                                            1))))))
 
 ;; TODO: this should be closer to the function it tests
@@ -2561,129 +2561,83 @@
                                        starting-key
                                        direction))))
 
-(defn lazy-value-sequence [btree-atom sequence direction]
-  (if-let [sequence (if (first (rest sequence))
-                      sequence
-                      (if-let [value (first sequence)]
-                        (cons value
-                              (sequence-after-splitter btree-atom
-                                                       (first sequence)
-                                                       direction))
-                        nil))]
-    (lazy-seq (cons (first sequence)
-                    (lazy-value-sequence btree-atom
-                                         (rest sequence)
-                                         direction)))
-    nil))
+(defn ensure-sorted-leaf-node-values [values]
+  (if (sorted? values)
+    values
+    (leaf-node-serialization/sorted values)))
 
-(defn inclusive-subsequence [btree-atom value]
-  (lazy-value-sequence btree-atom
-                       (sequence-for-value btree-atom
-                                           value
-                                           :forwards)
-                       :forwards))
+(defn lazy-value-sequence-2 [btree-atom path sequence direction]
+  (when-let [[sequence path] (if (first sequence)
+                               [sequence path]
+                               (if-let [path (next-child-path btree-atom
+                                                              path
+                                                              direction)]
+                                 [(if (= direction :forwards)
+                                    (subsequence (ensure-sorted-leaf-node-values (:values (get-in @btree-atom path)))
+                                                 :comparator/min
+                                                 :forwards)
+                                    (subsequence (ensure-sorted-leaf-node-values (:values (get-in @btree-atom path)))
+                                                 :comparator/max
+                                                 :backwards))
+                                  path]
+                                 nil))]
+    (lazy-seq (cons (first sequence)
+                    (lazy-value-sequence-2 btree-atom
+                                           path
+                                           (rest sequence)
+                                           direction)))))
+
+(defn inclusive-subsequence [btree-atom value & [{:keys [direction] :or {direction :forwards}}]]
+  (let [path (path-for-value btree-atom value)]
+    (lazy-value-sequence-2 btree-atom
+                           path
+                           (subsequence (ensure-sorted-leaf-node-values (:values (get-in @btree-atom path)))
+                                        value
+                                        direction)
+                           direction)))
 
 (deftest test-inclusive-subsequence
-  (let [btree-atom (atom {:nodes
-                          {0 {:values (create-sorted-set 1 2)},
-                           1 {:values (create-sorted-set 3)
-                              :child-ids [0 2]},
-                           2 {:values (create-sorted-set 4 5 6)}}
-                          :root-id 1
-                          :next-node-id 3
-                          :usages {}
-                          :node-storage (hash-map-storage/create)
-                          :metadata-storage (hash-map-storage/create)})]
+
+  (let [btree-atom (atom (create-test-btree-2 4 10))]
+
+    (is (= (range 10)
+           (inclusive-subsequence btree-atom
+                                    0)))
 
     (swap! btree-atom
            unload-btree)
 
-    #_(is (= 3
-           (count (storage/storage-keys! (:metadata-storage @btree-atom)))))
-
-    (is (= [1 2 3 4 5 6]
+    (is (= (range 10)
            (inclusive-subsequence btree-atom
-                                  0)))
+                                    0)))
 
-
-    (is (= [2 3 4 5 6]
+    (is (= [0 1 2 3 4 5 6 7 8 9]
            (inclusive-subsequence btree-atom
-                                  2)))
+                                    0)))
 
-    (is (= [3 4 5 6]
-           (inclusive-subsequence btree-atom
-                                  3)))
 
-    (is (= [4 5 6]
+    (is (= [2 3 4 5 6 7 8 9]
            (inclusive-subsequence btree-atom
-                                  4)))
+                                    2)))
+
+    (is (= [3 4 5 6 7 8 9]
+           (inclusive-subsequence btree-atom
+                                    3)))
+
+    (is (= [4 5 6 7 8 9]
+           (inclusive-subsequence btree-atom
+                                    4)))
 
     (is (= nil
            (inclusive-subsequence btree-atom
-                                  7)))
+                                    10)))
 
     (let [values (range 200)]
       (is (= values
-             (inclusive-subsequence (atom (reduce add
-                                                  (create (full-after-maximum-number-of-values 3))
-                                                  values))
-                                    (first values)))))))
-
-
-(defn inclusive-reverse-subsequence [btree-atom value]
-  (lazy-value-sequence btree-atom
-                       (sequence-for-value btree-atom
-                                           value
-                                           :backwards)
-                       :backwards))
-
-
-(deftest test-inclusive-reverse-subsequence
-  (let [btree-atom (atom {:nodes
-                          {0 {:values (create-sorted-set 1 2)},
-                           1 {:values (create-sorted-set 3)
-                              :child-ids [0 2]},
-                           2 {:values (create-sorted-set 4 5 6)}}
-                          :root-id 1
-                          :next-node-id 3
-                          :usages {}
-                          :node-storage (hash-map-storage/create)
-                          :metadata-storage (hash-map-storage/create)})]
-
-    (swap! btree-atom
-           unload-btree)
-
-    (is (= 3
-           (count (storage/storage-keys! (:metadata-storage @btree-atom)))))
-
-    (is (= nil
-           (inclusive-reverse-subsequence btree-atom
-                                          0)))
-
-
-    (is (= [2 1]
-           (inclusive-reverse-subsequence btree-atom
-                                          2)))
-
-    (is (= [3 2 1]
-           (inclusive-reverse-subsequence btree-atom
-                                          3)))
-
-    (is (= [4 3 2 1]
-           (inclusive-reverse-subsequence btree-atom
-                                          4)))
-
-    (is (= [6 5 4 3 2 1]
-           (inclusive-reverse-subsequence btree-atom
-                                          7)))
-
-    (let [values (range 200)]
-      (is (= (reverse values)
-             (inclusive-reverse-subsequence (atom (reduce add
-                                                          (create (full-after-maximum-number-of-values 3))
-                                                          values))
-                                            (last values)))))))
-
+             (inclusive-subsequence (atom (reduce add-3
+                                                    (create-2 (full-after-maximum-number-of-values 4))
+                                                    values))
+                                      (first values)))))))
 
 (defn next-sequence [sequence btree-atom direction]
   (if (first (rest sequence))
@@ -2758,7 +2712,7 @@
                                                   first-value)]
                 (is (= forward-subsequence
                        (inclusive-subsequence btree-atom
-                                              first-value)))
+                                                first-value)))
 
                 (is (= forward-subsequence
                        (transduce-btree btree-atom
@@ -2766,8 +2720,9 @@
                                         {:reducer conj})))
 
                 (is (= backward-subsequence
-                       (inclusive-reverse-subsequence btree-atom
-                                                      first-value)))
+                       (inclusive-subsequence btree-atom
+                                                first-value
+                                                {:direction :backwards})))
 
                 (is (= backward-subsequence
                        (transduce-btree btree-atom
@@ -2809,28 +2764,6 @@
 
 (defn unload-btree [btree]
   (unload-excess-nodes btree 0))
-
-(deftest test-unload-btree
-  (testing "unload btree when some nodes are unloaded in the middle"
-    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
-           (inclusive-subsequence (atom (-> (reduce add
-                                                    (create (full-after-maximum-number-of-values 3))
-                                                    (range 20))
-                                            (unload-node [13 5 6 3])
-                                            (unload-node [13 5 6 4])
-                                            (unload-btree)))
-                                  0))))
-
-  (testing "unload btree when first nodes are unloaded"
-    (is (= '(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
-           (inclusive-subsequence (atom (-> (reduce add
-                                                    (create (full-after-maximum-number-of-values 3))
-                                                    (range 20))
-
-                                            (unload-node [13 5 1 0])
-                                            (unload-node [13 5 1 2])
-                                            (unload-btree)))
-                                  0)))))
 
 (defn remove-old-roots [btree]
   (storage/put-edn-to-storage! (:metadata-storage btree)
