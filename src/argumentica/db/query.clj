@@ -8,14 +8,64 @@
             [argumentica.transducing :as transducing]
             [argumentica.reduction :as reduction]
             [clojure.string :as string]
-            [medley.core :as medley])
+            [medley.core :as medley]
+            [clojure.set :as set]
+            [argumentica.util :as util])
   (:use clojure.test))
 
-(defn unconditional-variable? [value]
+;; from https://stackoverflow.com/questions/18246549/cartesian-product-in-clojure
+(defn cartesian-product [collections]
+  (if (empty? collections)
+    [[]]
+    (for [other-values (cartesian-product (rest collections))
+          value (first collections)]
+      (cons value other-values))))
+
+(comment
+  (take 1 (cartesian-product [(range 100) (range 100 200)]))
+  (chunked-seq? (range 10))
+  ) ;; TODO: remove-me
+
+(deftest test-cartesian-product
+  (is (= '((1 3 5)
+           (2 3 5)
+           (1 4 5)
+           (2 4 5)
+           (1 3 6)
+           (2 3 6)
+           (1 4 6)
+           (2 4 6))
+         (take 3 (cartesian-product [[1 2] [3 4] [5 6]])))))
+
+(defn keyword-to-unconditional-variable [a-keyword]
+  (keyword (str "?" (name a-keyword))))
+
+(defn variable-key-name [variable-key]
+  (subs (name variable-key)
+        1))
+
+(defn unconditional-variable-name [unconditional-variable]
+  (variable-key-name (if-let [key (:key unconditional-variable)]
+                       key
+                       unconditional-variable)))
+
+(defn unconditional-variable-to-keyword [unconditional-variable]
+  (keyword (unconditional-variable-name unconditional-variable)))
+
+(defn variable-keys-to-keywords [maps]
+  (map (partial medley/map-keys unconditional-variable-to-keyword)
+       maps))
+
+(defn varialbe-key? [value]
   (and (keyword? value)
        (or (= "v" (namespace value))
            (.startsWith (name value)
                         "?"))))
+
+(defn unconditional-variable? [value]
+  (or (varialbe-key? value)
+      (and (:key value)
+           (not (:match value)))))
 
 (defn conditional-variable? [term]
   (and (some? (:match term))
@@ -53,7 +103,7 @@
         (= value term))))
 
 (defn- unify-term [value term]
-  (cond (unconditional-variable? term)
+  (cond (varialbe-key? term)
         [term value]
 
         (and (:key term)
@@ -129,6 +179,8 @@
     (every? true? (map term-matches? value pattern))
     (term-matches? value pattern)))
 
+
+
 (deftest test-match?
   (is (match? 1 1))
   (is (not (match? 1 2)))
@@ -179,28 +231,27 @@
 
 (defn nil-or-varialbe? [value]
   (or (nil? value)
-      (unconditional-variable? value)
+      (variable? value)
       (anything? value)))
 
 (defn has-trailing-constants? [pattern]
   (if (sequential? pattern)
-    (loop [pattern pattern]
-      (cond (not (sequential? pattern))
+    (loop [preceding-variable? false
+           pattern pattern]
+
+      (cond (empty? pattern)
             false
 
-            (empty? pattern)
-            false
+            (nil-or-varialbe? (first pattern))
+            (recur true
+                   (rest pattern))
 
-            (and (nil-or-varialbe? (first pattern))
-                 (some (complement nil-or-varialbe?)
-                       (rest pattern)))
+            preceding-variable?
             true
 
-            (not (nil-or-varialbe? (first pattern)))
-            (recur (rest pattern))
-
             :default
-            false))
+            (recur false
+                   (rest pattern))))
     false))
 
 (deftest test-has-trailing-constants?
@@ -215,8 +266,6 @@
 (def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
 
 (util/defno filter-by-pattern [sorted-set pattern {:keys [reverse?] :or {reverse? false}} :- filter-by-pattern-options]
-  (throw (Exception. "filter-by-pattern is deprecated"))
-
   (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
     (or (->> (if reverse?
                (util/inclusive-reverse-subsequence sorted-set
@@ -229,6 +278,109 @@
                        (or (not pattern-has-trailing-constants?)
                            (match? datom pattern)))))
         [])))
+
+(defn nonconstant? [term]
+  (or (unconditional-variable? term)
+      (anything? term)))
+
+(defn- variable-to-nil [term]
+  (if (nonconstant? term)
+    nil
+    term))
+
+(defn function-term-to-value [term]
+  (or (:minimum-value term)
+      term))
+
+(defn wildcard-pattern [pattern]
+  (if (sequential? pattern)
+    (map (comp function-term-to-value
+               variable-to-nil)
+         pattern)
+    (variable-to-nil (function-term-to-value pattern))))
+
+(deftest test-wildcard-pattern
+  (is (= [nil]
+         (wildcard-pattern [:?a])))
+
+  (is (= [nil 1 nil]
+         (wildcard-pattern [:?a 1 :?b])))
+
+  (is (= [1]
+         (wildcard-pattern [1])))
+
+  (is (= [1]
+         (wildcard-pattern [{:minimum-value 1}])))
+
+  (is (= 1
+         (wildcard-pattern {:minimum-value 1})))
+
+  (is (= nil
+         (wildcard-pattern :?a))))
+
+(defn subsequence [sorted pattern]
+  (util/inclusive-subsequence sorted (wildcard-pattern pattern)))
+
+(defn- unique-subsequence-tail [sorted previous-result]
+  (when-let [next-row (first (subseq sorted
+                                     >=
+                                     (concat previous-result
+                                             [::comparator/max])))]
+    (let [next-result (take (count previous-result)
+                            next-row)]
+      (lazy-seq (cons next-result
+                      (unique-subsequence-tail sorted
+                                               next-result))))))
+
+(deftest test-unique-subsequence-tail
+  (is (= '((2) (3))
+         (unique-subsequence-tail (util/row-set [1 1]
+                                                [1 2]
+                                                [2 3]
+                                                [2 4]
+                                                [3 5]
+                                                [3 6])
+                                  [1]))))
+
+(defn unique-subsequence [sorted starting-pattern]
+  (when-let [first-row (first (subseq sorted >= (wildcard-pattern starting-pattern)))]
+    (let [first-result (take (count starting-pattern)
+                             first-row)]
+      (lazy-seq (cons first-result
+                      (unique-subsequence-tail sorted first-result))))))
+
+(deftest test-unique-subsequence
+  (is (= '((1) (2) (3))
+         (unique-subsequence (util/row-set [1 1]
+                                           [1 2]
+                                           [2 3]
+                                           [2 4]
+                                           [3 5]
+                                           [3 6])
+                             [1])))
+
+  (is (= '((1) (2) (3))
+         (unique-subsequence (util/row-set [1 1]
+                                           [1 2]
+                                           [2 3]
+                                           [2 4]
+                                           [3 5]
+                                           [3 6])
+                             [nil])))
+
+  (is (= '((1 1) (1 2) (2 3))
+         (unique-subsequence (util/row-set [1 1]
+                                           [1 2]
+                                           [2 3])
+                             [1 nil])))
+
+
+  (is (= '((1 1) (1 2) (2 3))
+         (unique-subsequence (util/row-set [1 1 1]
+                                           [1 2 1]
+                                           [1 2 2]
+                                           [2 3 1])
+                             [1 nil]))))
 
 (defn first-from-transducible-collection [transducible-collection]
   (transducible-collection/transduce transducible-collection
@@ -268,9 +420,7 @@
                                                       (sorted-reducible/subreducible sorted-reducible ::comparator/min)))
     pattern))
 
-(defn function-term-to-value [term]
-  (or (:minimum-value term)
-      term))
+
 
 (util/defno reducible-for-pattern [sorted-reducible pattern options :- reducible-for-pattern-options]
   (let [options (merge default-reducible-for-pattern-options
@@ -322,47 +472,63 @@
                                                         [:a 3 :b])
                                          [:a nil :b])))))
 
-(defn nonconstant? [term]
-  (or (unconditional-variable? term)
-      (anything? term)))
+(defn matching-subsequence [sorted pattern]
+  (let [conditional-pattern-prefix (take-while #(and (not (unconditional-variable? %))
+                                                     (not (anything? %)))
+                                               pattern)
+        subsequence (subsequence sorted pattern)]
 
-(defn- variable-to-nil [term]
-  (if (nonconstant? term)
-    nil
-    term))
+    (if (has-trailing-constants? pattern)
+      (->> subsequence
+           (take-while #(match? % conditional-pattern-prefix))
+           (filter #(match? % pattern)))
+      (->> subsequence
+           (take-while #(match? % pattern))))))
 
-(defn wildcard-pattern [pattern]
-  (if (sequential? pattern)
-    (map (comp function-term-to-value
-               variable-to-nil)
-         pattern)
-    (variable-to-nil (function-term-to-value pattern))))
+(deftest test-matching-subsequence
+  (is (= '([1 4 3])
+         (matching-subsequence (util/row-set [1 2 3]
+                                             [1 4 3])
+                               [1 4 :?b])))
 
-(deftest test-wildcard-pattern
-  (is (= [nil]
-         (wildcard-pattern [:?a])))
+  (is (= '([2 1 2]
+           [2 3 2])
+         (matching-subsequence (util/row-set [1 1 1]
+                                             [1 2 1]
+                                             [2 1 2]
+                                             [2 2 1]
+                                             [2 3 2]
+                                             [3 1 1]
+                                             [3 2 1])
+                               [2 :?x 2])))
 
-  (is (= [nil 1 nil]
-         (wildcard-pattern [:?a 1 :?b])))
+  (is (= '([1 2]
+           [2 2])
+         (matching-subsequence (util/row-set [1 1]
+                                             [1 2]
+                                             [2 1]
+                                             [2 2])
+                               [:?x 2]))))
 
-  (is (= [1]
-         (wildcard-pattern [1])))
-
-  (is (= [1]
-         (wildcard-pattern [{:minimum-value 1}])))
-
-  (is (= 1
-         (wildcard-pattern {:minimum-value 1})))
-
-  (is (= nil
-         (wildcard-pattern :?a))))
+(defn select [sorted pattern]
+  (->> (matching-subsequence sorted pattern)
+       (map #(unify % pattern))))
 
 (defn substitutions-for-collection [collection pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)]
     (->> (filter-by-pattern collection
                             wildcard-pattern)
-         (take-while #(match? % wildcard-pattern))
+         (take-while #(match? % pattern))
          (map #(unify % pattern)))))
+
+(defn matching-unique-subsequence [sorted pattern]
+  (->> (unique-subsequence sorted
+                           (wildcard-pattern pattern))
+       (take-while #(match? % pattern))))
+
+(defn unique-substitutions [sorted pattern]
+  (->> (matching-unique-subsequence sorted pattern)
+       (map #(unify % pattern))))
 
 (deftest test-substitutions-for-collection
   (is (= [{}] (substitutions-for-collection (sorted-set 1 2 3)
@@ -542,10 +708,16 @@
                                           [:a :?x])))))
 
 (defn substitute-term [term substitution]
-  (if (unconditional-variable? term)
-    (or (get substitution term)
-        term)
-    term))
+  (cond (varialbe-key? term)
+        (or (get substitution term)
+            term)
+
+        (:key term)
+        (or (get substitution (:key term))
+            term)
+
+        :default
+        term))
 
 (defn substitute-pattern [pattern substitution]
   (if (sequential? pattern)
@@ -565,7 +737,7 @@
 (def substitutions-for-patterns-options {(schema/optional-key :substitution) (schema/pred map?)})
 
 (util/defno substitutions-for-patterns [sorted-set patterns options :- substitutions-for-patterns-options]
-  (assert (satisfies? transducible-collection/TransducibleCollection sorted-set))
+;;  (assert (satisfies? transducible-collection/TransducibleCollection sorted-set))
   (loop [substitutions (if-let [substitution (:substitution options)]
                          [substitution]
                          (substitutions-for-collection sorted-set
@@ -720,3 +892,206 @@
                                                          {:substitution substitution})))
              (rest participants))
       substitutions)))
+
+
+
+;; merge join
+
+
+(defn variable-keys [pattern]
+  (->> pattern
+       (filter variable?)
+       (map variable-key)))
+
+(defn- common-variables [patterns]
+  (->> patterns
+       (map variable-keys)
+       (map set)
+       (apply set/intersection)))
+
+(defn- pattern-to-combined-key [variables-set pattern]
+  (->> pattern
+       (drop-while (complement variables-set))
+       (take-while variables-set)))
+
+(deftest test-pattern-to-combined-key
+  (is (= '(:?a :?b)
+         (pattern-to-combined-key #{:?a :?b}
+                                  [1 :?a :?b 2])))
+
+  (is (= '(:?a)
+         (pattern-to-combined-key #{:?a :?b}
+                                  [1 :?a 2 :?b]))))
+
+(defn common-combined-key-pattern [patterns]
+  (->> patterns
+       (map (partial pattern-to-combined-key
+                     (common-variables patterns)))
+       (map vec)
+       (sort)
+       (first)))
+
+(deftest test-common-combined-key-pattern
+  (is (= [:?a :?b]
+         (common-combined-key-pattern [[1 :?a :?b]
+                                       [1 2 :?a :?b :?c]])))
+
+  (is (= [:?a]
+         (common-combined-key-pattern [[1 :?a :?b]
+                                       [1 :?a 2 :?b]]))))
+
+
+(defn pattern-to-substitution [pattern value]
+  (into {} (map vector pattern value)))
+
+(deftest test-pattern-to-substitution
+  (is (= {:?a 1, :?b 2}
+         (pattern-to-substitution [:?a :?b] [1 2]))))
+
+(defn advance-one-cursor-with-same-key [key-pattern cursors]
+  (loop [cursors cursors
+         checked-cursors []]
+    (if-let [cursor (first cursors)]
+      (if (and (some? (second (:substitution-sequence cursor)))
+               (= (substitute-pattern key-pattern
+                                      (first (:substitution-sequence cursor)))
+                  (substitute-pattern key-pattern
+                                      (second (:substitution-sequence cursor)))))
+        (concat checked-cursors
+                [(assoc cursor
+                        :substitution-sequence (rest (:substitution-sequence cursor)))]
+                (rest cursors))
+        (recur (rest cursors)
+               (conj checked-cursors
+                     cursor)))
+      checked-cursors)))
+
+(deftest test-advance-one-cursor-with-same-key
+  (is (= '({:substitution-sequence ({:?id 1})}
+           {:substitution-sequence [{:?id 1}]})
+         (advance-one-cursor-with-same-key [:?id]
+                                           [{:substitution-sequence [{:?id 1}]}
+                                            {:substitution-sequence [{:?id 1}]}])))
+
+  (is (= '({:substitution-sequence ({:?id 1})}
+           {:substitution-sequence [{:?id 1}]})
+         (advance-one-cursor-with-same-key [:?id]
+                                           [{:substitution-sequence [{:?id 1} {:?id 1}]}
+                                            {:substitution-sequence [{:?id 1}]}])))
+
+  (is (= '({:substitution-sequence ({:?id 1})}
+           {:substitution-sequence [{:?id 1} {:?id 1}]})
+         (advance-one-cursor-with-same-key [:?id]
+                                           [{:substitution-sequence [{:?id 1} {:?id 1}]}
+                                            {:substitution-sequence [{:?id 1} {:?id 1}]}]))))
+
+(defn advance-all-cursors [key-pattern cursors]
+  (map (fn [cursor]
+         (let [substitution-sequence (rest (:substitution-sequence cursor))]
+           (when (and (not (empty? substitution-sequence))
+                      (some? (first substitution-sequence)))
+             (assoc cursor
+                    :substitution-sequence substitution-sequence
+                    :first-key (vec (substitute-pattern key-pattern
+                                                        (first substitution-sequence)))))))
+       cursors))
+
+(defn merge-join [participants]
+  (let [common-combined-key-pattern (common-combined-key-pattern (map :pattern participants))
+        substitution-to-common-combined-key (fn [substitution]
+                                              (vec (substitute-pattern common-combined-key-pattern
+                                                                       substitution)))]
+    (loop [cursors (map (fn [participant]
+                          (let [substitution-sequence #_(substitutions-for-collection (:sorted participant)
+                                                                                      (:pattern participant))
+                                (->> (subseq (:sorted participant)
+                                             >=
+                                             (wildcard-pattern (:pattern participant)))
+                                     (map #(unify % (:pattern participant))))]
+                            (when (not (empty? substitution-sequence))
+                              {:substitution-sequence substitution-sequence
+                               :first-key (substitution-to-common-combined-key (first substitution-sequence))
+                               :participant participant})))
+                        participants)
+           substitutions []]
+
+      (if (every? some? cursors)
+        (let [maximum-key (->> cursors
+                               (map :first-key)
+                               (sort)
+                               (last))
+              maximum-substitution (pattern-to-substitution common-combined-key-pattern
+                                                            maximum-key)]
+
+          (if (every? #(= maximum-key %)
+                      (map :first-key cursors))
+            (recur (let [advanced-cursors (advance-one-cursor-with-same-key common-combined-key-pattern
+                                                                            cursors)]
+                     (if (= cursors advanced-cursors)
+                       (advance-all-cursors common-combined-key-pattern
+                                            cursors)
+                       advanced-cursors))
+                   (conj substitutions
+                         (apply merge (map #(first (:substitution-sequence %))
+                                           cursors))))
+            (recur (map (fn [cursor]
+                          (if (= maximum-key (:first-key cursor))
+                            cursor
+                            (let [participant (:participant cursor)
+                                  substitution-sequence (->> (subseq (get-in cursor [:participant :sorted])
+                                                                     >=
+                                                                     (wildcard-pattern (substitute-pattern (:pattern participant)
+                                                                                                           maximum-substitution)))
+                                                             (map #(unify % (:pattern participant))))]
+                              (when (and (not (empty? substitution-sequence))
+                                         (not (nil? (first substitution-sequence))))
+                                (assoc cursor
+                                       :substitution-sequence substitution-sequence
+                                       :first-key (substitution-to-common-combined-key (first substitution-sequence)))))))
+                        cursors)
+                   substitutions)))
+        substitutions))))
+
+
+
+(deftest test-mergejoin
+  (is (= [{:?id1 2, :?id2 5, :?b :?b2, :?a :?a2-1}
+          {:?id1 2, :?id2 5, :?b :?b2, :?a :?a2-2}]
+         (merge-join [{:sorted (util/row-set ["a" 1 4 :?b1]
+                                             ["b" 2 5 :?b2]
+                                             ["b" 3 7 :?b3])
+                       :pattern ["b" :?id1 :?id2 :?b]}
+
+                      {:sorted (util/row-set ["a" 1 4 :?a1]
+                                             ["a" 2 5 :?a2-1]
+                                             ["a" 2 5 :?a2-2]
+                                             ["b" 3 7 :?a3])
+                       :pattern ["a" :?id1 :?id2 :?a]}])))
+
+  (is (= [{:?id 1, :?a :a1, :?b :b1, :?c :c1}
+          {:?id 2, :?a :a2, :?b :b2, :?c :c2}
+          {:?id 3, :?a :a3, :?b :b3, :?c :c3}]
+         (merge-join [{:sorted (util/row-set [1 :a1]
+                                             [2 :a2]
+                                             [3 :a3])
+                       :pattern [:?id :?a]}
+
+                      {:sorted (util/row-set [1 :b1]
+                                             [2 :b2]
+                                             [3 :b3])
+                       :pattern [:?id :?b]}
+
+                      {:sorted (util/row-set [1 :c1]
+                                             [2 :c2]
+                                             [3 :c3])
+                       :pattern [:?id :?c]}]))))
+
+(comment
+  (let [my-list [[1], [2, 3], [4, 5, 6, 7]]
+        flat-list (for [sublist my-list
+                        number sublist
+                        :when (< 1 (count sublist))]
+                    number)]
+    (println flat-list))
+
+  ) ;; TODO: remove-me
