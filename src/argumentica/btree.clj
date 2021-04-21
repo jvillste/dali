@@ -23,6 +23,30 @@
             [me.tonsky.persistent-sorted-set :as persistent-sorted-set])
   (:import java.io.ByteArrayInputStream))
 
+(def ^:dynamic log-atom)
+
+(defn create-log-atom []
+  (atom []))
+
+(defn with-logging [given-log-atom function]
+  (binding [log-atom given-log-atom]
+    (function)))
+
+(defn log! [& values]
+  (when (bound? #'log-atom)
+    (swap! log-atom conj values)))
+
+(defn get-log-and-result [function]
+  (let [log-atom (create-log-atom)
+        result (with-logging log-atom function)]
+    {:result result
+     :log @log-atom}))
+
+(deftest test-get-log-and-result
+  (is (= {:result 1, :log ['(:logged-value)]}
+         (get-log-and-result (fn [] (log! :logged-value)
+                               1)))))
+
 (defn create-sorted-set [& keys]
   (apply persistent-sorted-set/sorted-set-by
          comparator/compare-datoms
@@ -44,7 +68,6 @@
            (count (:values node)))
         (= maximum
            (count (:children node))))))
-
 
 (defn roots-from-storage [metadata-storage]
   (or (storage/get-edn-from-storage! metadata-storage
@@ -1442,6 +1465,7 @@
                                                                 storage-key)))
 
 (defn load-node-3 [btree node-path]
+  (log! :load-node-3 node-path)
   (let [node-data (node-serialization/deserialize (storage/stream-from-storage! (:node-storage btree)
                                                                                 (:storage-key (get-in btree
                                                                                                       node-path))))]
@@ -2588,6 +2612,7 @@
                                            direction)))))
 
 (defn inclusive-subsequence [btree-atom value & [{:keys [direction] :or {direction :forwards}}]]
+  (log! :inclusive-subsequence value)
   (let [path (path-for-value btree-atom value)]
     (lazy-value-sequence-2 btree-atom
                            path
