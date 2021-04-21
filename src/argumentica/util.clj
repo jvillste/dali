@@ -3,7 +3,8 @@
   (:require [clojure.string :as string]
             [flatland.useful.map :as map]
             [schema.core :as schema]
-            [medley.core :as medley]))
+            [medley.core :as medley]
+            [argumentica.comparator :as comparator]))
 
 (defn pad [n coll val]
   (take n (concat coll (repeat val))))
@@ -205,3 +206,8 @@
            (fn []
              (+ (test-identity 1)
                 (test-identity 2)))))))
+
+(defn row-set [& rows]
+  (apply sorted-set-by
+         comparator/compare-datoms
+         rows))

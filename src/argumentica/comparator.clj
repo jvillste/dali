@@ -1,6 +1,5 @@
 (ns argumentica.comparator
-  (:use clojure.test)
-  (:require [argumentica.util :as util]))
+  (:use clojure.test))
 
 ;; from https://clojure.org/guides/comparators
 
