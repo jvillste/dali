@@ -4,8 +4,8 @@
   (:import clojure.lang.IAtom
            java.io.PushbackReader))
 
-(defn write-on-disk! [{:keys [value-atom file-name]}
-                      value]
+(defn- write-on-disk! [{:keys [value-atom file-name]}
+                       value]
   (spit file-name (pr-str value))
   (reset! value-atom value))
 
@@ -28,14 +28,15 @@
 
 (defmethod print-method FileAtom [on-disk-counter
                                   ^java.io.Writer writer]
-  (.write writer (pr-str {:value @(:value-atom on-disk-counter)
-                          :file-name (:file-name on-disk-counter)})))
+  (.write writer
+          (pr-str {:value @(:value-atom on-disk-counter)
+                   :file-name (:file-name on-disk-counter)})))
 
-(defn create [file-name & [initial-value]]
-  (->FileAtom (atom (if (.exists (io/file file-name))
-                      (edn/read (PushbackReader. (io/reader file-name)))
+(defn create [file-or-file-name & [initial-value]]
+  (->FileAtom (atom (if (.exists (io/file file-or-file-name))
+                      (edn/read (PushbackReader. (io/reader file-or-file-name)))
                       initial-value))
-              file-name))
+              file-or-file-name))
 
 (comment
   (reset! (create "temp/test-count")

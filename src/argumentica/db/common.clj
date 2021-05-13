@@ -99,7 +99,7 @@
                              :datom-transaction-number-index 2})
 
 (def eav-index-definition {:key :eav
-                           :statements-to-changes (fn [indexes transaction-number statements]
+                           :statements-to-changes (fn [_indexes _transaction-number statements]
                                                     (for [[o e a v] statements]
                                                       [e a v o]))})
 
@@ -1363,6 +1363,10 @@
 
 (defn ^:dynamic create-id-generator []
   (fn [] (new-id)))
+
+(defn ^:dynamic create-temporary-id-generator []
+  (let [next-id-volatile (volatile! -1)]
+    (fn [] (keyword "id" (str "t" (vswap! next-id-volatile inc))))))
 
 (defn create-test-id-generator []
   (let [ids-atom (atom (range))]

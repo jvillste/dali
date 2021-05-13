@@ -308,37 +308,35 @@
   (apply set/union
          (map (fn [map-with-ids]
                 (set (map-with-ids-to-statements map-with-ids)))
-              (assign-ids-to-maps (common/create-id-generator)
+              (assign-ids-to-maps (common/create-temporary-id-generator)
                                   maps))))
 
 (deftest test-maps-to-transaction
-  (is (= #{[:add 0 :things 2]
-           [:add 2 :tags 100]
-           [:add 200 :title "tag 2"]
-           [:add 1 :tags 100]
-           [:add 100 :title "tag 1"]
-           [:add 2 :tags 200]
-           [:add 0 :things 1]}
-         (binding [common/create-id-generator common/create-test-id-generator]
-           (maps-to-transaction (let [tag-1 {:dali/id 100
-                                             :title "tag 1"}
-                                      tag-2 {:dali/id 200
-                                             :title "tag 2"}]
-                                  {:things #{{:tags #{tag-1 tag-2}}
-                                             {:tags #{tag-1}}}})))))
+  (is (= '([:add :id/l100 :title "tag 1"]
+           [:add :id/l200 :title "tag 2"]
+           [:add :id/t0 :things :id/t1]
+           [:add :id/t0 :things :id/t2]
+           [:add :id/t1 :tags :id/l100]
+           [:add :id/t1 :tags :id/l200]
+           [:add :id/t2 :tags :id/l100])
+         (sort (maps-to-transaction (let [tag-1 {:dali/id :id/l100
+                                                 :title "tag 1"}
+                                          tag-2 {:dali/id :id/l200
+                                                 :title "tag 2"}]
+                                      {:things #{{:tags #{tag-1 tag-2}}
+                                                 {:tags #{tag-1}}}})))))
 
-  (is (= '([:add 0 :things 1]
-           [:add 0 :things 3]
-           [:add 1 :tags 2]
-           [:add 2 :title "tag 1"]
-           [:add 3 :tags 2]
-           [:add 3 :tags 4]
-           [:add 4 :title "tag 2"])
-         (binding [common/create-id-generator common/create-test-id-generator]
-           (sort (maps-to-transaction {:things #{{:tags #{{:dali/id :tag-1}
-                                                          {:dali/id :tag-2}}}
-                                                 {:tags #{{:dali/id :tag-1}}}}}
-                                      {:dali/id :tag-1
-                                       :title "tag 1"}
-                                      {:dali/id :tag-2
-                                       :title "tag 2"}))))))
+  (is (= '([:add :id/t0 :things :id/t1]
+           [:add :id/t0 :things :id/t3]
+           [:add :id/t1 :tags :id/t2]
+           [:add :id/t2 :title "tag 1"]
+           [:add :id/t3 :tags :id/t2]
+           [:add :id/t3 :tags :id/t4]
+           [:add :id/t4 :title "tag 2"])
+         (sort (maps-to-transaction {:things #{{:tags #{{:dali/id :tag-1}
+                                                        {:dali/id :tag-2}}}
+                                               {:tags #{{:dali/id :tag-1}}}}}
+                                    {:dali/id :tag-1
+                                     :title "tag 1"}
+                                    {:dali/id :tag-2
+                                     :title "tag 2"})))))
