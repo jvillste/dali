@@ -117,7 +117,7 @@
         :default
         :mismatch))
 
-(defn unify [value pattern]
+(defn unify-value [value pattern]
   (let [substitution-pairs (if (sequential? pattern)
                              (->> (map unify-term
                                        value
@@ -129,30 +129,30 @@
             (remove #{:matching-constant}
                     substitution-pairs)))))
 
-(deftest test-unify
+(deftest test-unify-value
   (is (= {}
-         (unify [:a] [:a])))
+         (unify-value [:a] [:a])))
 
   (is (= nil
-         (unify [:a] [:b])))
+         (unify-value [:a] [:b])))
 
   (is (= {:v/a :a}
-         (unify [:a] [:v/a])))
+         (unify-value [:a] [:v/a])))
 
   (is (= {:v/a :a}
-         (unify :a :v/a)))
+         (unify-value :a :v/a)))
 
   (is (= {:?x :a}
-         (unify [:a 2] [:?x {:minimum-value 1
+         (unify-value [:a 2] [:?x {:minimum-value 1
                              :match <}])))
 
   (is (= {:?x :a, :?y 2}
-         (unify [:a 2] [:?x {:minimum-value 1
+         (unify-value [:a 2] [:?x {:minimum-value 1
                              :match <
                              :key :?y}])))
 
   (is (= nil
-         (unify [:a 2] [:?x {:minimum-value 2
+         (unify-value [:a 2] [:?x {:minimum-value 2
                              :match <}]))))
 
 (defn- substitute-term [term substitution]
@@ -231,10 +231,10 @@
 
 (defn nil-or-varialbe? [value]
   (or (nil? value)
-      (variable? value)
+      (unconditional-variable? value)
       (anything? value)))
 
-(defn has-trailing-constants? [pattern]
+(defn has-trailing-conditions? [pattern]
   (if (sequential? pattern)
     (loop [preceding-variable? false
            pattern pattern]
@@ -254,19 +254,19 @@
                    (rest pattern))))
     false))
 
-(deftest test-has-trailing-constants?
-  (is (not (has-trailing-constants? :a)))
-  (is (not (has-trailing-constants? [:a])))
-  (is (not (has-trailing-constants? [nil])))
-  (is (has-trailing-constants? [nil :a]))
-  (is (has-trailing-constants? [:?b :a]))
-  (is (has-trailing-constants? [:a nil :a]))
-  (is (has-trailing-constants? (concat [:a] [nil] [:a]))))
+(deftest test-has-trailing-conditions?
+  (is (not (has-trailing-conditions? :a)))
+  (is (not (has-trailing-conditions? [:a])))
+  (is (not (has-trailing-conditions? [nil])))
+  (is (has-trailing-conditions? [nil :a]))
+  (is (has-trailing-conditions? [:?b :a]))
+  (is (has-trailing-conditions? [:a nil :a]))
+  (is (has-trailing-conditions? (concat [:a] [nil] [:a]))))
 
 (def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
 
 (util/defno filter-by-pattern [sorted-set pattern {:keys [reverse?] :or {reverse? false}} :- filter-by-pattern-options]
-  (let [pattern-has-trailing-constants? (has-trailing-constants? pattern)]
+  (let [pattern-has-trailing-conditions? (has-trailing-conditions? pattern)]
     (or (->> (if reverse?
                (util/inclusive-reverse-subsequence sorted-set
                                                    (util/pad (count (first (util/inclusive-subsequence sorted-set nil)))
@@ -275,7 +275,7 @@
                (util/inclusive-subsequence sorted-set
                                            (start-pattern pattern)))
              (filter (fn [datom]
-                       (or (not pattern-has-trailing-constants?)
+                       (or (not pattern-has-trailing-conditions?)
                            (match? datom pattern)))))
         [])))
 
@@ -398,14 +398,14 @@
 
   (let [options (merge transducible-collection/default-transduce-options
                        options)
-        pattern-has-trailing-constants? (has-trailing-constants? pattern)]
+        pattern-has-trailing-conditions? (has-trailing-conditions? pattern)]
     (transducible-collection/transduce transducible-collection
                                        (if (= :backwards (:direction options))
                                          (pattern-for-reverse-iteration pattern
                                                                         (first-from-transducible-collection transducible-collection))
                                          pattern)
                                        (merge options
-                                              {:transducer (if pattern-has-trailing-constants?
+                                              {:transducer (if pattern-has-trailing-conditions?
                                                              (comp (filter #(match? % pattern))
                                                                    (:transducer options))
                                                              (:transducer options))}))))
@@ -477,8 +477,7 @@
                                                      (not (anything? %)))
                                                pattern)
         subsequence (subsequence sorted pattern)]
-
-    (if (has-trailing-constants? pattern)
+    (if (has-trailing-conditions? pattern)
       (->> subsequence
            (take-while #(match? % conditional-pattern-prefix))
            (filter #(match? % pattern)))
@@ -512,14 +511,14 @@
 
 (defn select [sorted pattern]
   (->> (matching-subsequence sorted pattern)
-       (map #(unify % pattern))))
+       (map #(unify-value % pattern))))
 
 (defn substitutions-for-collection [collection pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)]
     (->> (filter-by-pattern collection
                             wildcard-pattern)
          (take-while #(match? % pattern))
-         (map #(unify % pattern)))))
+         (map #(unify-value % pattern)))))
 
 (defn matching-unique-subsequence [sorted pattern]
   (->> (unique-subsequence sorted
@@ -528,7 +527,7 @@
 
 (defn unique-substitutions [sorted pattern]
   (->> (matching-unique-subsequence sorted pattern)
-       (map #(unify % pattern))))
+       (map #(unify-value % pattern))))
 
 (deftest test-substitutions-for-collection
   (is (= [{}] (substitutions-for-collection (sorted-set 1 2 3)
@@ -540,7 +539,7 @@
 (defn substitution-transducer [pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)]
     (comp (take-while #(match? % wildcard-pattern))
-          (map #(unify % pattern)))))
+          (map #(unify-value % pattern)))))
 
 (util/defno transduce-substitutions-for-collection [collection pattern options :- transducible-collection/transduce-options]
   (transduce-pattern collection
@@ -569,16 +568,16 @@
 
 (defn substitution-reducible [sorted-reducible pattern]
   (let [wildcard-pattern (wildcard-pattern pattern)
-        has-trailing-constants? (has-trailing-constants? pattern)]
-    (eduction (comp (map #(unify % pattern))
-                    (take-while #(or has-trailing-constants?
+        has-trailing-conditions? (has-trailing-conditions? pattern)]
+    (eduction (comp (map #(unify-value % pattern))
+                    (take-while #(or has-trailing-conditions?
                                      (not (nil? %))))
                     (remove nil?))
               (reducible-for-pattern sorted-reducible
                                      wildcard-pattern))))
 
 (defn with-scan-length [body-function]
-  (let [{:keys [count result]} (util/with-call-count #'unify body-function)]
+  (let [{:keys [count result]} (util/with-call-count #'unify-value body-function)]
     {:scan-length count
      :result result}))
 
@@ -996,7 +995,8 @@
                                                         (first substitution-sequence)))))))
        cursors))
 
-(defn merge-join [participants]
+
+(defn merge-join-selections [participants]
   (let [common-combined-key-pattern (common-combined-key-pattern (map :pattern participants))
         substitution-to-common-combined-key (fn [substitution]
                                               (vec (substitute-pattern common-combined-key-pattern
@@ -1007,7 +1007,7 @@
                                 (->> (subseq (:sorted participant)
                                              >=
                                              (wildcard-pattern (:pattern participant)))
-                                     (map #(unify % (:pattern participant))))]
+                                     (map #(unify-value % (:pattern participant))))]
                             (when (not (empty? substitution-sequence))
                               {:substitution-sequence substitution-sequence
                                :first-key (substitution-to-common-combined-key (first substitution-sequence))
@@ -1042,7 +1042,7 @@
                                                                      >=
                                                                      (wildcard-pattern (substitute-pattern (:pattern participant)
                                                                                                            maximum-substitution)))
-                                                             (map #(unify % (:pattern participant))))]
+                                                             (map #(unify-value % (:pattern participant))))]
                               (when (and (not (empty? substitution-sequence))
                                          (not (nil? (first substitution-sequence))))
                                 (assoc cursor
@@ -1054,10 +1054,10 @@
 
 
 
-(deftest test-mergejoin
+(deftest test-mergejoin-slections
   (is (= [{:?id1 2, :?id2 5, :?b :?b2, :?a :?a2-1}
           {:?id1 2, :?id2 5, :?b :?b2, :?a :?a2-2}]
-         (merge-join [{:sorted (util/row-set ["a" 1 4 :?b1]
+         (merge-join-selections [{:sorted (util/row-set ["a" 1 4 :?b1]
                                              ["b" 2 5 :?b2]
                                              ["b" 3 7 :?b3])
                        :pattern ["b" :?id1 :?id2 :?b]}
@@ -1071,7 +1071,7 @@
   (is (= [{:?id 1, :?a :a1, :?b :b1, :?c :c1}
           {:?id 2, :?a :a2, :?b :b2, :?c :c2}
           {:?id 3, :?a :a3, :?b :b3, :?c :c3}]
-         (merge-join [{:sorted (util/row-set [1 :a1]
+         (merge-join-selections [{:sorted (util/row-set [1 :a1]
                                              [2 :a2]
                                              [3 :a3])
                        :pattern [:?id :?a]}
@@ -1086,12 +1086,112 @@
                                              [3 :c3])
                        :pattern [:?id :?c]}]))))
 
-(comment
-  (let [my-list [[1], [2, 3], [4, 5, 6, 7]]
-        flat-list (for [sublist my-list
-                        number sublist
-                        :when (< 1 (count sublist))]
-                    number)]
-    (println flat-list))
+(defn term-name [term]
+  (cond (:original-key term)
+        (unconditional-variable-name (:original-key term))
 
-  ) ;; TODO: remove-me
+        (varialbe-key? term)
+        (unconditional-variable-name term)
+
+        (:key term)
+        (unconditional-variable-name (:key term))
+
+        :default
+        nil))
+
+(defn check-pattern! [columns pattern]
+  (when (< (count columns)
+           (count pattern))
+    (throw (ex-info "Pattern is too long" {})))
+
+  (loop [names (map name columns)
+         terms pattern]
+    (when-let [term (first terms)]
+      (if-let [term-name (term-name term)]
+        (if (= (first names)
+               term-name)
+          (recur (rest names)
+                 (rest terms))
+          (throw (ex-info "term name does not match column name" {:column-name (first names)
+                                                                  :term-name term-name})))
+        (recur (rest names)
+               (rest terms))))))
+
+(deftest test-check-pattern!
+  (is (nil? (check-pattern! [:a :b]
+                           [:?a :?b])))
+
+  (is (nil? (check-pattern! [:a :b]
+                           [:?a])))
+
+  (is (nil? (check-pattern! [:a :b]
+                           [{:original-key :?a}])))
+
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                        #"Pattern is too long"
+                        (check-pattern! [:a :b]
+                                        [:?a :?b :?c]))))
+
+(defn loop-join [index pattern substitutions]
+  (check-pattern! (:columns index) pattern)
+
+  (apply concat (for [substitution substitutions]
+                  (map (fn [new-substitution]
+                         (merge substitution new-substitution))
+                       (unique-substitutions (:sorted index)
+                                                   (substitute pattern substitution))))))
+
+(defn merge-join [partitioned-index-pattern-pairs]
+  (let [partitioned-index-pattern-pairs partitioned-index-pattern-pairs]
+    (run! (fn [[index pattern]]
+            (check-pattern! (:columns index) pattern))
+          partitioned-index-pattern-pairs)
+
+    (merge-join-selections (map (fn [[index pattern]]
+                                  {:sorted (:sorted index)
+                                   :pattern pattern})
+                                partitioned-index-pattern-pairs))))
+
+
+(defn select-unique [index pattern]
+  (check-pattern! (:columns index) pattern)
+
+  (matching-unique-subsequence (:sorted index)
+                               pattern))
+
+(defn select [index pattern]
+  (check-pattern! (:columns index) pattern)
+
+  (let [result-row-length (count pattern)]
+    (map (partial take result-row-length)
+         (matching-subsequence (:sorted index)
+                                     pattern))))
+
+(defn unify [index pattern]
+  (map #(unify % pattern)
+       (select index pattern)))
+
+(defn unify-unique [index pattern]
+  (map #(unify % pattern)
+       (select-unique index pattern)))
+
+(defn rename [original-key-or-term new-key]
+  (if (conditional-variable? original-key-or-term)
+    (assoc original-key-or-term
+           :original-key (:key original-key-or-term)
+           :key new-key)
+
+    {:original-key original-key-or-term
+     :key new-key}))
+
+
+(defn starts-with [string & [key]]
+  {:minimum-value string
+   :match (fn [value]
+            (string/starts-with? value string))
+   :key key})
+
+(defn equals [key value]
+  {:minimum-value value
+   :match (partial = value)
+   :key key})
