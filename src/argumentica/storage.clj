@@ -1,6 +1,10 @@
 (ns argumentica.storage
   (:require [argumentica.zip :as zip]
-            [taoensso.nippy :as nippy]))
+            [taoensso.nippy :as nippy]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io])
+  (:import java.io.PushbackReader
+           java.io.Reader))
 
 (defmulti put-to-storage!
   (fn [storage key value]
@@ -47,17 +51,28 @@
                    (edn-to-bytes edn)
                    #_(edn-to-byte-array edn)))
 
+
+
 (defn safely-read-string [string]
   (binding [*read-eval* false]
     (read-string string)))
 
-(defn bytes-to-string [string]
+(defn- bytes-to-string [string]
   (String. string
            "UTF-8"))
 
-(defn string-to-bytes [string]
+(defn- string-to-bytes [string]
   (.getBytes string
              "UTF-8"))
+
+(defn put-edn-as-string-to-storage! [storage key value]
+  (put-to-storage! storage
+                   key
+                   (string-to-bytes (pr-str value))))
+
+(defn get-edn-from-stored-string [storage key]
+  (when-let [stream (stream-from-storage! storage key)]
+    (edn/read (PushbackReader. (io/reader stream)))))
 
 (defn byte-array-to-edn [byte-array]
   (try

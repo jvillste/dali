@@ -22,8 +22,13 @@
                 (into-array LinkOption
                             [LinkOption/NOFOLLOW_LINKS])))
 
+(defn keyword-to-string [value]
+  (if (keyword? value)
+    (name value)
+    value))
+
 (defn key-path-string [directory-storage key]
-  (str (:path directory-storage) "/" key))
+  (str (:path directory-storage) "/" (keyword-to-string key)))
 
 (defn key-path [directory-storage key]
   (string-to-path (key-path-string directory-storage key)))
@@ -79,3 +84,15 @@
 
 (defn create [directory-path]
   (->DirectoryStorage directory-path))
+
+
+(comment
+  (storage/put-edn-as-string-to-storage! (create "temp/storage-test")
+                                         :foo
+                                         3)
+
+  (storage/get-edn-from-stored-string (create "temp/storage-test")
+                                      :foo)
+
+  (io/make-parents "temp/storage-test" "x")
+  )
