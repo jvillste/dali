@@ -232,4 +232,38 @@ The matching occures in different levels:
 * many tuplects and their corresponding patterns
 The last case is called join in relational algebra.
 
+# terms 2
+* value: a single literal value such as a number, a string or a keyword
+* row: a finite ordered sequence of values
+* operator: "add" or "remove"
+* index: ordered set of rows. All rows in an index are of the same length.
+* change: a row and an operator. The operator tells wether the row should be added or removed from the index.
+* datom: a row that ends with a transaction number and an operator
+* temporal index: ordered set of datoms
+* column: all values in a certain position in rows in an index
+* column name: an identifier that uniquely identifies a column in an index
 
+* transaction: transaction number and a set of changes concering a specific index
+* transaction log: a sequence of transactions concering a specific index
+* monotonic transaction log: a transaction log where all the changes contain only adds and no removals.
+
+## statement log
+* statement: a row consisting of entity id, attribute and value
+
+* local entity id: an entity identifier that identifies an entity within a single statement log. Entity ids are integers starting from zero.
+* remote entity id: a statement log id and local entity id combination that identifies an entity globally
+* temporal entity id: an entity id that is unique only within a single transaction
+
+* statement log id: a globally unique identifier of the statement log.
+* statement log consists of
+  * statement log id
+  * a transaction log containing changes to the statements in the statement log
+  * entity id sequence from which the local entity ids are drawn. Temporal entity ids in applied transactions are substituted with new ids from this sequence.
+
+[1 "Jack" 42 "jack@example.com"]
+[1 "Jack" 42 "jack@example.com" 1 :add]
+[1 "Jack" 42 "jack@example.com" 2 :remove]
+[1 "Jack" 43 "jack@example.com" 2 :add]
+
+[id/1 :name "Jack"]
+[id/1 :name "Jack" 1 :add]
