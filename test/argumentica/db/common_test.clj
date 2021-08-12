@@ -555,12 +555,12 @@
   (let [db (-> (common/db-from-index-definitions [{:key :eav
                                                    :statements-to-changes (fn [indexes_ transaction-number_ statements]
                                                                             (for [[e a o v] statements]
-                                                                              [e a v o]))}
+                                                                              [o e a v]))}
                                                   {:key :names
                                                    :statements-to-changes (fn [indexes_ transaction-number_ statements]
                                                                             (for [[e a o v] statements
                                                                                   :when (= a :name)]
-                                                                              [v e o]))}]
+                                                                              [o v e]))}]
                                                  (fn [index-key_] (btree-collection/create-in-memory))
                                                  (sorted-map-transaction-log/create))
 

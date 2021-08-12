@@ -100,8 +100,7 @@
 
 (def eav-index-definition {:key :eav
                            :statements-to-changes (fn [_indexes _transaction-number statements]
-                                                    (for [[o e a v] statements]
-                                                      [e a v o]))})
+                                                    statements)})
 
 (def avetc-index-definition {:key :avetc
                              :eatcv-to-datoms eatcv-to-avetc-datoms})
@@ -158,9 +157,9 @@
                propositions)))
 
 (defn change-to-datom [change transaction-number]
-  (vec (concat (drop-last change)
+  (vec (concat (rest change)
                [transaction-number]
-               (take-last 1 change))))
+               [(first change)])))
 
 (defn statements-to-datoms [index indexes transaction-number statements]
   (assert (every? (fn [statement]
