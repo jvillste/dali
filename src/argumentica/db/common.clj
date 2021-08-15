@@ -156,6 +156,9 @@
    (take-while #(query/match? % pattern)
                propositions)))
 
+(defn change-to-row [change]
+  (vec (rest change)))
+
 (defn change-to-datom [change transaction-number]
   (vec (concat (rest change)
                [transaction-number]
