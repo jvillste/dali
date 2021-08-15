@@ -664,12 +664,17 @@
 
                                [[1 :friend :set 2]]]))))
 
-(defn squash-transaction-log [transaction-log last-transaction-number]
-  (squash-statements (mapcat second (take-while (fn [[transaction-number statements_]]
-                                                  (<= transaction-number
-                                                      last-transaction-number))
-                                                (transaction-log/subseq transaction-log
-                                                                        0)))))
+(defn squash-transaction-log
+  ([transaction-log]
+   (squash-transaction-log transaction-log
+                           (transaction-log/last-transaction-number transaction-log)))
+
+  ([transaction-log last-transaction-number]
+   (squash-statements (mapcat second (take-while (fn [[transaction-number statements_]]
+                                                   (<= transaction-number
+                                                       last-transaction-number))
+                                                 (transaction-log/subseq transaction-log
+                                                                         0))))))
 
 (util/defno transduce-values-from-eav-collection [transducible-collection entity-id attribute options :- transduce-propositions-options]
   (transduce-propositions transducible-collection
