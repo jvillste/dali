@@ -35,6 +35,12 @@
                                          >=
                                          first-transaction-number)))))
 
+(defmethod transaction-log/subseq SortedMapTransactionLog
+  [this first-transaction-number]
+  (into []
+        (transaction-log/subreducible this
+                                      first-transaction-number)))
+
 (defmethod transaction-log/truncate! SortedMapTransactionLog
   [this first-preserved-transaction-number]
   (swap! (:state-atom this)
