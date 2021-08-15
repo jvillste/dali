@@ -247,8 +247,16 @@ The last case is called join in relational algebra.
 * transaction log: a sequence of transactions concering a specific index
 * monotonic transaction log: a transaction log where all the changes contain only adds and no removals.
 
-## statement log
+## indexes
+* source indexes are written directly
+* derived indexes are defined by source indexes
+* statement index has columns :entity, :attribute and :value
+* relation index has arbitrary columns
+
+## origin
 * statement: a row consisting of entity id, attribute and value
+* statement origin: an origin with only statemen index
+* relation origin: an origin with multiple relations
 
 * local entity id: an entity identifier that identifies an entity within a single statement log. Entity ids are integers starting from zero.
 * remote entity id: a statement log id and local entity id combination that identifies an entity globally
@@ -267,3 +275,122 @@ The last case is called join in relational algebra.
 
 [id/1 :name "Jack"]
 [id/1 :name "Jack" 1 :add]
+
+# Structured data format (SDF)
+* file formats for transaction logs, data transfer and indexes
+* constraints are implemented and enforced by application specific transactors and are not part of the file format
+* constraints are described in transactor code, they can not be enforced to past transactions and thus it makes no sense to describe them in the data
+* literal types
+  * signed decimals (integer + scale with variable length encoding)
+  * entity id
+    * source id + local id
+  * variable length string
+  * variable length binary blob
+  * boolean
+  * nil
+  * date time?
+    * many possible formats internationally?
+    * could be optional standard extension
+  * array of literal values
+    * can represent hierarchical entity ids to keep related entities close to each other in an index
+
+* literals have type tags
+* type tags share part of the value similarly as in Fressian
+* extensibility?
+  * possibility to combine literal values and to intorduce new type tags
+
+## entity id hierarchies
+* Enties can have parents and an index can represent entity references as sequences of entity ids to put related entities close together in the index.
+* Datomic has partitions for this purpose.
+
+## transfer format
+  * a sequence of entity-id attribute value -triples
+* entities and attributes are encoded as untagged varabile length integers, values are type tagged
+* entity id 0 is reserved for "ddf.identifier" -attribute
+
+## transaction log format
+* sequence of transactions
+* transaction has a transaction number and sets of additions and removals encoded in the transfer format
+* split to multiple fiels for caching
+
+## index format
+* a btree file format containing rows encoded as tuples of type tagged values
+* index may have a schema that fixes the value types and then type tags are not used
+
+## optional prelude
+[[0 0 "sdf.identifier"]
+ [t0 0 "sdf.transaction-number"]]
+
+## attribute naming
+* attributes are entities
+* how to refer to attributes in a human readable way?
+  * datomic has ident -attribute that can specify a keyword corresponsing an entity id
+* how to support internationalization?
+  * allow multiple ident values
+    * how to choose among ident values when printing?
+      * allow choosing language and provide default
+    * how to specify each ident's langauge?
+
+* metamodel
+  * defines first principles of expressing data
+  * simple
+  * generic
+  * no interpretation
+  * no domain model constarints
+* metamodel implementation
+  * space efficiency
+  * read and write performance
+* literal model
+  * uses metamodel to define literal types such as numbers and strings and dates
+  * literal value that is fully described each time it is refered
+  * entity is something that is only partially described as data such as a person
+* domain model
+  * describies structure of data expressed in the metamodel
+* application
+  * computer program that defines interpretation and constraints over a domain model
+
+  * dali
+    * metamodel
+      * number
+        * arbitrary big positive integer number
+      * tuple
+        * a fixed length sequence of values
+      * value
+        * number or tuple
+    * data model
+      * record
+        * a tuple in which the first value is a number defining the meaning of the rest of the values in the tuple
+      * example record types
+        * unsigned integer
+          * magnitude
+        * signed integer
+          * sign: 0 means positive, 1 means negative
+          * magnitude
+        * string
+          * arbitrary number of unicode numbers
+        * decimal
+          *
+
+* entity id
+          * origin id
+          * local entity id
+      * operator
+        *
+      * statement
+        * a tuple of
+
+* model hierarchy
+  * data metamodel
+    * unsigned integers: 1 2 3
+    * tuples: [1 2 3]
+  * data model
+    * literal types as type tagged tuples: "strings", -12, 2020-10-01
+  * information metamodel
+    * graph: [[entity attribute value]]
+    * temporal graph: [[entity attribute value transaction-number operator]]
+    * global temporal graph: [[[origin entity] attribute value transaction-number operator]]
+    * relational: [[name address email]]
+  * information model
+    * entities and relations (ER): person has name, address, email and friendships
+  * argumentation model
+    * person X is expert in Y accronding to Z, Z is a well known expert in Y, thus we should ask X to do Y
