@@ -148,21 +148,6 @@
              (constantly nil)
              reducible))
 
-(defmacro do-reducible [binding & body]
-  (let [[variable reducible] binding]
-    `(reduce (fn [result_# ~variable]
-               ~@body
-               nil)
-             nil
-             ~reducible)))
-
-(deftest test-do-reducible
-  (is (= [0 1 2]
-         (let [result-atom (atom [])]
-           (do-reducible [x (range 3)]
-                         (swap! result-atom conj x))
-           @result-atom))))
-
 (defn educe [reducible & transducers]
   (eduction (apply comp transducers)
             reducible))
@@ -183,6 +168,39 @@
     IReduce
     (reduce [this reducing-function]
       (reducing-function (the-reduce reducing-function (reducing-function))))))
+
+(defmacro do-reducible [binding & body]
+  (let [[variable reducible] binding]
+    `(reduce (fn
+               ([result#]
+                  result#)
+               ([_result# ~variable]
+                ~@body
+                nil))
+             nil
+             ~reducible)))
+
+(deftest test-do-reducible
+  (is (= [0 1 2]
+         (let [result-atom (atom [])]
+           (do-reducible [x (range 3)]
+                         (swap! result-atom conj x))
+           @result-atom)))
+
+  (is (= [1 3]
+         (let [result-atom (atom [])]
+           (do-reducible [[a b] [[1 2] [3 4]]]
+                         (swap! result-atom conj a))
+           @result-atom)))
+
+  (is (= [0 1 2]
+         (let [result-atom (atom [])]
+           (do-reducible [x (reducible (fn [reducing-function initial-value]
+                                         (reduce reducing-function
+                                                 initial-value
+                                                 (range 3))))]
+                         (swap! result-atom conj x))
+           @result-atom))))
 
 (defn implement-non-initialized-reducible [reducible]
   (reify
