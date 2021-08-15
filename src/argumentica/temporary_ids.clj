@@ -41,11 +41,11 @@
 
 (defn assign-temporary-ids [temporary-id-resolution temporary-changes]
   (map (fn [change]
-         (map (fn [value]
-                (or (get temporary-id-resolution
-                         value)
-                    value))
-              change))
+         (vec (map (fn [value]
+                     (or (get temporary-id-resolution
+                              value)
+                         value))
+                   change)))
        temporary-changes))
 
 (deftest test-assign-temporary-ids
