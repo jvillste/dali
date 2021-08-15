@@ -33,14 +33,21 @@
                    :file-name (:file-name on-disk-counter)})))
 
 (defn create [file-or-file-name & [initial-value]]
-  (->FileAtom (atom (if (.exists (io/file file-or-file-name))
-                      (edn/read (PushbackReader. (io/reader file-or-file-name)))
-                      initial-value))
-              file-or-file-name))
+  (if (.exists (io/file file-or-file-name))
+    (->FileAtom (atom (edn/read (PushbackReader. (io/reader file-or-file-name))))
+                file-or-file-name)
+    (let [file-atom (->FileAtom (atom nil)
+                                file-or-file-name)]
+      (reset! file-atom initial-value)
+      file-atom)))
 
 (comment
   (reset! (create "temp/test-count")
           0)
+
+  (create "temp/test-count2"
+          (java.util.UUID/randomUUID))
+
 
   (swap! (create "temp/test-count")
          inc)
