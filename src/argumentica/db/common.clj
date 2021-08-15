@@ -615,41 +615,41 @@
 
 
 (deftest test-squash-statements
-  (is (= #{[1 :friend :add 1]}
-         (squash-statements [[1 :friend :add 1]])))
+  (is (= #{[:add 1 :friend 1]}
+         (squash-statements [[:add 1 :friend  1]])))
 
   (is (= #{}
-         (squash-statements [[1 :friend :add 1]
-                             [1 :friend :remove 1]])))
+         (squash-statements [[:add 1 :friend 1]
+                             [:remove 1 :friend  1]])))
 
-  (is (= #{[1 :friend :add 1]}
-         (squash-statements [[1 :friend :remove 1]
-                             [1 :friend :add 1]])))
+  (is (= #{[:add 1 :friend 1]}
+         (squash-statements [[:remove 1 :friend 1]
+                             [:add 1 :friend 1]])))
 
   (is (= #{}
-         (squash-statements [[1 :friend :set 1]
-                             [1 :friend :remove 1]])))
+         (squash-statements [[:set 1 :friend 1]
+                             [:remove 1 :friend 1]])))
 
-  (is (= #{[1 :friend :remove 1]}
-         (squash-statements [[1 :friend :remove 1]])))
+  (is (= #{[:remove 1 :friend 1]}
+         (squash-statements [[:remove 1 :friend 1]])))
 
 
-  (is (= #{[1 :friend :set 2]}
-         (squash-statements [[1 :friend :remove 1]
-                             [1 :friend :add 1]
-                             [1 :friend :add 2]
-                             [1 :friend :set 2]])))
+  (is (= #{[:set 1 :friend 2]}
+         (squash-statements [[:remove 1 :friend 1]
+                             [:add 1 :friend 1]
+                             [:add 1 :friend 2]
+                             [:set 1 :friend 2]])))
 
-  (is (= #{[1 :friend :add 1]}
-         (squash-statements [[1 :friend :remove 1]
-                             [1 :friend :add 1]
-                             [1 :friend :add 2]
-                             [1 :friend :remove 2]])))
+  (is (= #{[:add 1 :friend 1]}
+         (squash-statements [[:remove 1 :friend 1]
+                             [:add 1 :friend 1]
+                             [:add 1 :friend 2]
+                             [:remove 1 :friend 2]])))
 
-  (is (= #{[1 :friend :add 1]
-           [2 :friend :add 1]}
-         (squash-statements [[1 :friend :add 1]
-                             [2 :friend :add 1]]))))
+  (is (= #{[:add 1 :friend 1]
+           [:add 2 :friend 1]}
+         (squash-statements [[:add 1 :friend 1]
+                             [:add 2 :friend 1]]))))
 
 
 (defn squash-transactions [transactions]
