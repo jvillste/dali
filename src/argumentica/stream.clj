@@ -7,11 +7,15 @@
             [clojure.java.io :as io]))
 
 (defn in-memory []
-  {:next-id-atom (atom 0)
+  {:id (java.util.UUID/randomUUID)
+   :next-id-atom (atom 0)
    :transaction-log (sorted-map-transaction-log/create)})
 
 (defn on-disk [directory-path]
-  {:next-id-atom (file-atom/create (io/file directory-path "next-id")
+  (io/make-parents directory-path "x")
+  {:id @(file-atom/create (str directory-path "/id")
+                          (java.util.UUID/randomUUID))
+   :next-id-atom (file-atom/create (io/file directory-path "next-id")
                                    0)
    :transaction-log (let [transaction-log-directory (io/file directory-path "transaction-log")]
                       (io/make-parents transaction-log-directory "x")
@@ -33,15 +37,11 @@
 
 
 (comment
-  [:index :statements :entity :attribute :value]
-  [:rename-column :statements :entity :e]
-  [:rename-index :statements :propositions]
-  [:add :statements :id/t1 :name "Jack"]
-
   (let [stream (on-disk "temp/test-stream")
         #_(in-memory)]
     ;; (write! stream [[:add :id/t1 :name "foo"]])
     ;; (write! stream [[:add :id/t1 :name "bar2"]])
-    (into [] (transaction-log/subreducible (:transaction-log stream)
-                                           0)))
+    #_(into [] (transaction-log/subreducible (:transaction-log stream)
+                                             0))
+    (:id stream))
   )
