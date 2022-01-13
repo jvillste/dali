@@ -183,14 +183,12 @@
 (deftest test-reduciblequery
   (is (= [{:?measurement :measurement-1, :?food :food-1}
           {:?measurement :measurement-2, :?food :food-2}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:measurement-1 :food :food-1]
+         (into [] (query/reducible-query [(create-btree-collection [:measurement-1 :food :food-1]
                                                                    [:measurement-2 :food :food-2])
                                           [:?measurement :food :?food]]))))
 
   (is (= [{:?measurement :measurement-1, :?food :food-1}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:measurement-1 :food :food-1]
+         (into [] (query/reducible-query [(create-btree-collection [:measurement-1 :food :food-1]
                                                                    [:measurement-2 :food :food-2])
                                           [:?measurement :food :?food]]
                                          [(create-btree-collection [:measurement-1 :nutrient :nutrient-1]
@@ -199,26 +197,22 @@
 
 
   (is (= [{:?a 1} {:?a 2} {:?a 3}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection 1 2 3)
+         (into [] (query/reducible-query [(create-btree-collection 1 2 3)
                                           :?a]))))
 
   (is (=  [{:?a 1} {:?a 3}]
-          (into [] (query/reducible-query nil
-                                          [(create-btree-collection 1 2 3) :?a]
+          (into [] (query/reducible-query [(create-btree-collection 1 2 3) :?a]
                                           [(create-btree-collection 3 4 5 1) :?a]))))
 
   (is (= [{:?x :a, :?y :c}
           {:?x :d, :?y :e}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:a :b :c]
+         (into [] (query/reducible-query [(create-btree-collection [:a :b :c]
                                                                    [:d :b :e])
                                           [:?x :b :?y]]))))
 
   (is (= [{:?x :a, :?y :c}
           {:?x :a, :?y :e}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:a :b :c]
+         (into [] (query/reducible-query [(create-btree-collection [:a :b :c]
                                                                    [:d :b :e]
                                                                    [:a :b :e])
                                           [:?x :b :?y]
@@ -227,31 +221,28 @@
   (is (= [{:?x :a, :?y :c}
           {:?x :a, :?y :e}
           {:?x :d, :?y :e}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:a :b :c]
+         (into [] (query/reducible-query [(create-btree-collection [:a :b :c]
                                                                    [:d :b :e]
                                                                    [:a :b :e])
                                           [:?x :* :?y]]))))
 
   (is (= [{:?y 2, :?x :b}
           {:?y 2, :?x :c}]
-         (into [] (query/reducible-query {:?y 2}
-                                         [(sorted-set-by comparator/compare-datoms
-                                                         [:a 1]
-                                                         [:b 2]
-                                                         [:c 2]
-                                                         [:d 3])
-                                          [:?x :?y]]))))
+         (into [] (query/reducible-query-with-substitution {:?y 2}
+                                                           [(sorted-set-by comparator/compare-datoms
+                                                                           [:a 1]
+                                                                           [:b 2]
+                                                                           [:c 2]
+                                                                           [:d 3])
+                                                            [:?x :?y]]))))
 
   (is (= [{:?x 4}]
-         (into [] (query/reducible-query nil
-                                         [(create-btree-collection [:a 1] [:b 2] [:b 4]) [:b :?x]]
+         (into [] (query/reducible-query [(create-btree-collection [:a 1] [:b 2] [:b 4]) [:b :?x]]
                                          [(create-btree-collection 3 4 5) :?x]))))
 
   (is (= [{:x "acd"}
           {:x "ace"}]
-         (into [] (query/reducible-query nil
-                                         [(sorted-set "abc"
+         (into [] (query/reducible-query [(sorted-set "abc"
                                                       "acd"
                                                       "ace"
                                                       "ada")
@@ -264,8 +255,7 @@
 
   (is (= [{:?number 2}
           {:?number 3}]
-         (into [] (query/reducible-query nil
-                                         [(sorted-set-by comparator/compare-datoms
+         (into [] (query/reducible-query [(sorted-set-by comparator/compare-datoms
                                                          ["abc" 1]
                                                          ["acd" 2]
                                                          ["ace" 3]
@@ -281,8 +271,7 @@
                                       {:minimum-value string
                                        :match (fn [value]
                                                 (string/starts-with? value string))})]
-                    (query/reducible-query nil
-                                           [(sorted-set-by comparator/compare-datoms
+                    (query/reducible-query [(sorted-set-by comparator/compare-datoms
                                                            ["ab" 1]
                                                            ["ab" 2]
                                                            ["bb" 1])

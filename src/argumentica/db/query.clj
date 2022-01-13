@@ -847,7 +847,7 @@
              (rest participants))
       substitutions)))
 
-(defn reducible-query [substitution & body]
+(defn reducible-query-with-substitution [substitution & body]
   (assert (or (nil? substitution)
               (map? substitution)))
 
@@ -872,6 +872,9 @@
                          substitutions)
                (rest participants))
         substitutions))))
+
+(defn reducible-query [& body]
+  (apply reducible-query-with-substitution nil body))
 
 (defn query-2 [& body]
   (query (for [[sorted-set & patterns] body]
