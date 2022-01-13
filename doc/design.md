@@ -255,7 +255,7 @@ The last case is called join in relational algebra.
 
 ## origin
 * statement: a row consisting of entity id, attribute and value
-* statement origin: an origin with only statemen index
+* statement origin: an origin with only statement index
 * relation origin: an origin with multiple relations
 
 * local entity id: an entity identifier that identifies an entity within a single statement log. Entity ids are integers starting from zero.
