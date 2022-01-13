@@ -716,7 +716,7 @@
 
 (defn- remove-statements [eav-index entity attribute]
   (transduce (map (fn [value]
-                    [entity attribute :remove value]))
+                    [:remove entity attribute value]))
              conj
              []
              (values-from-eav eav-index
@@ -793,19 +793,16 @@
                                                     first-transaction-number)))))
 
 (defn update-indexes-2! [db]
-  (reduce (fn [db statements]
-            (add-transaction-to-indexes db statements))
-          db
-          (transaction-log/subreducible (:transaction-log db)
-                                        (first-unindexed-transaction-number db)))
-
-  (reduction/do-reducible [[transaction-number statements] (transaction-log/subreducible (:transaction-log db)
-                                                                                         (first-unindexed-transaction-number db))]
-                          (doseq [index (vals (:indexes db))]
-                            (add-transaction-to-index! index
-                                                       (:indexes db)
-                                                       transaction-number
-                                                       statements)))
+  (let [first-unindexed-transaction-number (first-unindexed-transaction-number db)]
+    (reduction/do-reducible [[transaction-index statements] (eduction (map-indexed vector)
+                                                          (transaction-log/subreducible (:transaction-log db)
+                                                                                        first-unindexed-transaction-number))]
+                            (doseq [index (vals (:indexes db))]
+                              (add-transaction-to-index! index
+                                                         (:indexes db)
+                                                         (+ first-unindexed-transaction-number
+                                                            transaction-index)
+                                                         statements))))
   db)
 
 (defn update-indexes [db]
