@@ -2,16 +2,17 @@
   (:require [clojure.string :as string]
             [clojure.test :refer [deftest is]]))
 
+(defn temporary-id [name]
+  (keyword "tmp" name))
+
 (defn- temporary-id? [value]
   (and (keyword? value)
-       (= "id"
-          (namespace value))
-       (string/starts-with? (name value)
-                            "t")))
+       (= "tmp"
+          (namespace value))))
 
 (deftest test-temporal-id?
-  (is (temporary-id? :id/t1))
-  (is (not (temporary-id? :id/l1)))
+  (is (temporary-id? :tmp/foo))
+  (is (not (temporary-id? :id/foo)))
   (is (not (temporary-id? :a)))
   (is (not (temporary-id? 1)))
   (is (not (temporary-id? nil))))
@@ -28,16 +29,15 @@
   (into {}
         (map vector
              (distinct-temporary-ids changes)
-             (map (comp local-id
+             (map (comp identity #_local-id
                         (partial + next-id))
                   (range)))))
 
 (deftest test-temporary-id-resolution
-  (is (= #:id{:ta :id/l100,
-              :tb :id/l101}
+  (is (= #:tmp{:a 100, :b 101}
          (temporary-id-resolution 100
-                                  [[:add :id/ta "Foo" :id/tb]
-                                   [:add :id/tb "Foo" :id/ta]]))))
+                                  [[:add :tmp/a "Foo" :tmp/b]
+                                   [:add :tmp/b "Foo" :tmp/a]]))))
 
 (defn assign-temporary-ids [temporary-id-resolution temporary-changes]
   (map (fn [change]
@@ -59,8 +59,9 @@
                                 [:add :temporary/b :text "parsa"]]))))
 
 (defn- number-from-local-id [local-id]
-  (Integer/parseInt (subs (name local-id)
-                          1)))
+  local-id
+  #_(Integer/parseInt (subs (name local-id)
+                            1)))
 
 (deftest test-number-from-local-id
   (is (= 123
