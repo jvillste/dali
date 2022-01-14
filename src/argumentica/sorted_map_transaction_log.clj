@@ -31,9 +31,9 @@
   (reduction/reducible (fn [reducing-function initial-value]
                          (reduce reducing-function
                                  initial-value
-                                 (subseq (:sorted-map @(:state-atom this))
-                                         >=
-                                         first-transaction-number)))))
+                                 (map second (subseq (:sorted-map @(:state-atom this))
+                                                     >=
+                                                     first-transaction-number))))))
 
 (defmethod transaction-log/subseq SortedMapTransactionLog
   [this first-transaction-number]
