@@ -792,18 +792,18 @@
                       (transaction-log/subreducible transaction-log
                                                     first-transaction-number)))))
 
-(defn update-indexes-2! [db]
-  (let [first-unindexed-transaction-number (first-unindexed-transaction-number db)]
+(defn update-indexes-2! [db & [first-unindexed-transaction-number]]
+  (let [first-unindexed-transaction-number (or first-unindexed-transaction-number
+                                               0)]
     (reduction/do-reducible [[transaction-index statements] (eduction (map-indexed vector)
-                                                          (transaction-log/subreducible (:transaction-log db)
-                                                                                        first-unindexed-transaction-number))]
+                                                                      (transaction-log/subreducible (:transaction-log db)
+                                                                                                    first-unindexed-transaction-number))]
                             (doseq [index (vals (:indexes db))]
                               (add-transaction-to-index! index
                                                          (:indexes db)
                                                          (+ first-unindexed-transaction-number
                                                             transaction-index)
-                                                         statements))))
-  db)
+                                                         statements)))))
 
 (defn update-indexes [db]
   (update db :indexes update-indexes! (:transaction-log db)))
