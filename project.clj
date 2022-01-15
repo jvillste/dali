@@ -4,6 +4,7 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.10.1"]
+                 [dali "1.0.2"]
                  #_[com.datomic/datomic-free "0.9.5697"]
                  [org.clojure/data.fressian "1.0.0"]
                  [org.clojure/math.combinatorics "0.1.4"]
@@ -29,7 +30,8 @@
                  [org.clojure/tools.namespace "1.1.0"]
                  [com.taoensso/tufte "2.1.0"]
                  [persistent-sorted-set "0.1.2"]
-                 [tortue/spy "2.4.0"]]
+                 [tortue/spy "2.4.0"]
+                 [io.helins/binf "1.1.0-beta1"]]
   :test-paths ["src/clj" "test"]
   :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
   :resource-paths ["resources"]
