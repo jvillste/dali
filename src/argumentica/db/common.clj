@@ -114,6 +114,9 @@
 (defn command [datom]
   (last datom))
 
+(defn datom-command [datom]
+  (last datom))
+
 (defn datom-proposition [datom]
   (vec (drop-last 2 datom)))
 
