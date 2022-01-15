@@ -113,6 +113,19 @@
 
   (is (= nil (compare-extremes ::min ::min))))
 
+(defn entity-id? [value]
+  (and (map? value)
+       (number? (:id value))
+       (or (= 1 (count (keys value)))
+           (and (= 2 (count (keys value)))
+                (number? (:stream-id value))))))
+
+(deftest test-entity-id
+  (is (entity-id? {:id 1}))
+  (is (entity-id? {:id 1 :stream-id 1}))
+  (is (not (entity-id? {:stream-id 1})))
+  (is (not (entity-id? {:id 1 :foo 1}))))
+
 (defn compare-datoms
   [x y]
   (if-let [result (compare-extremes x y)]
@@ -126,6 +139,11 @@
             ;; sorted order.
             (= x-cls "clojure.lang.IPersistentSet")
             (cmp-seq-lexi compare-datoms (sort compare-datoms x) (sort compare-datoms y))
+
+            (entity-id? x)
+            (cmp-seq-lexi compare-datoms
+                          [(:stream-id x) (:id x)]
+                          [(:stream-id y) (:id y)])
 
             ;; Compare maps to each other as sequences of [key val]
             ;; pairs, with pairs in order sorted by key.
@@ -178,6 +196,11 @@
 
   (run-compare-datoms-test [[1 :name 2 ::min ::min]
                             [1 :name 2 :set "Bar"]])
+
+  (run-compare-datoms-test [[{:id 4} :name "foo" 0 :remove]
+                            [{:id 1, :stream-id 1} :name "bar" 0 :add]
+                            [{:id 3, :stream-id 1} :name "foo" 0 :remove]
+                            [{:id 2, :stream-id 2} :name "foo" 0 :remove]])
 
   (let [sorted-set (sorted-set-by compare-datoms
                                   [1 :name 1 :set "Foo"]
