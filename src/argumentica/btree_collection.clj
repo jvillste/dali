@@ -14,39 +14,52 @@
   (:import argumentica.comparator.DatomComparator
            [clojure.lang IReduceInit IReduce]))
 
+(defprotocol BtreeCollectionProtocol
+  (btree-atom [this]))
+
 (defn btree [btree-collection]
   @(:btree-atom btree-collection))
 
 (defn locking-apply-to-btree! [btree-collection function & arguments]
-  (locking (:btree-atom btree-collection)
-    (reset! (:btree-atom btree-collection)
+  (locking (btree-atom btree-collection)
+    (reset! (btree-atom btree-collection)
             (apply function
-                   @(:btree-atom btree-collection)
+                   @(btree-atom btree-collection)
                    arguments)))
   btree-collection)
 
 ;; idea from https://juxt.pro/blog/ontheflycollections-with-reducible
 
-(defrecord BtreeCollection [btree-atom]
+
+
+(deftype BtreeCollection [btree-atom]
+  BtreeCollectionProtocol
+  (btree-atom [this] btree-atom)
+
+  clojure.lang.Seqable
+  (seq [this]
+    (locking btree-atom
+      (btree/inclusive-subsequence btree-atom
+                                   ::comparator/min)))
   clojure.lang.Sorted
   (comparator [this]
     (DatomComparator.))
   (entryKey [this entry]
     entry)
   (seq [this ascending?]
-    (locking (:btree-atom this)
+    (locking btree-atom
       (if ascending?
-        (btree/inclusive-subsequence (:btree-atom this)
+        (btree/inclusive-subsequence btree-atom
                                      ::comparator/min)
-        (btree/inclusive-subsequence (:btree-atom this)
+        (btree/inclusive-subsequence btree-atom
                                      ::comparator/max
                                      {:direction :backwards}))))
   (seqFrom [this value ascending?]
-    (locking (:btree-atom this)
+    (locking btree-atom
       (if ascending?
-        (btree/inclusive-subsequence (:btree-atom this)
+        (btree/inclusive-subsequence btree-atom
                                      value)
-        (btree/inclusive-subsequence (:btree-atom this)
+        (btree/inclusive-subsequence btree-atom
                                      value
                                      {:direction :backwards}))))
   sorted-reducible/SortedReducible
@@ -59,10 +72,13 @@
                              value))
   transducible-collection/TransducibleCollection
   (transduce [this value options]
-    (locking (:btree-atom this)
-      (btree/transduce-btree (:btree-atom this)
+    (locking btree-atom
+      (btree/transduce-btree btree-atom
                              value
                              options))))
+
+(defmethod print-method BtreeCollection [this ^java.io.Writer writer]
+  (.write writer (with-out-str (clojure.pprint/pprint (seq this)))))
 
 (defn- create-for-btree [btree]
   (->BtreeCollection (atom btree)))
