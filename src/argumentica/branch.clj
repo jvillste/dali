@@ -40,20 +40,33 @@
         downstream-datom (first downstream-sequence)]
     (when (or (some? upstream-datom)
               (some? downstream-datom))
-      (lazy-seq (if (and (some? upstream-datom)
-                         (or (nil? downstream-datom)
-                             (= -1 (comparator/compare-datoms upstream-datom
-                                                              downstream-datom))))
-                  (cons upstream-datom
-                        (lazy-merged-sequence (rest upstream-sequence)
-                                              upstream-id
-                                              downstream-sequence
-                                              downstream-id))
-                  (cons downstream-datom
-                        (lazy-merged-sequence upstream-sequence
-                                              upstream-id
-                                              (rest downstream-sequence)
-                                              downstream-id)))))))
+      (lazy-seq (cond (nil? upstream-datom)
+                      (cons downstream-datom
+                            (lazy-merged-sequence upstream-sequence
+                                                  upstream-id
+                                                  (rest downstream-sequence)
+                                                  downstream-id))
+                      (nil? downstream-datom)
+                      (cons upstream-datom
+                            (lazy-merged-sequence (rest upstream-sequence)
+                                                  upstream-id
+                                                  downstream-sequence
+                                                  downstream-id))
+
+                      (= -1 (comparator/compare-datoms upstream-datom
+                                                       downstream-datom))
+
+                      (cons upstream-datom
+                            (lazy-merged-sequence (rest upstream-sequence)
+                                                  upstream-id
+                                                  downstream-sequence
+                                                  downstream-id))
+                      :else
+                      (cons downstream-datom
+                            (lazy-merged-sequence upstream-sequence
+                                                  upstream-id
+                                                  (rest downstream-sequence)
+                                                  downstream-id)))))))
 
 (defn offset-transaction-number-in-pattern [offset sorted pattern]
   (let [datom-length (count (first (subseq sorted >= [])))]
