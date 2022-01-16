@@ -2,7 +2,9 @@
   (:require
    [argumentica.comparator :as comparator]
    [argumentica.db.common :as db-common]
-   [clojure.test :refer :all])
+   [clojure.test :refer :all]
+   [argumentica.mutable-collection :as mutable-collection]
+   [argumentica.btree-collection :as btree-collection])
   (:import
    (argumentica.comparator DatomComparator)))
 
@@ -129,7 +131,12 @@
                            downstream-id
                            last-upstream-transaction-number
                            value
-                           (if ascending? :forwards :backwards))))
+                           (if ascending? :forwards :backwards)))
+
+  mutable-collection/MutableCollection
+  (add! [this value]
+    (mutable-collection/add! downstream-sorted
+                             value)))
 
 (defmethod print-method Branch [branch ^java.io.Writer writer]
   (.write writer (with-out-str (clojure.pprint/pprint (seq branch)))))
@@ -198,4 +205,20 @@
                                       [{:id 1 :stream-id 1} :name "bar" 0 :add]]
                                      0)
                  >=
-                 [{:id 1, :stream-id 1} :name]))))
+                 [{:id 1, :stream-id 1} :name])))
+
+
+  (is (= '([{:id 1, :stream-id 1} :name "bar" 1 :add]
+           [{:id 1, :stream-id 1} :name "baz" 2 :add]
+           [{:id 1, :stream-id 1} :name "foo" 0 :add])
+         (let [branch (->Branch (reduce mutable-collection/add!
+                                        (btree-collection/create-in-memory)
+                                        [[{:id 1 :stream-id 1} :name "foo" 0 :add]])
+                                1
+                                (reduce mutable-collection/add!
+                                        (btree-collection/create-in-memory)
+                                        [[{:id 1 :stream-id 1} :name "bar" 0 :add]])
+                                2
+                                0)]
+           (mutable-collection/add! branch [{:id 1 :stream-id 1} :name "baz" 1 :add])
+           (seq branch)))))
