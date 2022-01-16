@@ -8,9 +8,6 @@
   (:import
    (argumentica.comparator DatomComparator)))
 
-;; TODO: implement this, how to differentiate local ids in up and down stream?
-;; locals could be {:id 1} foreign could be {:stream-id asdfasdf :id 1} branch should always add stream-id to entity ids
-
 (defn set-stream-id [stream-id datom]
   (when datom
     (mapv (fn [value]
@@ -53,8 +50,8 @@
                                                   downstream-sequence
                                                   downstream-id))
 
-                      (= -1 (comparator/compare-datoms upstream-datom
-                                                       downstream-datom))
+                      (> 0 (comparator/compare-datoms upstream-datom
+                                                      downstream-datom))
 
                       (cons upstream-datom
                             (lazy-merged-sequence (rest upstream-sequence)
