@@ -16,7 +16,8 @@
             [clojure.test :refer :all]
             [flatland.useful.map :as map]
             [medley.core :as medley]
-            [schema.core :as schema])
+            [schema.core :as schema]
+            [argumentica.entity-id :as entity-id])
   (:import clojure.lang.MapEntry
            [java.text Normalizer Normalizer$Form]
            java.util.UUID))
@@ -721,12 +722,15 @@
   (values-from-eav (index db :eav)
                    entity-id
                    attribute
-                   (:last-transaction-number db)))
+                   (or (:last-transaction-number db)
+                       (transaction-log/last-transaction-number (:transaction-log db)))))
 
 (defn value [db entity-id attribute]
-  (first (values db
-                 entity-id
-                 attribute)))
+  (first (into []
+               (take 1)
+               (values db
+                       entity-id
+                       attribute))))
 
 (defn- remove-statements [eav-index entity attribute]
   (transduce (map (fn [value]
@@ -1012,6 +1016,7 @@
   (select-keys index
                [:eatcv-to-datoms
                 :datom-transaction-number-index
+                :statements-to-changes
                 :key]))
 
 (defn index-definition-to-indexes [index-definition create-collection]

@@ -4,14 +4,17 @@
    [argumentica.db.common :as db-common]
    [clojure.test :refer :all]
    [argumentica.mutable-collection :as mutable-collection]
-   [argumentica.btree-collection :as btree-collection])
+   [argumentica.btree-collection :as btree-collection]
+   [argumentica.entity-id :as entity-id]
+   [clojure.string :as string]
+   [clojure.string :as string])
   (:import
    (argumentica.comparator DatomComparator)))
 
 (defn set-stream-id [stream-id datom]
   (when datom
     (mapv (fn [value]
-            (if (and (comparator/entity-id? value)
+            (if (and (entity-id/entity-id? value)
                      (not (some? (:stream-id value))))
               (assoc value :stream-id stream-id)
               value))
@@ -20,7 +23,7 @@
 (defn remove-stream-id [stream-id datom]
   (when datom
     (mapv (fn [value]
-            (if (and (comparator/entity-id? value)
+            (if (and (entity-id/entity-id? value)
                      (= stream-id (:stream-id value)))
               (dissoc value :stream-id)
               value))
@@ -95,9 +98,15 @@
                                     (set-stream-id upstream-id datom))))
                         upstream-id
                         (let [downstream-starting-pattern (->> starting-pattern
-                                                               (remove-stream-id downstream-id)
-                                                               (offset-transaction-number-in-pattern (- (inc last-upstream-transaction-number))
-                                                                                                     upstream-sorted))]
+                                                               (remove-stream-id downstream-id))
+                              downstream-starting-pattern (if (and (empty? upstream-sorted)
+                                                                   (empty? downstream-sorted))
+                                                            downstream-starting-pattern
+                                                            (offset-transaction-number-in-pattern (- (inc last-upstream-transaction-number))
+                                                                                                  (if (empty? upstream-sorted)
+                                                                                                    downstream-sorted
+                                                                                                    upstream-sorted)
+                                                                                                  downstream-starting-pattern))]
                           (->> (if (= :forwards direction)
                                  (subseq downstream-sorted
                                          >=
@@ -112,6 +121,7 @@
                         downstream-id))
 
 (deftype Branch [upstream-sorted upstream-id downstream-sorted downstream-id last-upstream-transaction-number]
+  clojure.lang.Sequential
   clojure.lang.Seqable
   (seq [this]
     (merged-datom-sequence upstream-sorted
@@ -149,7 +159,9 @@
                              value)))
 
 (defmethod print-method Branch [branch ^java.io.Writer writer]
-  (.write writer (with-out-str (clojure.pprint/pprint (seq branch)))))
+  (.write writer (string/trim (with-out-str (clojure.pprint/pprint (if (empty? branch)
+                                                                     '()
+                                                                     (seq branch)))))))
 
 (defn create-test-branch [upstream-datoms downstream-datoms last-upstream-transaction-number]
   (->Branch (apply sorted-set-by
@@ -163,6 +175,21 @@
             last-upstream-transaction-number))
 
 (deftest test-branch
+  (is (= '()
+         (create-test-branch []
+                             []
+                             0)))
+
+  (is (= [[{:id 1, :stream-id 1} :name "bar" 1 :add]]
+         (create-test-branch []
+                             [[{:id 1 :stream-id 1} :name "bar" 0 :add]]
+                             0)))
+
+  (is (= [[{:id 1, :stream-id 1} :name "bar" 0 :add]]
+         (create-test-branch [[{:id 1 :stream-id 1} :name "bar" 0 :add]]
+                             []
+                             0)))
+
   (is (= '([{:id 1, :stream-id 1} :name "bar" 1 :add]
            [{:id 1, :stream-id 1} :name "foo" 0 :add]
            [{:id 1, :stream-id 1} :name "foo" 1 :remove])
