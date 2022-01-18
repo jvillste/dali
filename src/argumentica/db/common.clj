@@ -101,6 +101,17 @@
 (def eav-index-definition {:key :eav
                            :statements-to-changes (fn [_indexes _transaction-number statements]
                                                     statements)})
+(def ave-index-definition {:key :ave
+                           :statements-to-changes (fn [_indexes _transaction-number statements]
+                                                    (for [[operator entity attribute value] statements]
+                                                      [operator attribute value entity]))})
+
+(def vae-index-definition {:key :vae
+                           :statements-to-changes (fn [_indexes _transaction-number statements]
+                                                    (for [[operator entity attribute value] (filter (fn [statement]
+                                                                                                      (entity-id/entity-id? (statement-value statement)))
+                                                                                                    statements)]
+                                                      [operator value attribute entity]))})
 
 (def avetc-index-definition {:key :avetc
                              :eatcv-to-datoms eatcv-to-avetc-datoms})

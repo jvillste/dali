@@ -1,5 +1,6 @@
 (ns argumentica.comparator
-  (:use clojure.test))
+  (:use clojure.test)
+  (:require [argumentica.entity-id :as entity-id]))
 
 ;; from https://clojure.org/guides/comparators
 
@@ -113,19 +114,6 @@
 
   (is (= nil (compare-extremes ::min ::min))))
 
-(defn entity-id? [value]
-  (and (map? value)
-       (number? (:id value))
-       (or (= 1 (count (keys value)))
-           (and (= 2 (count (keys value)))
-                (number? (:stream-id value))))))
-
-(deftest test-entity-id
-  (is (entity-id? {:id 1}))
-  (is (entity-id? {:id 1 :stream-id 1}))
-  (is (not (entity-id? {:stream-id 1})))
-  (is (not (entity-id? {:id 1 :foo 1}))))
-
 (defn compare-datoms
   [x y]
   (if-let [result (compare-extremes x y)]
@@ -140,7 +128,7 @@
             (= x-cls "clojure.lang.IPersistentSet")
             (cmp-seq-lexi compare-datoms (sort compare-datoms x) (sort compare-datoms y))
 
-            (entity-id? x)
+            (entity-id/entity-id? x)
             (cmp-seq-lexi compare-datoms
                           [(:stream-id x) (:id x)]
                           [(:stream-id y) (:id y)])
