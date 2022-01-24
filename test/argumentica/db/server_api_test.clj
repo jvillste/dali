@@ -9,12 +9,12 @@
                          [encode :as encode])
             (argumentica.db [common :as common]
                             [server-api :as server-api])
-            (cor [server :as server]
+            #_(cor [server :as server]
                  [api :as api]))
   (:use clojure.test))
 
 
-(deftest test
+#_(deftest test
   (let [state-atom (atom (server-api/create-state (btree-db/create-memory-btree-db)))
         entity-id  #uuid "adcba48b-b9a9-4c28-b1e3-3a97cb10cffb"]
     (server-api/transact state-atom

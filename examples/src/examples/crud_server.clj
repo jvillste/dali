@@ -16,8 +16,8 @@
             [clojure.set :as set]
             [clojure.string :as string]
             [clojure.test :as t :refer :all]
-            [cor.api :as cor-api]
-            [cor.server :as server]
+            ;; [cor.api :as cor-api]
+            ;; [cor.server :as server]
             [kixi.stats.core :as stats]
             [me.raynes.fs :as fs]
             [net.cgrand.xforms :as xforms]))
@@ -352,11 +352,11 @@
 
 
 (defn start-server [directory port]
-  (server/start-server (cor-api/app (server-api/create-state (-> #_(create-directory-btree-db directory)
-                                                                 (create-in-memory-btree-db 21)
-                                                                 (transact-titles "data/imdb/title.basics.tsv" (take 20))))
-                                    'argumentica.db.server-api)
-                       port))
+  #_(server/start-server (cor-api/app (server-api/create-state (-> #_(create-directory-btree-db directory)
+                                                                   (create-in-memory-btree-db 21)
+                                                                   (transact-titles "data/imdb/title.basics.tsv" (take 20))))
+                                      'argumentica.db.server-api)
+                         port))
 
 (defn -main [& [port]]
   (start-server port))
