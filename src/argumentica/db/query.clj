@@ -877,7 +877,7 @@
   (apply reducible-query-with-substitution nil body))
 
 (defn query-2 [& body]
-  (query (for [[sorted-set & patterns] body]
+  (query (for [[sorted-set & patterns] (remove nil? body)]
            {:sorted-set sorted-set
             :patterns patterns})))
 
