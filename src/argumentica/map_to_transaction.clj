@@ -6,7 +6,9 @@
             [clojure.string :as string]
             [argumentica.comparator :as comparator]
             [argumentica.util :as util]
-            [schema.core :as schema]))
+            [schema.core :as schema]
+            [medley.core :as medley]
+            [argumentica.entity-id :as entity-id]))
 
 (def initial-label-sequence-labeler-state {:id-map {}
                                            :id-sequence (range)})
@@ -161,6 +163,71 @@
                         :child-2 {:dali/id :id-2}
                         :child-3 {:dali/id :id-1}})))))
 
+
+(defn- assign-ids-2
+  ([create-id a-map]
+   (medley/map-vals (fn [value]
+                      (cond (map? value)
+                            (assign-ids-2 create-id value)
+
+                            (set? value)
+                            (set (map (fn [value-in-set]
+                                        (if (map? value-in-set)
+                                          (assign-ids-2 create-id
+                                                        value-in-set)
+                                          value-in-set))
+                                      value))
+
+                            :else
+                            value))
+                    (update a-map :dali/id #(if % % (create-id))))))
+
+(deftest test-assign-ids-2
+  (is (= {:child {:type :child, :dali/id 1},
+          :children #{{:type :child, :number 2, :dali/id 2}
+                      {:type :child, :number 1, :dali/id 3}},
+          :child-with-id {:type :child, :dali/id 10},
+          :dali/id 0}
+         (assign-ids-2 (common/create-test-id-generator)
+                       {:child {:type :child}
+                        :children #{{:type :child
+                                     :number 1}
+                                    {:type :child
+                                     :number 2}}
+                        :child-with-id {:type :child
+                                        :dali/id 10}})))
+
+  (testing "keyword ids"
+    (is (= {:dali/id :id-1, :foo 1}
+           (assign-ids-2 (common/create-test-id-generator)
+                         {:dali/id :id-1
+                          :foo 1})))
+
+    (testing "fully qualified keywords are left untouched"
+      (is (= {:dali/id :foo/bar}
+             (assign-ids-2 (common/create-test-id-generator)
+                           {:dali/id :foo/bar}))))
+
+    (is (= {:children #{{:dali/id :id-1, :bar 2}
+                        {:dali/id :id-1, :foo 1}}
+            :dali/id 0}
+           (assign-ids-2 (common/create-test-id-generator)
+                         {:children #{{:dali/id :id-1
+                                       :foo 1}
+                                      {:dali/id :id-1
+                                       :bar 2}}})))
+
+    (is (= {:child-1 #:dali{:id :id-1},
+            :child-2 #:dali{:id :id-2},
+            :child-3 #:dali{:id :id-1},
+            :dali/id 0}
+           (assign-ids-2 (common/create-test-id-generator)
+                         {:child-1 {:dali/id :id-1}
+                          :child-2 {:dali/id :id-2}
+                          :child-3 {:dali/id :id-1}})))))
+
+
+
 (defn assign-ids-to-maps [create-id maps]
   (second (map-with-state {}
                           (fn [keyword-ids-map a-map]
@@ -185,13 +252,15 @@
                               {:dali/id :bar/foo}]))))
 
 (defn- value-to-transaction-value [value]
-  (if (map? value)
+  (if (and (map? value)
+           (not (entity-id/entity-id? value)))
     (:dali/id value)
     value))
 
 (defn- reverse-attribute? [attribute]
-  (string/starts-with? (name attribute)
-                       "<-"))
+  (and (keyword? attribute)
+       (string/starts-with? (name attribute)
+                            "<-")))
 
 (defn- forward-attribute [reverse-attribute]
   (keyword (namespace reverse-attribute)
@@ -267,7 +336,7 @@
          (map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
                                                     {:dali/id 3}}}))))
 
-(defn- map-with-ids-to-statements [a-map-with-ids]
+(defn map-with-ids-to-statements [a-map-with-ids]
   (concat (map-to-statements a-map-with-ids)
           (mapcat map-with-ids-to-statements
                   (filter map? (vals a-map-with-ids)))
@@ -308,8 +377,8 @@
   (apply set/union
          (map (fn [map-with-ids]
                 (set (map-with-ids-to-statements map-with-ids)))
-              (assign-ids-to-maps (common/create-temporary-id-generator)
-                                  maps))))
+              (map (partial assign-ids-2 (common/create-temporary-id-generator))
+                   maps))))
 
 (deftest test-maps-to-transaction
   (is (= '([:add :id/l100 :title "tag 1"]

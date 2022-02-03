@@ -14,11 +14,12 @@
        (number? (:id value))
        (or (= 1 (count (keys value)))
            (and (= 2 (count (keys value)))
-                (number? (:stream-id value))))))
+                (:stream-id value)))))
 
 (deftest test-entity-id
   (is (entity-id? {:id 1}))
   (is (entity-id? {:id 1 :stream-id 1}))
+  (is (entity-id? {:id 1 :stream-id "foo"}))
   (is (not (entity-id? {:stream-id 1})))
   (is (not (entity-id? {:id 1 :foo 1}))))
 

@@ -10,7 +10,7 @@
        (= "tmp"
           (namespace value))))
 
-(deftest test-temporal-id?
+(deftest test-temporary-id?
   (is (temporary-id? :tmp/foo))
   (is (not (temporary-id? :id/foo)))
   (is (not (temporary-id? :a)))
