@@ -8,6 +8,13 @@
 
 ;; (client/define-http-client HttpClient *ns*)
 
+(defn latest-root [])
+(defn transaction-log-subseq [])
+(defn last-transaction-number [])
+(defn transact [])
+(defn get-from-node-storage [])
+(defrecord InProcessClient [])
+
 (comment
   (let [client (->HttpClient "http://localhost:9999/api")]
     (transaction-log-subseq client 0)))
