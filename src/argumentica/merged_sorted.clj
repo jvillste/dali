@@ -88,10 +88,10 @@
   clojure.lang.Seqable
   (seq [this]
     (merged-datom-sequence upstream-sorted
-                             downstream-sorted
-                             last-upstream-transaction-number
-                             []
-                             :forwards))
+                           downstream-sorted
+                           last-upstream-transaction-number
+                           []
+                           :forwards))
   clojure.lang.Sorted
   (comparator [this]
     (DatomComparator.))
@@ -99,16 +99,21 @@
     entry)
   (seq [this ascending?]
     (merged-datom-sequence upstream-sorted
-                             downstream-sorted
-                             last-upstream-transaction-number
-                             (if ascending? [] :comparator/max)
-                             (if ascending? :forwards :backwards)))
+                           downstream-sorted
+                           last-upstream-transaction-number
+                           (if ascending? [] :comparator/max)
+                           (if ascending? :forwards :backwards)))
   (seqFrom [this value ascending?]
     (merged-datom-sequence upstream-sorted
-                             downstream-sorted
-                             last-upstream-transaction-number
-                             value
-                             (if ascending? :forwards :backwards))))
+                           downstream-sorted
+                           last-upstream-transaction-number
+                           value
+                           (if ascending? :forwards :backwards)))
+
+  mutable-collection/MutableCollection
+  (add! [this value]
+    (mutable-collection/add! downstream-sorted
+                             value)))
 
 
 (defmethod print-method MergedSorted [branch ^java.io.Writer writer]
@@ -200,4 +205,15 @@
                                              [1 :name "bar" 0 :add]]
                                             0)
                  >=
-                 [1 :name]))))
+                 [1 :name])))
+
+  (is (= '([1 :name "bar" 1 :add]
+           [1 :name "baz" 2 :add]
+           [1 :name "foo" 0 :add])
+         (let [merged-sorted (->MergedSorted (mutable-collection/add! (btree-collection/create-in-memory)
+                                                               [1 :name "foo" 0 :add])
+                                      (mutable-collection/add! (btree-collection/create-in-memory)
+                                                               [1 :name "bar" 0 :add])
+                                      0)]
+           (mutable-collection/add! merged-sorted [1 :name "baz" 1 :add])
+           (seq merged-sorted)))))
