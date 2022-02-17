@@ -4,6 +4,10 @@
 (defn local [number]
   {:id number})
 
+(defn global [stream-id number]
+  {:id number
+   :stream-id stream-id})
+
 (defn make-local [stream-id entity-id]
   (if (= stream-id (:stream-id entity-id))
     (dissoc entity-id :stream-id)
