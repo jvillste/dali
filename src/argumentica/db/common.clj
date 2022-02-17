@@ -723,7 +723,8 @@
                    entity-id
                    attribute
                    (or (:last-transaction-number db)
-                       (transaction-log/last-transaction-number (:transaction-log db)))))
+                       (transaction-log/last-transaction-number (:transaction-log db))
+                       (:last-upstream-transaction-number db))))
 
 (defn value [db entity-id attribute]
   (first (into []
