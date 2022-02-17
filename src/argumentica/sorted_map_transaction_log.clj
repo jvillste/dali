@@ -24,12 +24,12 @@
     entry)
 
   (seq [this ascending?]
-    (map second (.seq  (:sorted-map @state-atom)
-                       ascending?)))
+    (map set (map second (.seq  (:sorted-map @state-atom)
+                                ascending?))))
   (seqFrom [this value ascending?]
-    (map second (.seqFrom (:sorted-map @state-atom)
-                          value
-                          ascending?))))
+    (map set (map second (.seqFrom (:sorted-map @state-atom)
+                                   value
+                                   ascending?)))))
 
 (defmethod print-method SortedMapTransactionLog [this ^java.io.Writer writer]
   (.write writer (with-out-str (clojure.pprint/pprint (seq this)))))
