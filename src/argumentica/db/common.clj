@@ -691,8 +691,8 @@
    (squash-statements (mapcat second (take-while (fn [[transaction-number statements_]]
                                                    (<= transaction-number
                                                        last-transaction-number))
-                                                 (transaction-log/subseq transaction-log
-                                                                         0))))))
+                                                 (map-indexed vector (transaction-log/subseq transaction-log
+                                                                                             0)))))))
 
 (util/defno transduce-values-from-eav-collection [transducible-collection entity-id attribute options :- transduce-propositions-options]
   (transduce-propositions transducible-collection
