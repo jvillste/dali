@@ -742,15 +742,20 @@
                               attribute)))
 
 (defn expand-set-statements [eav-index statements]
+  (assert (not (nil? eav-index))
+          "EAV index is needed for using 'set' operators in statements")
+
   (into #{}
         (mapcat (fn [[o e a v]]
                   (if (= :set o)
-                    (do (assert (not (nil? eav-index))
-                                "EAV index is needed for using 'set' operators in statements")
-                        (vec (concat [[:add e a v]]
-                                     (remove-statements eav-index
-                                                        e
-                                                        a))))
+                    (if (= [v] (into [] (values-from-eav eav-index
+                                                         e
+                                                         a)))
+                      []
+                      (vec (concat [[:add e a v]]
+                                   (remove-statements eav-index
+                                                      e
+                                                      a))))
                     [[o e a v]]))
                 statements)))
 
