@@ -6,17 +6,19 @@
             [argumentica.transaction-log :as transaction-log]
             [clojure.java.io :as io]))
 
-(defn in-memory [& [{:keys [id] :or {id (java.util.UUID/randomUUID)}}]]
+(defn in-memory [& [{:keys [id next-id] :or {id (java.util.UUID/randomUUID)
+                                             next-id 0}}]]
   {:id id
-   :next-id-atom (atom 0)
+   :next-id-atom (atom next-id)
    :transaction-log (sorted-map-transaction-log/create)})
 
-(defn on-disk [directory-path & [{:keys [id] :or {id (java.util.UUID/randomUUID)}}]]
+(defn on-disk [directory-path & [{:keys [id next-id] :or {id (java.util.UUID/randomUUID)
+                                                          next-id 0}}]]
   (io/make-parents directory-path "x")
   {:id @(file-atom/create (str directory-path "/id")
                           id)
    :next-id-atom (file-atom/create (io/file directory-path "next-id")
-                                   0)
+                                   next-id)
    :transaction-log (let [transaction-log-directory (io/file directory-path "transaction-log")]
                       (io/make-parents transaction-log-directory "x")
                       (multifile-transaction-log/open transaction-log-directory))})
