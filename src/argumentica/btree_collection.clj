@@ -83,21 +83,23 @@
 (defn- create-for-btree [btree]
   (->BtreeCollection (atom btree)))
 
-(def create-options {(schema/optional-key :node-size) schema/Int})
+(def create-options {(schema/optional-key :node-size) schema/Int
+                     (schema/optional-key :create-atom) fn?})
 
-(def ^:private default-create-options {:node-size 1001})
+(def ^:private default-create-options {:node-size 1001
+                                       :create-atom atom})
 
 (util/defno create-on-disk [base-path options :- create-options]
   (let [options (merge default-create-options
                        options)]
-    (create-for-btree (btree/create-from-options-2 :node-storage (directory-storage/create base-path)
-                                                   :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
+    (->BtreeCollection ((:create-atom options) (btree/create-from-options-2 :node-storage (directory-storage/create base-path)
+                                                                            :full? (btree/full-after-maximum-number-of-values (:node-size options)))))))
 
 (util/defno create-in-memory [options :- create-options]
   (let [options (merge default-create-options
                        options)]
-    (create-for-btree (btree/create-from-options-2 :node-storage (hash-map-storage/create)
-                                                   :full? (btree/full-after-maximum-number-of-values (:node-size options))))))
+    (->BtreeCollection ((:create-atom options) (btree/create-from-options-2 :node-storage (hash-map-storage/create)
+                                                                            :full? (btree/full-after-maximum-number-of-values (:node-size options)))))))
 
 (defn store-root! [btree-collection]
   (locking-apply-to-btree! btree-collection
