@@ -731,8 +731,8 @@
                        #_(:last-upstream-transaction-number db))))
 
 (schema/defn value [db
-                    entity-id :- {}
-                    attribute :- {}]
+                    entity-id :- (schema/pred map?)
+                    attribute :- (schema/pred map?)]
   ;; (assert (map? entity-id))
   ;; (assert (map? attribute))
   (first (into []
