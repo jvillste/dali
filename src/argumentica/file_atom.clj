@@ -26,11 +26,14 @@
     (locking this
       (write-on-disk! this value))))
 
-(defmethod print-method FileAtom [on-disk-counter
+(defmethod print-method FileAtom [file-atom
                                   ^java.io.Writer writer]
   (.write writer
-          (pr-str {:value @(:value-atom on-disk-counter)
-                   :file-name (:file-name on-disk-counter)})))
+          (pr-str {:value @(:value-atom file-atom)
+                   :file-name (:file-name file-atom)})))
+
+(defmethod clojure.pprint/simple-dispatch FileAtom [^FileAtom file-atom]
+  (pr file-atom))
 
 (defn create [file-or-file-name & [initial-value]]
   (if (.exists (io/file file-or-file-name))

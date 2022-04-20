@@ -3,7 +3,10 @@
    [argumentica.comparator :as comparator]
    [argumentica.db.common :as db-common]
    [clojure.string :as string]
-   [clojure.test :refer :all])
+   [clojure.test :refer :all]
+   [argumentica.mutable-collection :as mutable-collection]
+   [argumentica.btree-collection :as btree-collection]
+   [argumentica.contents :as contents])
   (:import
    (argumentica.comparator DatomComparator)))
 
@@ -55,33 +58,33 @@
 
 (defn merged-datom-sequence [upstream-sorted downstream-sorted last-upstream-transaction-number starting-pattern direction]
   (lazy-merged-sequence (->> (if (= :forwards direction)
-                                 (subseq upstream-sorted
+                               (subseq upstream-sorted
+                                       >=
+                                       starting-pattern)
+                               (rsubseq upstream-sorted
+                                        <=
+                                        starting-pattern))
+                             (filter (fn [datom]
+                                       (>= last-upstream-transaction-number
+                                           (db-common/datom-transaction-number datom)))))
+                        (let [downstream-starting-pattern (if (and (empty? upstream-sorted)
+                                                                   (empty? downstream-sorted))
+                                                            starting-pattern
+                                                            (offset-transaction-number-in-pattern (- (inc last-upstream-transaction-number))
+                                                                                                  (if (empty? upstream-sorted)
+                                                                                                    downstream-sorted
+                                                                                                    upstream-sorted)
+                                                                                                  starting-pattern))]
+                          (->> (if (= :forwards direction)
+                                 (subseq downstream-sorted
                                          >=
-                                         starting-pattern)
-                                 (rsubseq upstream-sorted
+                                         downstream-starting-pattern)
+                                 (rsubseq downstream-sorted
                                           <=
-                                          starting-pattern))
-                               (filter (fn [datom]
-                                         (>= last-upstream-transaction-number
-                                             (db-common/datom-transaction-number datom)))))
-                          (let [downstream-starting-pattern (if (and (empty? upstream-sorted)
-                                                                     (empty? downstream-sorted))
-                                                              starting-pattern
-                                                              (offset-transaction-number-in-pattern (- (inc last-upstream-transaction-number))
-                                                                                                    (if (empty? upstream-sorted)
-                                                                                                      downstream-sorted
-                                                                                                      upstream-sorted)
-                                                                                                    starting-pattern))]
-                            (->> (if (= :forwards direction)
-                                   (subseq downstream-sorted
-                                           >=
-                                           downstream-starting-pattern)
-                                   (rsubseq downstream-sorted
-                                            <=
-                                            downstream-starting-pattern))
-                                 (map (fn [datom]
-                                        (->> datom
-                                             (add-to-transaction-number (inc last-upstream-transaction-number)))))))))
+                                          downstream-starting-pattern))
+                               (map (fn [datom]
+                                      (->> datom
+                                           (add-to-transaction-number (inc last-upstream-transaction-number)))))))))
 
 (deftype MergedSorted [upstream-sorted downstream-sorted last-upstream-transaction-number]
   clojure.lang.Sequential
@@ -103,17 +106,24 @@
                            last-upstream-transaction-number
                            (if ascending? [] :comparator/max)
                            (if ascending? :forwards :backwards)))
-  (seqFrom [this value ascending?]
+  (seqFrom [this datom ascending?]
     (merged-datom-sequence upstream-sorted
                            downstream-sorted
                            last-upstream-transaction-number
-                           value
+                           datom
                            (if ascending? :forwards :backwards)))
 
+  contents/Protocol
+  (contents [this]
+    {:upstream-sorted upstream-sorted
+     :downstream-sorted downstream-sorted
+     :last-upstream-transaction-number last-upstream-transaction-number})
+
   mutable-collection/MutableCollection
-  (add! [this value]
+  (add! [this datom]
     (mutable-collection/add! downstream-sorted
-                             value)))
+                             (add-to-transaction-number (- (inc last-upstream-transaction-number))
+                                                        datom))))
 
 
 (defmethod print-method MergedSorted [branch ^java.io.Writer writer]

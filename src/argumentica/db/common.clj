@@ -17,10 +17,14 @@
             [flatland.useful.map :as map]
             [medley.core :as medley]
             [schema.core :as schema]
-            [argumentica.entity-id :as entity-id])
+            [argumentica.entity-id :as entity-id]
+            [schema.core :as schema])
   (:import clojure.lang.MapEntry
            [java.text Normalizer Normalizer$Form]
            java.util.UUID))
+
+(defn create-sorted-datom-set [& datoms]
+  (apply sorted-set-by comparator/compare-datoms datoms))
 
 (defn eatcv-entity [statement]
   (get statement 0))
@@ -724,14 +728,44 @@
                    attribute
                    (or (:last-transaction-number db)
                        (transaction-log/last-transaction-number (:transaction-log db))
-                       (:last-upstream-transaction-number db))))
+                       #_(:last-upstream-transaction-number db))))
 
-(defn value [db entity-id attribute]
+(schema/defn value [db
+                    entity-id :- {}
+                    attribute :- {}]
+  ;; (assert (map? entity-id))
+  ;; (assert (map? attribute))
   (first (into []
                (take 1)
                (values db
                        entity-id
                        attribute))))
+
+(defn entity-transducer [attribute value]
+  (comp propositions-transducer
+        (take-while-pattern-matches [attribute value])
+        (map #(nth % 2))))
+
+
+(defn entities-from-ave
+  ([ave-index attribute value]
+   (eduction (entity-transducer attribute value)
+             (query/reducible-for-pattern (:collection ave-index)
+                                          [attribute value])))
+
+  #_([ave-index value attribute last-transaction-number]
+   (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
+                   (value-transducer value attribute))
+             (query/reducible-for-pattern (:collection ave-index)
+                                          [value attribute]))))
+
+(deftest test-entities-from-ave
+  (is (= '(:entity-1)
+         (entities-from-ave {:collection (create-sorted-datom-set [:type :entity-type :entity-1 0 :add]
+                                                                  [:type :entity-type :entity-2 1 :add]
+                                                                  [:type :entity-type :entity-2 1 :remove])}
+                            :type
+                            :entity-type))))
 
 (defn- remove-statements [eav-index entity attribute]
   (transduce (map (fn [value]
@@ -816,6 +850,15 @@
                       (transaction-log/subreducible transaction-log
                                                     first-transaction-number)))))
 
+(defn add-transactions-to-indexes [first-transaction-number transactions indexes]
+  (doseq [[transaction-index changes] (map-indexed vector transactions)]
+    (doseq [index indexes]
+      (add-transaction-to-index! index
+                                 indexes
+                                 (+ first-transaction-number
+                                    transaction-index)
+                                 changes))))
+
 (defn update-indexes-2! [db & [first-unindexed-transaction-number]]
   (let [first-unindexed-transaction-number (or first-unindexed-transaction-number
                                                0)]
@@ -828,7 +871,6 @@
                                                          (+ first-unindexed-transaction-number
                                                             transaction-index)
                                                          statements)))))
-
 (defn update-indexes [db]
   (update db :indexes update-indexes! (:transaction-log db)))
 
@@ -1346,8 +1388,7 @@
                                  transaction-number
                                  rule))))
 
-(defn create-sorted-datom-set [& datoms]
-  (apply sorted-set-by comparator/compare-datoms datoms))
+
 
 (defn- substitutions-involved-in-the-last-transaction [indexes rule]
   (mapcat (fn [[index-key & patterns]]

@@ -1,7 +1,8 @@
 (ns argumentica.sorted-map-transaction-log
   (:require [argumentica.transaction-log :as transaction-log]
             [argumentica.util :as util]
-            [argumentica.reduction :as reduction]))
+            [argumentica.reduction :as reduction]
+            [schema.core :as schema]))
 
 
 (defprotocol SortedMapTransactionLogProtocol
@@ -34,8 +35,14 @@
 (defmethod print-method SortedMapTransactionLog [this ^java.io.Writer writer]
   (.write writer (with-out-str (clojure.pprint/pprint (seq this)))))
 
-(defn create []
-  (->SortedMapTransactionLog (atom {:sorted-map (sorted-map)})))
+(def create-options {(schema/optional-key :create-atom) (schema/pred fn?)})
+
+(def ^:private default-create-options {:create-atom atom})
+
+(util/defno create [options :- create-options]
+  (let [options (merge default-create-options
+                       options)]
+    (->SortedMapTransactionLog ((:create-atom options) {:sorted-map (sorted-map)}))))
 
 (defmethod transaction-log/last-transaction-number SortedMapTransactionLog
   [this]

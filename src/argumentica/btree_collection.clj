@@ -36,6 +36,7 @@
   BtreeCollectionProtocol
   (btree-atom [this] btree-atom)
 
+  clojure.lang.Sequential
   clojure.lang.Seqable
   (seq [this]
     (locking btree-atom
@@ -84,7 +85,7 @@
   (->BtreeCollection (atom btree)))
 
 (def create-options {(schema/optional-key :node-size) schema/Int
-                     (schema/optional-key :create-atom) fn?})
+                     (schema/optional-key :create-atom) (schema/pred fn?)})
 
 (def ^:private default-create-options {:node-size 1001
                                        :create-atom atom})

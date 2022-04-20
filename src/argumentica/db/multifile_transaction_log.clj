@@ -34,3 +34,7 @@
                                                                     reducing-function
                                                                     initial-value
                                                                     first-transaction-number))))
+
+(defmethod transaction-log/subseq MultifileTransactionLog
+  [this first-transaction-number]
+  (into [] (transaction-log/subreducible this first-transaction-number)))
