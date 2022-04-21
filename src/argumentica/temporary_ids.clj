@@ -39,22 +39,31 @@
                                   [[:add :tmp/a "Foo" :tmp/b]
                                    [:add :tmp/b "Foo" :tmp/a]]))))
 
+(defn assign-temporary-id [temporary-id-resolution value]
+  (or (get temporary-id-resolution
+           value)
+      value))
+
 (defn assign-temporary-ids [temporary-id-resolution temporary-changes]
   (map (fn [change]
          (vec (map (fn [value]
-                     (or (get temporary-id-resolution
-                              value)
-                         value))
+                     (if (vector? value)
+                       (vec (map (partial assign-temporary-id temporary-id-resolution)
+                                 value))
+                       (assign-temporary-id temporary-id-resolution
+                                            value)))
                    change)))
        temporary-changes))
 
 (deftest test-assign-temporary-ids
   (is (= '([:add 100 :name 101]
+           [:add 100 :friends [101]]
            [:add 101 :language "fi"]
            [:add 101 :text "parsa"])
          (assign-temporary-ids {:temporary/a 100
                                 :temporary/b 101}
                                [[:add :temporary/a :name :temporary/b]
+                                [:add :temporary/a :friends [:temporary/b]]
                                 [:add :temporary/b :language "fi"]
                                 [:add :temporary/b :text "parsa"]]))))
 
