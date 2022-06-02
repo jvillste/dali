@@ -18,7 +18,10 @@
             [medley.core :as medley]
             [schema.core :as schema]
             [argumentica.entity-id :as entity-id]
-            [schema.core :as schema])
+            [schema.core :as schema]
+            [argumentica.sorted-set-index :as sorted-set-index]
+            [argumentica.sorted-set-index :as sorted-set-index]
+            [argumentica.btree-collection :as btree-collection])
   (:import clojure.lang.MapEntry
            [java.text Normalizer Normalizer$Form]
            java.util.UUID))
@@ -754,10 +757,10 @@
                                           [attribute value])))
 
   #_([ave-index value attribute last-transaction-number]
-   (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
-                   (value-transducer value attribute))
-             (query/reducible-for-pattern (:collection ave-index)
-                                          [value attribute]))))
+     (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
+                     (value-transducer value attribute))
+               (query/reducible-for-pattern (:collection ave-index)
+                                            [value attribute]))))
 
 (deftest test-entities-from-ave
   (is (= '(:entity-1)
@@ -886,7 +889,7 @@
                                 statements)))
 
 (defn transact! [db statements]
-  (let [statements (expand-set-statements (get-in db [:indexes :eatcv])
+  (let [statements (expand-set-statements (get-in db [:indexes :eav])
                                           statements)]
 
     (transaction-log/add! (:transaction-log db)
@@ -1132,6 +1135,11 @@
                                                                index-definitions)
                         :transaction-log transaction-log)))
 
+(defn create-in-memory-db [index-definitions]
+  (db-from-index-definitions index-definitions
+                             (fn [_name]
+                               (btree-collection/create-in-memory))
+                             (sorted-map-transaction-log/create)))
 
 (deftype EmptyDb []
   db/WriteableDB
@@ -1165,32 +1173,81 @@
   (is (= '("beañs" "pötatos" "tomatos")
          (tokenize "beañs, ,  / pötatos-Tomatos"))))
 
-(defn eatcv-to-full-text-avtec [tokenize indexes e a t c v]
-  (if (string? v)
-    (let [old-tokens (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
-                                                                         e
-                                                                         a
-                                                                         (dec t))))]
-      (case c
-
-        :remove
-        (for [token (set/difference old-tokens
-                                    (clojure.core/set (mapcat tokenize
-                                                              (values-from-eav (:eav indexes)
-                                                                               e
-                                                                               a
-                                                                               t))))]
-          [a token e t :remove])
-
-        :add
-        (for [token (set/difference (clojure.core/set (tokenize v))
-                                    old-tokens)]
-          [a token e t :add])))
-    []))
-
 (def full-text-index-definition {:key :full-text
-                                 :eatcv-to-datoms (partial eatcv-to-full-text-avtec tokenize)
-                                 :datom-transaction-number-index 2})
+                                 :statements-to-changes (fn [indexes transaction-number statements]
+                                                          (mapcat (fn [statement]
+
+                                                                    (let [[operator entity attribute value] statement]
+                                                                      (if (string? value)
+                                                                        (let [old-tokens (into #{}
+                                                                                               (mapcat tokenize)
+                                                                                               (values-from-eav (:eav indexes)
+                                                                                                                entity
+                                                                                                                attribute
+                                                                                                                (dec transaction-number)))]
+                                                                          (case operator
+
+                                                                            :remove
+                                                                            (for [token (set/difference old-tokens
+                                                                                                        (into #{}
+                                                                                                              (mapcat tokenize)
+                                                                                                              (values-from-eav (:eav indexes)
+                                                                                                                               entity
+                                                                                                                               attribute
+                                                                                                                               transaction-number)))]
+                                                                              [:remove
+                                                                               attribute
+                                                                               token
+                                                                               entity])
+
+                                                                            :add
+                                                                            (for [token (set/difference (clojure.core/set (tokenize value))
+                                                                                                        old-tokens)]
+                                                                              [:add
+                                                                               attribute
+                                                                               token
+                                                                               entity])))
+                                                                        [])))
+                                                                  statements))})
+
+(defn sequence-vae-statements-to-changes [indexes transaction-number statements]
+  (mapcat (fn [statement]
+
+            (let [[operator entity attribute value] statement]
+              (if (sequential? value)
+                (let [old-values (into #{}
+                                       (apply concat
+                                              (into [] (values-from-eav (:eav indexes)
+                                                                        entity
+                                                                        attribute
+                                                                        (dec transaction-number)))))]
+                  (case operator
+
+                    :remove
+                    (for [single-value (set/difference old-values
+                                                       (into #{}
+                                                             (apply concat
+                                                                    (into [] (values-from-eav (:eav indexes)
+                                                                                              entity
+                                                                                              attribute
+                                                                                              transaction-number)))))]
+                      [:remove
+                       single-value
+                       attribute
+                       entity])
+
+                    :add
+                    (for [single-value (set/difference (clojure.core/set value)
+                                                       old-values)]
+                      [:add
+                       single-value
+                       attribute
+                       entity])))
+                [])))
+          statements))
+
+(def sequence-vae-index-definition {:key :sequence-vae
+                                    :statements-to-changes sequence-vae-statements-to-changes })
 
 #_(defn- old-tokens [tokenize indexes entity attribute transaction-number]
     (clojure.core/set (mapcat tokenize (values-from-eav (:eav indexes)
@@ -1485,3 +1542,61 @@
 (defn values-from-enumeration [db index-key]
   (values-from-enumeration-index (index db index-key)
                                  (:last-transaction-number db)))
+
+
+(defn changes-to-remove-entity-properties [db-value removable-entity]
+  (->> (into [] (matching-propositions db-value
+                                       :eav
+                                       [removable-entity]))
+       (map (fn [statement]
+              (vec (concat [:remove]
+                           statement))))))
+
+(defn changes-to-remove-entity-references [db-value removable-entity]
+  (->> (into [] (matching-propositions db-value
+                                       :vae
+                                       [removable-entity]))
+       (map (fn [[_ramovable-entity attribute referring-entity]]
+              [:remove referring-entity attribute removable-entity]))))
+
+(defn changes-to-remove-sequence-references [db-value removable-entity]
+  (->> (into [] (matching-propositions db-value
+                                       :sequence-vae
+                                       [removable-entity]))
+       (mapcat (fn [[_removable-entity attribute referring-entity]]
+                 (apply concat
+                        (for [removable-entity-containing-sequence (into [] (values db-value
+                                                                                    referring-entity
+                                                                                    attribute))]
+                          [[:remove referring-entity attribute removable-entity-containing-sequence]
+                           [:add referring-entity attribute (vec (remove #{removable-entity}
+                                                                         removable-entity-containing-sequence))]]))))))
+
+(defn changes-to-remove-entity [db-value removable-entity]
+  (concat (changes-to-remove-entity-properties db-value removable-entity)
+          (changes-to-remove-entity-references db-value removable-entity)
+          (changes-to-remove-sequence-references db-value removable-entity)))
+
+(deftest test-entity-removal
+  (let [stream-db (create-in-memory-db [eav-index-definition
+                                        vae-index-definition
+                                        sequence-vae-index-definition])
+        create-statement! (fn [id label]
+                           (transact! stream-db
+                                      [[:add id :type :statement]
+                                       [:add id :label label]]))]
+    (create-statement! :statement-1 "first statement")
+    (create-statement! :statement-2 "second statement")
+    (create-statement! :statement-3 "third statement")
+    (transact! stream-db
+               [[:add :argument :type :argument]
+                [:add :argument :premises [:statement-1
+                                           :statement-2]]
+                [:add :argument :supports :statement-3]])
+
+    (is (= [[:remove :statement-1 :label "first statement"]
+            [:remove :statement-1 :type :statement]
+            [:remove :argument :premises [:statement-1 :statement-2]]
+            [:add :argument :premises [:statement-2]]]
+           (changes-to-remove-entity (deref stream-db)
+                                     :statement-1)))))
