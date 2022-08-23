@@ -13,7 +13,7 @@
             [argumentica.comparator :as comparator]
             [argumentica.transaction-log :as transaction-log]))
 
-(deftest test-full-text
+#_(deftest test-full-text
   (let [index-definitions [{:key :eatcv
                             :eatcv-to-datoms db-common/eatcv-to-eatcv-datoms}
                            {:key :full-text

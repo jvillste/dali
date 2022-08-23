@@ -22,7 +22,7 @@
                  #_[prismatic/schema "1.1.7"]
                  [org.clojure/test.check "0.10.0-alpha2"]
                  [com.sleepycat/je "18.3.12" #_"7.5.11"]
-                 [com.taoensso/nippy "3.1.1"]
+                 [com.taoensso/nippy "3.2.0"]
                  [org.flatland/useful "0.11.5"]
                  [logga "0.1.0-SNAPSHOT"]
                  [prismatic/schema "1.1.12"]

@@ -35,7 +35,7 @@
            (2 3 6)
            (1 4 6)
            (2 4 6))
-         (take 3 (cartesian-product [[1 2] [3 4] [5 6]])))))
+         (cartesian-product [[1 2] [3 4] [5 6]]))))
 
 (defn keyword-to-unconditional-variable [a-keyword]
   (keyword (str "?" (name a-keyword))))
@@ -69,7 +69,7 @@
 
 (defn conditional-variable? [term]
   (and (some? (:match term))
-       (some? (:key term))))
+       #_(some? (:key term))))
 
 (defn variable? [term]
   (or (unconditional-variable? term)
@@ -86,8 +86,13 @@
         nil))
 
 (defn anything? [value]
-  (and (keyword? value)
-       (= "*" (name value))))
+  (= :* value)
+  #_(and (keyword? value)
+         (= "*" (name value))))
+
+(defn constant? [term]
+  (and (not (anything? term))
+       (not (variable? term))))
 
 (deftest test-variable?
   (is (unconditional-variable? :v/foo))
@@ -144,16 +149,17 @@
 
   (is (= {:?x :a}
          (unify-value [:a 2] [:?x {:minimum-value 1
-                             :match <}])))
+                                   :match <}])))
 
   (is (= {:?x :a, :?y 2}
          (unify-value [:a 2] [:?x {:minimum-value 1
-                             :match <
-                             :key :?y}])))
+                                   :match <
+                                   :key :?y}])))
 
-  (is (= nil
-         (unify-value [:a 2] [:?x {:minimum-value 2
-                             :match <}]))))
+  ;; (is (= nil
+  ;;        (unify-value [:a 2] [:?x {:minimum-value 4
+  ;;                                  :match =}])))
+  )
 
 (defn- substitute-term [term substitution]
   (or (get substitution term)
@@ -232,6 +238,7 @@
 (defn nil-or-varialbe? [value]
   (or (nil? value)
       (unconditional-variable? value)
+      ;;      (conditional-variable? value)
       (anything? value)))
 
 (defn has-trailing-conditions? [pattern]
@@ -261,7 +268,96 @@
   (is (has-trailing-conditions? [nil :a]))
   (is (has-trailing-conditions? [:?b :a]))
   (is (has-trailing-conditions? [:a nil :a]))
+  (is (not (has-trailing-conditions? [{:match even?
+                                       :key :?x}
+                                      :a])))
   (is (has-trailing-conditions? (concat [:a] [nil] [:a]))))
+
+(defn term-in-range? [term value]
+  (or (unconditional-variable? term)
+      (anything? term)
+      (and (:range? term)
+           ((:match term)
+            value))
+      (and (:match term)
+           (not (:range? term)))
+      (= term value)))
+
+(defn in-range? [pattern row-or-value]
+  (if (sequential? pattern)
+    (loop [terms pattern
+           values row-or-value]
+      (if-let [term (first terms)]
+        (if-let [value (first values)]
+          (if (term-in-range? term value)
+            (if (constant? term)
+              (recur (rest terms)
+                     (rest values))
+              true)
+            false)
+          true)
+        true))
+    (term-in-range? pattern row-or-value)))
+
+(deftest test-in-range?
+
+  (is (in-range? :?x
+                 1))
+
+  (is (in-range? :*
+                 1))
+
+  (is (in-range? [:?x]
+                 [1]))
+
+  (is (in-range? [:?x 6]
+                 [1 2]))
+
+  (is (in-range? [:?x 2]
+                 [1 2]))
+
+  (is (in-range? [:?x 2 :?y]
+                 [1 2 3]))
+
+  (is (in-range? [{:match even?}]
+                 [1]))
+
+  (is (not (in-range? [2]
+                      [1])))
+
+  (is (not (in-range? [2 :x?]
+                      [1 2])))
+
+  (is (not (in-range? [2 :x?]
+                      [1 2])))
+
+  (is (in-range? [:?x]
+                 [1 2]))
+
+  (is (in-range? [:?x :?y]
+                 [1]))
+
+  (is (in-range? [2 :?x 3]
+                 [2 :b 2]))
+
+  (let [pattern [:a
+                 {:range? true
+                  :match (fn [value]
+                           (< value
+                              3))}
+                 :b]]
+    (is (in-range? pattern
+                   [:a 2 :b]))
+
+    (is (in-range? pattern
+                   [:a 2 :c]))
+
+    (is (not (in-range? pattern
+                        [:a 3 :b])))
+
+    (is (not (in-range? pattern
+                        [:c 2 :b])))))
+
 
 (def filter-by-pattern-options {(schema/optional-key :reverse?) schema/Bool})
 
@@ -420,19 +516,15 @@
                                                       (sorted-reducible/subreducible sorted-reducible ::comparator/min)))
     pattern))
 
-
-
 (util/defno reducible-for-pattern [sorted-reducible pattern options :- reducible-for-pattern-options]
   (let [options (merge default-reducible-for-pattern-options
                        options)
         pattern (starting-pattern sorted-reducible
                                   pattern
                                   (:direction options))]
-
     (sorted-reducible/subreducible sorted-reducible
                                    pattern
                                    (:direction options))))
-
 
 (deftest test-reducible-for-pattern
 
@@ -541,40 +633,37 @@
     (comp (take-while #(match? % wildcard-pattern))
           (map #(unify-value % pattern)))))
 
-(util/defno transduce-substitutions-for-collection [collection pattern options :- transducible-collection/transduce-options]
-  (transduce-pattern collection
-                     pattern
-                     (transducible-collection/prepend-transducer options
-                                                                 (substitution-transducer pattern))))
+;; (util/defno transduce-substitutions-for-collection [collection pattern options :- transducible-collection/transduce-options]
+;;   (transduce-pattern collection
+;;                      pattern
+;;                      (transducible-collection/prepend-transducer options
+;;                                                                  (substitution-transducer pattern))))
 
-(deftest test-transduce-substitutions-for-collection
-  (is (= [{}] (transduce-substitutions-for-collection (sorted-set 1 2 3)
-                                                      2
-                                                      {:reducer conj})))
+;; (deftest test-transduce-substitutions-for-collection
+;;   (is (= [{}] (transduce-substitutions-for-collection (sorted-set 1 2 3)
+;;                                                       2
+;;                                                       {:reducer conj})))
 
-  (is (= [{:?x 1} {:?x 2} {:?x 3}]
-         (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
-                                                                1 2 3)
-                                                 :?x
-                                                 {:reducer conj})))
+;;   (is (= [{:?x 1} {:?x 2} {:?x 3}]
+;;          (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
+;;                                                                 1 2 3)
+;;                                                  :?x
+;;                                                  {:reducer conj})))
 
-  (is (= [{:?x 1} {:?x 3}]
-         (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
-                                                                [:a 1]
-                                                                [:b 2]
-                                                                [:a 3])
-                                                 [:a :?x]
-                                                 {:reducer conj}))))
+;;   (is (= [{:?x 1} {:?x 3}]
+;;          (transduce-substitutions-for-collection (sorted-set-by comparator/compare-datoms
+;;                                                                 [:a 1]
+;;                                                                 [:b 2]
+;;                                                                 [:a 3])
+;;                                                  [:a :?x]
+;;                                                  {:reducer conj}))))
 
 (defn substitution-reducible [sorted-reducible pattern]
-  (let [wildcard-pattern (wildcard-pattern pattern)
-        has-trailing-conditions? (has-trailing-conditions? pattern)]
-    (eduction (comp (map #(unify-value % pattern))
-                    (take-while #(or has-trailing-conditions?
-                                     (not (nil? %))))
-                    (remove nil?))
-              (reducible-for-pattern sorted-reducible
-                                     wildcard-pattern))))
+  (eduction (comp (take-while #(in-range? pattern %))
+                  (map #(unify-value % pattern))
+                  (remove nil?))
+            (reducible-for-pattern sorted-reducible
+                                   (wildcard-pattern pattern))))
 
 (defn with-scan-length [body-function]
   (let [{:keys [count result]} (util/with-call-count #'unify-value body-function)]
@@ -633,7 +722,7 @@
                                            :?x]))))
 
 
-  (is (= {:scan-length 3
+  (is (= {:scan-length 2
           :result [{:?y 2} {:?y 3}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 :a 1]
@@ -644,7 +733,7 @@
                                                                     :*
                                                                     :?y]))))))
 
-  (is (= {:scan-length 3
+  (is (= {:scan-length 2
           :result [{}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 :a 1]
@@ -653,6 +742,17 @@
                                                                                   [3 :d 4])
                                                                    [2
                                                                     :*
+                                                                    3]))))))
+
+  (is (= {:scan-length 2
+          :result [{:?x :c}]}
+         (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
+                                                                                  [1 :a 1]
+                                                                                  [2 :b 2]
+                                                                                  [2 :c 3]
+                                                                                  [3 :d 4])
+                                                                   [2
+                                                                    :?x
                                                                     3]))))))
 
   (is (= {:scan-length 2,
@@ -665,10 +765,11 @@
                                                                      :match #(= 2 %)}
                                                                     :?x]))))))
 
-  (is (= {:scan-length 4,
+  (is (= {:scan-length 3,
           :result [{:?x 2} {:?x 3} {:?x 4}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set 1 2 3 4 5 6)
                                                                    {:minimum-value 2
+                                                                    :range? true
                                                                     :match (fn [value]
                                                                              (and (>= value 2)
                                                                                   (<= value 4)))
@@ -684,8 +785,9 @@
                                                                     {:match #(= % 1)}]))))))
 
 
-  (is (= {:scan-length 4, :result [{:?x 2, :?y 11}
-                                   {:?x 3, :?y 12}]}
+  (is (= {:scan-length 4
+          :result [{:?x 2, :?y 11}
+                   {:?x 3, :?y 12}]}
          (with-scan-length (fn [] (into [] (substitution-reducible (sorted-set-by comparator/compare-datoms
                                                                                   [1 10]
                                                                                   [2 11]

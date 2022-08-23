@@ -10,7 +10,7 @@
             [argumentica.index :as index])
   (:use [clojure.test]))
 
-(deftest test
+#_(deftest test
   (let [index-definition {:eatcv db-common/eatcv-to-eatcv-datoms
                           :full-text (partial db-common/eatcv-to-full-text-avtec (fn [string]
                                                                                    (->> (string/split string #" ")
