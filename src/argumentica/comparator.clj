@@ -190,6 +190,11 @@
                             [{:id 3, :stream-id 1} :name "foo" 0 :remove]
                             [{:id 2, :stream-id 2} :name "foo" 0 :remove]])
 
+  (run-compare-datoms-test [[1]
+                            [1 0]
+                            [2]
+                            [2 0]])
+
   (let [sorted-set (sorted-set-by compare-datoms
                                   [1 :name 1 :set "Foo"]
                                   [1 :name 2 :set "Bar"]
