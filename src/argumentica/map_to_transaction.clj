@@ -308,7 +308,16 @@
                              attribute
                              (value-to-transaction-value value-in-set)]))
 
-                  :default
+                  (vector? value)
+                  (concat transaction
+                          [[:add
+                            (:dali/id a-map)
+                            attribute
+                            (vec (for [value-in-set value]
+                                   (value-to-transaction-value value-in-set)))]]
+                          (mapcat map-to-statements value))
+
+                  :else
                   (conj transaction [(if use-set-operator?
                                        :set
                                        :add)
@@ -334,7 +343,14 @@
   (is (= [[:add 3 :parent 1]
           [:add 2 :parent 1]]
          (map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
-                                                    {:dali/id 3}}}))))
+                                                    {:dali/id 3}}})))
+
+  (is (= [[:add 3 :parent 1]
+          [:add 2 :parent 1]]
+         (map-to-statements {:dali/id 1 :parent [{:dali/id 2
+                                                  :label "first"}
+                                                 {:dali/id 3
+                                                  :label "second"}]}))))
 
 (defn map-with-ids-to-statements [a-map-with-ids]
   (concat (map-to-statements a-map-with-ids)
