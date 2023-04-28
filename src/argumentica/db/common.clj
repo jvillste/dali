@@ -744,6 +744,14 @@
                        entity-id
                        attribute))))
 
+(defn value-in [db entity attributes]
+  (reduce (fn [entity attribute]
+            (value db
+                   entity
+                   attribute))
+          entity
+          attributes))
+
 (defn entity-transducer [attribute value]
   (comp propositions-transducer
         (take-while-pattern-matches [attribute value])
