@@ -58,6 +58,19 @@
   (get statement 3))
 
 
+(defn change-operator [change]
+  (get change 0))
+
+(defn change-entity [change]
+  (get change 1))
+
+(defn change-attribute [change]
+  (get change 2))
+
+(defn change-value [change]
+  (get change 3))
+
+
 (defn avtec-attribute [statement]
   (get statement 0))
 
@@ -116,9 +129,12 @@
 
 (def vae-index-definition {:key :vae
                            :statements-to-changes (fn [_indexes _transaction-number statements]
-                                                    (for [[operator entity attribute value] (filter (fn [statement]
-                                                                                                      (entity-id/entity-id? (statement-value statement)))
-                                                                                                    statements)]
+                                                    (for [[operator entity attribute value] statements
+                                                          ;; TODO: this index could contain only references to entiteis to save space,
+                                                          ;; but it would complicate tests because we would have to use entity ids in them
+                                                          #_(filter (fn [statement]
+                                                                      (entity-id/entity-id? (statement-value statement)))
+                                                                    statements)]
                                                       [operator value attribute entity]))})
 
 (def avetc-index-definition {:key :avetc
@@ -682,12 +698,12 @@
                             transactions)))
 
 (deftest test-squash-transactions
-  (is (= #{[1 :friend :set 2]
-           [2 :friend :add 1]}
-         (squash-transactions [[[1 :friend :add 1]
-                                [2 :friend :add 1]]
+  (is (= #{[:set 1 :friend 2]
+           [:add 2 :friend 1]}
+         (squash-transactions [[[:add 1 :friend 1]
+                                [:add 2 :friend 1]]
 
-                               [[1 :friend :set 2]]]))))
+                               [[:set 1 :friend 2]]]))))
 
 (defn squash-transaction-log
   ([transaction-log]
@@ -725,13 +741,18 @@
              (query/reducible-for-pattern (:collection eav-index)
                                           [entity-id attribute]))))
 
-(defn values [db entity-id attribute]
+
+(defn values-eduction [db entity-id attribute]
   (values-from-eav (index db :eav)
                    entity-id
                    attribute
                    (or (:last-transaction-number db)
                        (transaction-log/last-transaction-number (:transaction-log db))
                        #_(:last-upstream-transaction-number db))))
+
+(defn values [db entity-id attribute]
+  (into []
+        (values-eduction db entity-id attribute)))
 
 (schema/defn value [db
                     entity-id :- (schema/pred map?)
@@ -1552,6 +1573,18 @@
                                  (:last-transaction-number db)))
 
 
+
+(defn- removal-test-db-value [statements]
+  (let [stream-db (create-in-memory-db [eav-index-definition
+                                        vae-index-definition
+                                        sequence-vae-index-definition])]
+
+    (transact! stream-db
+               statements)
+
+    (deref stream-db)))
+
+
 (defn changes-to-remove-entity-properties [db-value removable-entity]
   (->> (into [] (matching-propositions db-value
                                        :eav
@@ -1566,6 +1599,11 @@
                                        [removable-entity]))
        (map (fn [[_ramovable-entity attribute referring-entity]]
               [:remove referring-entity attribute removable-entity]))))
+
+(deftest test-changes-to-remove-entity-references
+  (is (= '([:remove :root-entity :related-entity :sub-entity])
+         (changes-to-remove-entity-references (removal-test-db-value [[:add :root-entity :related-entity :sub-entity]])
+                                              :sub-entity))))
 
 (defn changes-to-remove-sequence-references [db-value removable-entity]
   (->> (into [] (matching-propositions db-value
@@ -1586,25 +1624,98 @@
           (changes-to-remove-sequence-references db-value removable-entity)))
 
 (deftest test-entity-removal
-  (let [stream-db (create-in-memory-db [eav-index-definition
-                                        vae-index-definition
-                                        sequence-vae-index-definition])
-        create-statement! (fn [id label]
-                           (transact! stream-db
-                                      [[:add id :type :statement]
-                                       [:add id :label label]]))]
-    (create-statement! :statement-1 "first statement")
-    (create-statement! :statement-2 "second statement")
-    (create-statement! :statement-3 "third statement")
-    (transact! stream-db
-               [[:add :argument :type :argument]
-                [:add :argument :premises [:statement-1
-                                           :statement-2]]
-                [:add :argument :supports :statement-3]])
+  (is (= [[:remove :statement-1 :label "first statement"]
+          [:remove :statement-1 :type :statement]
+          [:remove :argument :premises [:statement-1 :statement-2]]
+          [:add :argument :premises [:statement-2]]]
+         (changes-to-remove-entity (removal-test-db-value [[:add :statement-1 :type :statement]
+                                                     [:add :statement-1 :label "first statement"]
+                                                     [:add :statement-2 :type :statement]
+                                                     [:add :statement-2 :label "second statement"]
+                                                     [:add :statement-3 :type :statement]
+                                                     [:add :statement-3 :label "third statement"]
+                                                     [:add :argument :type :argument]
+                                                     [:add :argument :premises [:statement-1
+                                                                                :statement-2]]
+                                                     [:add :argument :supports :statement-3]])
+                                   :statement-1))))
 
-    (is (= [[:remove :statement-1 :label "first statement"]
-            [:remove :statement-1 :type :statement]
-            [:remove :argument :premises [:statement-1 :statement-2]]
-            [:add :argument :premises [:statement-2]]]
-           (changes-to-remove-entity (deref stream-db)
-                                     :statement-1)))))
+(def component?-attribute {:stream-id "prelude", :id 12})
+
+(defn component?-attribute? [db attribute]
+  (value db attribute component?-attribute))
+
+(defn immediate-subcomponents [db entity]
+  (->> (entity-attributes db entity)
+       (filter (partial component?-attribute? db))
+       (mapcat (fn [attribute]
+                 (let [values (into [] (values db entity attribute))]
+                   (if (and (= 1 (count values))
+                            (vector? (first values)))
+                     (first values)
+                     values))))))
+
+(deftest test-immediate-subcomponents
+  (is (= '(:subcomponent-entity :subcomponent-entity-2)
+         (immediate-subcomponents (removal-test-db-value [[:add :component-attribute component?-attribute true]
+                                                    [:add :component-array-attribute component?-attribute true]
+
+                                                    [:add :root-entity :label "root entity"]
+                                                    [:add :root-entity :component-attribute :subcomponent-entity]
+                                                    [:add :root-entity :component-array-attribute [:subcomponent-entity-2]]
+                                                    [:add :root-entity :related-entity :noncomponent-entity]])
+                                  :root-entity))))
+
+(defn subcomponents [db entity]
+  (let [immediate-subcomponents (immediate-subcomponents db entity)]
+    (concat immediate-subcomponents
+            (mapcat (partial subcomponents db)
+                    immediate-subcomponents))))
+
+(deftest test-subcomponents
+  (is (= '(:subcomponent-entity :sub-subcomponent-entity)
+         (subcomponents (removal-test-db-value [[:add :component-attribute component?-attribute true]
+                                          [:add :root-entity :component-attribute :subcomponent-entity]
+                                          [:add :subcomponent-entity :component-attribute :sub-subcomponent-entity]])
+                        :root-entity))))
+
+(defn changes-to-remove-component-tree [db removable-entity]
+  (let [entities-to-be-removed-set (set (conj (subcomponents db removable-entity)
+                                              removable-entity))]
+    (->> entities-to-be-removed-set
+         (mapcat (partial changes-to-remove-entity db))
+
+         ;; removal of subcomponents from arrays results to :add changes
+         (remove (fn [change]
+                   (and (= :add (change-operator change))
+                        (contains? entities-to-be-removed-set
+                                   (change-entity change)))))
+
+         ;; removal of subcomponents from arrays results to dublicate :remove changes for the arrays
+         (distinct))))
+
+(deftest test-entity-tree-removal
+  (is (= '([:add :super-root-entity :related-entity-array []]
+           [:remove :root-entity :label "root entity"]
+           [:remove :root-entity :related-entity :noncomponent-entity]
+           [:remove :root-entity :subcomponent-array-attribute [:subcomponent-entity-2]]
+           [:remove :root-entity :subcomponent-attribute :subcomponent-entity]
+           [:remove :subcomponent-entity :label "subcomponent"]
+           [:remove :subcomponent-entity-2 :label "subcomponent 2"]
+           [:remove :super-root-entity :related-entity :root-entity]
+           [:remove :super-root-entity :related-entity-array [:root-entity]])
+         (sort (changes-to-remove-component-tree (removal-test-db-value [[:add :subcomponent-attribute component?-attribute true]
+                                                                         [:add :subcomponent-array-attribute component?-attribute true]
+
+                                                                         [:add :subcomponent-entity :label "subcomponent"]
+                                                                         [:add :subcomponent-entity-2 :label "subcomponent 2"]
+                                                                         [:add :noncomponent-entity :label "noncomponent entity"]
+
+                                                                         [:add :root-entity :label "root entity"]
+                                                                         [:add :root-entity :subcomponent-attribute :subcomponent-entity]
+                                                                         [:add :root-entity :subcomponent-array-attribute [:subcomponent-entity-2]]
+                                                                         [:add :root-entity :related-entity :noncomponent-entity]
+
+                                                                         [:add :super-root-entity :related-entity :root-entity]
+                                                                         [:add :super-root-entity :related-entity-array [:root-entity]]])
+                                                 :root-entity)))))

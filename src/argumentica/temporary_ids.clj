@@ -5,7 +5,7 @@
 (defn temporary-id [name]
   (keyword "tmp" name))
 
-(defn- temporary-id? [value]
+(defn temporary-id? [value]
   (and (keyword? value)
        (= "tmp"
           (namespace value))))
