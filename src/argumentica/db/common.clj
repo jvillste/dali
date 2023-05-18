@@ -1185,7 +1185,7 @@
       (let [^String character-string (Character/toString character)]
 
         (cond
-          (re-matches #"[\p{IsLatin}]" #_#"[ a-zA-Z]" character-string)
+          (re-matches #"[\p{IsLatin}|0-9]" #_#"[ a-zA-Z]" character-string)
           (.append sb character)
 
           :default
@@ -1200,7 +1200,13 @@
 
 (deftest test-tokenize
   (is (= '("beañs" "pötatos" "tomatos")
-         (tokenize "beañs, ,  / pötatos-Tomatos"))))
+         (tokenize "beañs, ,  / pötatos-Tomatos")))
+
+  (is (= '("2")
+         (tokenize "2")))
+
+  (is (= '()
+         (tokenize "-"))))
 
 (def full-text-index-definition {:key :full-text
                                  :statements-to-changes (fn [indexes transaction-number statements]
