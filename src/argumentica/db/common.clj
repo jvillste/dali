@@ -484,14 +484,19 @@
 (defn db-value? [value]
   (some? (:last-transaction-number value)))
 
+(defn ensure-db-value [db]
+  (if (db-value? db)
+    db
+    (deref db)))
+
 (util/defno matching-propositions [db index-key pattern options :- query/reducible-for-pattern-options]
-  (assert (db-value? db))
-  (eduction (comp (filter-datoms-by-transaction-number (:last-transaction-number db))
-                  propositions-transducer
-                  (take-while-pattern-matches pattern))
-            (query/reducible-for-pattern (:collection (index db index-key))
-                                         pattern
-                                         options)))
+  (let [db (ensure-db-value db)]
+    (eduction (comp (filter-datoms-by-transaction-number (:last-transaction-number db))
+                    propositions-transducer
+                    (take-while-pattern-matches pattern))
+              (query/reducible-for-pattern (:collection (index db index-key))
+                                           pattern
+                                           options))))
 
 
 (defn datoms [db index-key pattern]
@@ -546,15 +551,6 @@
                            latest-transaction-number)
               (util/inclusive-subsequence avtec
                                           [attribute value 0 ::comparator/min ::comparator/min])))
-
-(defn entities [db attribute value]
-  (entities-from-avtec-datoms (avtec-datoms-from-avtec (-> db :indexes :avtec :collection)
-                                                       attribute
-                                                       value
-                                                       (fn [other-value]
-                                                         (= other-value
-                                                            value))
-                                                       (transaction-log/last-transaction-number (:transaction-log db)))))
 
 (defn all-avtec-datoms-from-avtec-2 [avtec attribute value value-predicate latest-transaction-number]
   (take-while (avt-matches attribute
@@ -798,6 +794,16 @@
                                                                   [:type :entity-type :entity-2 1 :remove])}
                             :type
                             :entity-type))))
+
+
+(defn entities-eduction [db attribute value]
+  (entities-from-ave (index db :ave)
+                     attribute
+                     value))
+
+(defn entities [db attribute value]
+  (into [] (entities-eduction db attribute value)))
+
 
 (defn- remove-statements [eav-index entity attribute]
   (transduce (map (fn [value]
@@ -1591,6 +1597,14 @@
     (deref stream-db)))
 
 
+(defn changes-to-remove-entity-property [db-value removable-entity removable-attribute]
+  (->> (into [] (matching-propositions db-value
+                                       :eav
+                                       [removable-entity removable-attribute]))
+       (map (fn [statement]
+              (vec (concat [:remove]
+                           statement))))))
+
 (defn changes-to-remove-entity-properties [db-value removable-entity]
   (->> (into [] (matching-propositions db-value
                                        :eav
@@ -1623,6 +1637,13 @@
                           [[:remove referring-entity attribute removable-entity-containing-sequence]
                            [:add referring-entity attribute (vec (remove #{removable-entity}
                                                                          removable-entity-containing-sequence))]]))))))
+
+(defn entities-referring-with-sequence [db entity]
+  (->> (into [] (matching-propositions db
+                                       :sequence-vae
+                                       [entity]))
+       (map (fn [[_entity _attribute referring-entity]]
+              referring-entity))))
 
 (defn changes-to-remove-entity [db-value removable-entity]
   (concat (changes-to-remove-entity-properties db-value removable-entity)
