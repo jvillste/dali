@@ -952,28 +952,29 @@
 (defn reducible-query-with-substitution [substitution & body]
   (assert (or (nil? substitution)
               (map? substitution)))
+  (if (empty? body)
+    []
+    (let [participants (map (fn [[sorted-reducible & patterns]]
+                              {:sorted-reducible sorted-reducible
+                               :patterns patterns})
+                            body)]
 
-  (let [participants (map (fn [[sorted-reducible & patterns]]
-                            {:sorted-reducible sorted-reducible
-                             :patterns patterns})
-                          body)]
+      (loop [substitutions (if substitution
+                             [substitution]
+                             (substitution-reducible-for-patterns (:sorted-reducible (first participants))
+                                                                  (:patterns (first participants))))
+             participants (if substitution
+                            participants
+                            (rest participants))]
 
-    (loop [substitutions (if substitution
-                           [substitution]
-                           (substitution-reducible-for-patterns (:sorted-reducible (first participants))
-                                                                (:patterns (first participants))))
-           participants (if substitution
-                          participants
-                          (rest participants))]
-
-      (if-let [participant (first participants)]
-        (recur (eduction (mapcat (fn [substitution]
-                                   (substitution-reducible-for-patterns (:sorted-reducible participant)
-                                                                        (:patterns participant)
-                                                                        {:substitution substitution})))
-                         substitutions)
-               (rest participants))
-        substitutions))))
+        (if-let [participant (first participants)]
+          (recur (eduction (mapcat (fn [substitution]
+                                     (substitution-reducible-for-patterns (:sorted-reducible participant)
+                                                                          (:patterns participant)
+                                                                          {:substitution substitution})))
+                           substitutions)
+                 (rest participants))
+          substitutions)))))
 
 (defn reducible-query [& body]
   (apply reducible-query-with-substitution nil body))
