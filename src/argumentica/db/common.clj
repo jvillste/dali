@@ -779,13 +779,7 @@
   ([ave-index attribute value]
    (eduction (entity-transducer attribute value)
              (query/reducible-for-pattern (:collection ave-index)
-                                          [attribute value])))
-
-  #_([ave-index value attribute last-transaction-number]
-     (eduction (comp (filter-datoms-by-transaction-number last-transaction-number)
-                     (value-transducer value attribute))
-               (query/reducible-for-pattern (:collection ave-index)
-                                            [value attribute]))))
+                                          [attribute value]))))
 
 (deftest test-entities-from-ave
   (is (= '(:entity-1)
@@ -1026,10 +1020,24 @@
                                           [entity-id nil nil nil nil])))
 
 (defn entity-attributes [db entity-id]
-  (into #{:dali/id}
+  (into #{}
         (map second)
         (matching-propositions db
                                :eav
+                               [entity-id])))
+
+(defn reverse-entity-attributes [db entity-id]
+  (into #{}
+        (map second)
+        (matching-propositions db
+                               :vae
+                               [entity-id])))
+
+(defn entity-sequence-reference-attributes [db entity-id]
+  (into #{}
+        (map second)
+        (matching-propositions db
+                               :sequence-vae
                                [entity-id])))
 
 (defn entity-to-sec [db schema entity-id]
