@@ -1,6 +1,8 @@
 (ns argumentica.temporary-ids
   (:require [clojure.string :as string]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]
+            [medley.core :as medley]
+            [clojure.walk :as walk]))
 
 (defn temporary-id [name]
   (keyword "tmp" name))
@@ -22,8 +24,28 @@
 
 (defn- distinct-temporary-ids [changes]
   (->> (apply concat changes)
+       (mapcat (fn [value]
+                 (cond
+                   (sequential? value)
+                   value
+
+                   (map? value)
+                   (apply concat value)
+
+                   :else
+                   [value])))
        (filter temporary-id?)
        (distinct)))
+
+(deftest test-distinct-temporary-ids
+  (is (= '(:tmp/a :tmp/b)
+         (distinct-temporary-ids [[:tmp/a :foo :tmp/b]])))
+
+  (is (= '(:tmp/a :tmp/b)
+         (distinct-temporary-ids [[:tmp/a :foo {:foo :tmp/b}]])))
+
+  (is (= '(:tmp/a :tmp/b)
+         (distinct-temporary-ids [[:tmp/a :foo [:foo :tmp/b]]]))))
 
 (defn temporary-id-resolution [next-id changes]
   (into {}
@@ -37,7 +59,11 @@
   (is (= #:tmp{:a 100, :b 101}
          (temporary-id-resolution 100
                                   [[:add :tmp/a "Foo" :tmp/b]
-                                   [:add :tmp/b "Foo" :tmp/a]]))))
+                                   [:add :tmp/b "Foo" :tmp/a]])))
+
+  (is (= #:tmp{:a 100, :b 101}
+         (temporary-id-resolution 100
+                                  [[:add :tmp/a "Foo" {:foo :tmp/b}]]))))
 
 (defn assign-temporary-id [temporary-id-resolution value]
   (or (get temporary-id-resolution
@@ -47,9 +73,13 @@
 (defn assign-temporary-ids [temporary-id-resolution temporary-changes]
   (map (fn [change]
          (vec (map (fn [value]
-                     (if (vector? value)
-                       (vec (map (partial assign-temporary-id temporary-id-resolution)
-                                 value))
+                     (if (coll? value)
+                       (walk/postwalk (fn [value]
+                                        (if (coll? value)
+                                          value
+                                          (assign-temporary-id temporary-id-resolution
+                                                               value)))
+                                      value)
                        (assign-temporary-id temporary-id-resolution
                                             value)))
                    change)))
@@ -58,14 +88,18 @@
 (deftest test-assign-temporary-ids
   (is (= '([:add 100 :name 101]
            [:add 100 :friends [101]]
+           [:add 100 :friends {100 {:foo 101}}]
            [:add 101 :language "fi"]
-           [:add 101 :text "parsa"])
+           [:add 101 :text "parsa"]
+           [:add 101 :array []])
          (assign-temporary-ids {:temporary/a 100
                                 :temporary/b 101}
                                [[:add :temporary/a :name :temporary/b]
                                 [:add :temporary/a :friends [:temporary/b]]
+                                [:add :temporary/a :friends {:temporary/a {:foo :temporary/b}}]
                                 [:add :temporary/b :language "fi"]
-                                [:add :temporary/b :text "parsa"]]))))
+                                [:add :temporary/b :text "parsa"]
+                                [:add :temporary/b :array []]]))))
 
 (defn- number-from-local-id [local-id]
   local-id

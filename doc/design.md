@@ -213,10 +213,10 @@ If the transaction numbers are kept in the index map, it must be stored in an at
 
 # terms
 * operator: "add", "remove" or "set". "set" is expanded to an "add" and to zero or more "remove":s. "set" is not stored in indexes as such.
-* tuplet: a list of values in a datom
-* operation: a proposition and an operator. It describes a change to an index.
-* statement: list of entity attribute operator value
-* datom: a tuplet concatenated by transaction number and operator
+* proposition: a tuple of values in a datom
+* change: a proposition and an operator
+* statement: entity attribute value -tuple
+* datom: a proposition concatenated by transaction number and operator
 * index: ordered set of datoms
 
 * pattern: list of constants and variables

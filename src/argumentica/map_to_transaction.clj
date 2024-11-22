@@ -254,8 +254,19 @@
 (defn- value-to-transaction-value [value]
   (if (and (map? value)
            (not (entity-id/entity-id? value)))
-    (:dali/id value)
+    (or (:dali/id value)
+        value)
     value))
+
+(deftest test-value-to-transaction-value
+  (is (= 1
+         (value-to-transaction-value 1)))
+
+  (is (= 1
+         (value-to-transaction-value {:dali/id 1})))
+
+  (is (= {}
+         (value-to-transaction-value {}))))
 
 (defn- reverse-attribute? [attribute]
   (and (keyword? attribute)
@@ -306,7 +317,8 @@
                             [:add
                              (:dali/id a-map)
                              attribute
-                             (value-to-transaction-value value-in-set)]))
+                             (value-to-transaction-value value-in-set)])
+                          (mapcat map-to-statements value))
 
                   (vector? value)
                   (concat transaction
@@ -345,12 +357,22 @@
          (map-to-statements {:dali/id 1 :<-parent #{{:dali/id 2}
                                                     {:dali/id 3}}})))
 
-  (is (= [[:add 3 :parent 1]
-          [:add 2 :parent 1]]
+  (is (= '([:add 1 :parent [2 3]]
+           [:add 2 :label "first"]
+           [:add 3 :label "second"])
          (map-to-statements {:dali/id 1 :parent [{:dali/id 2
                                                   :label "first"}
                                                  {:dali/id 3
-                                                  :label "second"}]}))))
+                                                  :label "second"}]})))
+
+  (is (= '([:add 1 :parent 2]
+           [:add 1 :parent 3]
+           [:add 2 :label "first"]
+           [:add 3 :label "second"])
+         (map-to-statements {:dali/id 1 :parent #{{:dali/id 2
+                                                   :label "first"}
+                                                  {:dali/id 3
+                                                   :label "second"}}}))))
 
 (defn map-with-ids-to-statements [a-map-with-ids]
   (concat (map-to-statements a-map-with-ids)

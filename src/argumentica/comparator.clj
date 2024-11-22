@@ -195,6 +195,9 @@
                             [2]
                             [2 0]])
 
+  (run-compare-datoms-test [{:foo {:bar 1}}
+                            {:foo {:bar 2}}])
+
   (let [sorted-set (sorted-set-by compare-datoms
                                   [1 :name 1 :set "Foo"]
                                   [1 :name 2 :set "Bar"]
