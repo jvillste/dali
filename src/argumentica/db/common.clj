@@ -1613,6 +1613,50 @@
               (vec (concat [:remove]
                            statement))))))
 
+(defn changes-to-change-attribute [db-value entity old-attribute new-attribute]
+  (let [propositions (into [] (matching-propositions db-value
+                                                     :eav
+                                                     [entity old-attribute]))]
+    (concat (map (fn [statement]
+                   (vec (concat [:remove]
+                                statement)))
+                 propositions)
+            (map (fn [[entity _attribute value]]
+                   [:add entity new-attribute value])
+                 propositions))))
+
+(deftest test-changes-to-change-attribute
+  (is (= '([:remove :entity :attribute :value-1]
+           [:remove :entity :attribute :value-2]
+           [:add :entity :attribute-2 :value-1]
+           [:add :entity :attribute-2 :value-2])
+         (changes-to-change-attribute (removal-test-db-value [[:add :entity :attribute :value-1]
+                                                              [:add :entity :attribute :value-2]])
+                                      :entity
+                                      :attribute
+                                      :attribute-2))))
+
+(defn changes-to-change-reverse-attribute [db-value object old-attribute new-attribute]
+  (let [propositions (into [] (matching-propositions db-value
+                                                     :vae
+                                                     [object old-attribute]))]
+
+    (concat (map (fn [[value attribute entity]]
+                   [:remove entity attribute value])
+                 propositions)
+            (map (fn [[value _attribute entity]]
+                   [:add entity new-attribute value])
+                 propositions))))
+
+(deftest test-changes-to-change-reverse-attribute
+  (is (= '([:remove :entity :attribute :entity-2]
+           [:add :entity :attribute-2 :entity-2])
+         (changes-to-change-reverse-attribute (removal-test-db-value [[:add :entity :attribute :entity-2]
+                                                                      [:add :entity :attribute :entity-3]])
+                                              :entity-2
+                                              :attribute
+                                              :attribute-2))))
+
 (defn changes-to-remove-entity-properties [db-value removable-entity]
   (->> (into [] (matching-propositions db-value
                                        :eav
@@ -1664,15 +1708,15 @@
           [:remove :argument :premises [:statement-1 :statement-2]]
           [:add :argument :premises [:statement-2]]]
          (changes-to-remove-entity (removal-test-db-value [[:add :statement-1 :type :statement]
-                                                     [:add :statement-1 :label "first statement"]
-                                                     [:add :statement-2 :type :statement]
-                                                     [:add :statement-2 :label "second statement"]
-                                                     [:add :statement-3 :type :statement]
-                                                     [:add :statement-3 :label "third statement"]
-                                                     [:add :argument :type :argument]
-                                                     [:add :argument :premises [:statement-1
-                                                                                :statement-2]]
-                                                     [:add :argument :supports :statement-3]])
+                                                           [:add :statement-1 :label "first statement"]
+                                                           [:add :statement-2 :type :statement]
+                                                           [:add :statement-2 :label "second statement"]
+                                                           [:add :statement-3 :type :statement]
+                                                           [:add :statement-3 :label "third statement"]
+                                                           [:add :argument :type :argument]
+                                                           [:add :argument :premises [:statement-1
+                                                                                      :statement-2]]
+                                                           [:add :argument :supports :statement-3]])
                                    :statement-1))))
 
 (def component?-attribute {:stream-id "prelude", :id 12})
@@ -1693,12 +1737,12 @@
 (deftest test-immediate-subcomponents
   (is (= '(:subcomponent-entity :subcomponent-entity-2)
          (immediate-subcomponents (removal-test-db-value [[:add :component-attribute component?-attribute true]
-                                                    [:add :component-array-attribute component?-attribute true]
+                                                          [:add :component-array-attribute component?-attribute true]
 
-                                                    [:add :root-entity :label "root entity"]
-                                                    [:add :root-entity :component-attribute :subcomponent-entity]
-                                                    [:add :root-entity :component-array-attribute [:subcomponent-entity-2]]
-                                                    [:add :root-entity :related-entity :noncomponent-entity]])
+                                                          [:add :root-entity :label "root entity"]
+                                                          [:add :root-entity :component-attribute :subcomponent-entity]
+                                                          [:add :root-entity :component-array-attribute [:subcomponent-entity-2]]
+                                                          [:add :root-entity :related-entity :noncomponent-entity]])
                                   :root-entity))))
 
 (defn subcomponents [db entity]
@@ -1710,8 +1754,8 @@
 (deftest test-subcomponents
   (is (= '(:subcomponent-entity :sub-subcomponent-entity)
          (subcomponents (removal-test-db-value [[:add :component-attribute component?-attribute true]
-                                          [:add :root-entity :component-attribute :subcomponent-entity]
-                                          [:add :subcomponent-entity :component-attribute :sub-subcomponent-entity]])
+                                                [:add :root-entity :component-attribute :subcomponent-entity]
+                                                [:add :subcomponent-entity :component-attribute :sub-subcomponent-entity]])
                         :root-entity))))
 
 (defn changes-to-remove-component-tree [db removable-entity]
