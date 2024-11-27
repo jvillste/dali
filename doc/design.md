@@ -215,9 +215,9 @@ If the transaction numbers are kept in the index map, it must be stored in an at
 * operator: "add", "remove" or "set". "set" is expanded to an "add" and to zero or more "remove":s. "set" is not stored in indexes as such.
 * proposition: a tuple of values in a datom
 * change: a proposition and an operator
-* statement: entity attribute value -tuple
-* datom: a proposition concatenated by transaction number and operator
+* datom: a proposition, transaction number and operator
 * index: ordered set of datoms
+* statement: entity attribute value -tuple
 
 * pattern: list of constants and variables
 * substitution: a map from variables to constants
