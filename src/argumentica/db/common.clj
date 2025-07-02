@@ -1,30 +1,30 @@
 (ns argumentica.db.common
-  (:require [argumentica.comparator :as comparator]
-            [argumentica.db.db :as db]
-            [argumentica.db.query :as query]
-            [argumentica.mutable-collection :as mutable-collection]
-            [argumentica.reduction :as reduction]
-            [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
-            [argumentica.sorted-reducible :as sorted-reducible]
-            [argumentica.transaction-log :as transaction-log]
-            [argumentica.transducible-collection :as transducible-collection]
-            [argumentica.util :as util]
-            [clojure.math.combinatorics :as combinatorics]
-            [clojure.pprint :as pprint]
-            [clojure.set :as set]
-            [clojure.string :as string]
-            [clojure.test :refer :all]
-            [flatland.useful.map :as map]
-            [medley.core :as medley]
-            [schema.core :as schema]
-            [argumentica.entity-id :as entity-id]
-            [schema.core :as schema]
-            [argumentica.sorted-set-index :as sorted-set-index]
-            [argumentica.sorted-set-index :as sorted-set-index]
-            [argumentica.btree-collection :as btree-collection])
-  (:import clojure.lang.MapEntry
-           [java.text Normalizer Normalizer$Form]
-           java.util.UUID))
+  (:require
+   [argumentica.btree-collection :as btree-collection]
+   [argumentica.comparator :as comparator]
+   [argumentica.db.db :as db]
+   [argumentica.db.query :as query]
+   [argumentica.entity-id :as entity-id]
+   [argumentica.mutable-collection :as mutable-collection]
+   [argumentica.reduction :as reduction]
+   [argumentica.sorted-map-transaction-log :as sorted-map-transaction-log]
+   [argumentica.sorted-reducible :as sorted-reducible]
+   [argumentica.temporary-ids :as temporary-ids]
+   [argumentica.transaction-log :as transaction-log]
+   [argumentica.transducible-collection :as transducible-collection]
+   [argumentica.util :as util]
+   [clojure.math.combinatorics :as combinatorics]
+   [clojure.pprint :as pprint]
+   [clojure.set :as set]
+   [clojure.string :as string]
+   [clojure.test :refer :all]
+   [flatland.useful.map :as map]
+   [medley.core :as medley]
+   [schema.core :as schema]
+   [schema.core :as schema])
+  (:import
+   clojure.lang.MapEntry
+   java.util.UUID))
 
 (defn create-sorted-datom-set [& datoms]
   (apply sorted-set-by comparator/compare-datoms datoms))
@@ -927,6 +927,31 @@
     (add-transaction-to-indexes! (:indexes db)
                                  (transaction-log/last-transaction-number (:transaction-log db))
                                  statements)))
+
+(defn transact-temporary-changes! [stream-db temporary-changes]
+  (let [temporary-id-resolution (temporary-ids/temporary-id-resolution @(:next-id-atom stream-db)
+                                                                       temporary-changes)
+        temporary-id-resolution-with-global-ids (medley/map-vals (partial entity-id/global
+                                                                          (:id stream-db))
+                                                                 temporary-id-resolution)
+        changes (temporary-ids/assign-temporary-ids temporary-id-resolution-with-global-ids
+                                                    temporary-changes)
+        changes (expand-set-statements (get-in stream-db [:indexes :eav])
+                                       changes)]
+    (when (not (empty? temporary-id-resolution))
+      (reset! (:next-id-atom stream-db)
+              (temporary-ids/new-next-id temporary-id-resolution)))
+
+    (transaction-log/add! (get-in stream-db [:transaction-log])
+                          changes)
+
+    (add-transaction-to-indexes! (:indexes stream-db)
+                                 (or (transaction-log/last-transaction-number (:transaction-log stream-db))
+                                     0)
+                                 changes)
+
+    {:temporary-id-resolution temporary-id-resolution-with-global-ids
+     :changes changes}))
 
 (defn set-value [db entity attribute value]
   (transact! db
