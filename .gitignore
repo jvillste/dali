@@ -11,3 +11,5 @@ pom.xml.asc
 /data
 /profiles.clj
 /temp
+/.clj-kondo/
+/.lsp/
